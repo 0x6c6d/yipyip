@@ -29,7 +29,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T103 | 1 | Config loader: files, deep merge, defaults | T101 | sonnet | done | internal/config/config.go (+test) |
 | T104 | 1 | TUI skeleton and main wiring | T102, T103 | sonnet | done | internal/tui/model.go, cmd/yip wiring, bubbletea deps |
 | T201 | 2 | Redactor for secret values | T101 | opus | done | internal/config/redact.go (+test) |
-| T202 | 2 | {env:NAME} substitution, providers and models | T103, T201 | opus | todo | |
+| T202 | 2 | {env:NAME} substitution, providers and models | T103, T201 | opus | done | internal/config/env.go, config.go providers (+tests) |
 | T203 | 2 | Host-allowlist HTTP transport | T101 | opus | todo | |
 | T204 | 2 | providertest fake SSE provider | T101 | sonnet | todo | |
 | T205 | 2 | Streaming chat client and SSE parser | T201, T203, T204 | sonnet | todo | |
