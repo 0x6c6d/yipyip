@@ -214,7 +214,7 @@ func TestUsageParsing(t *testing.T) {
 	srv2 := providertest.New(providertest.Response{Status: 500, Body: "boom"})
 	defer srv2.Close()
 	evs = collect(t, newTestClient(t, srv2, "").Stream(context.Background(), userReq()))
-	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err.Error() != "HTTP 500" {
+	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err.Error() != "HTTP 500: boom" {
 		t.Errorf("error events = %+v", evs)
 	}
 }

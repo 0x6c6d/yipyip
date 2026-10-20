@@ -33,7 +33,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T203 | 2 | Host-allowlist HTTP transport | T101 | opus | done | internal/provider/transport.go (+test); redirect cap = 10 requests total |
 | T204 | 2 | providertest fake SSE provider | T101 | sonnet | done | internal/provider/providertest (+test) |
 | T205 | 2 | Streaming chat client and SSE parser | T201, T203, T204 | sonnet | done | internal/provider/client.go, sse.go (+test); EOF without DONE is a normal end (T206 to handle) |
-| T206 | 2 | Provider errors, dropped streams, redacted error text | T205 | opus | todo | |
+| T206 | 2 | Provider errors, dropped streams, redacted error text | T205 | opus | done | client.go errors/drop/cancel, errors_test.go; client_test.go one expectation changed to "HTTP 500: boom" per brief |
 | T301 | 3 | PathGuard start-directory confinement | T101 | opus | todo | |
 | T302 | 3 | Bash runner | T101 | opus | todo | |
 | T303 | 3 | Tool registry and the bash tool | T201, T301, T302 | opus | todo | |

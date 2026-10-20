@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
+	"unicode"
 
 	"yipyip/internal/config"
 )
@@ -66,11 +70,12 @@ type Client struct {
 	apiKey  string
 	hc      *http.Client
 	red     *config.Redactor
+	own     *config.Redactor // masks apiKey even when red is nil
 }
 
 // NewClient returns a client for baseURL. hc must come from NewHTTPClient.
 func NewClient(baseURL, apiKey string, hc *http.Client, red *config.Redactor) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, hc: hc, red: red}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, hc: hc, red: red, own: config.NewRedactor(apiKey)}
 }
 
 // Stream sends req and streams the reply. The channel always ends with exactly
@@ -84,7 +89,11 @@ func (c *Client) Stream(ctx context.Context, req Request) <-chan Event {
 	return out
 }
 
-// send delivers ev unless ctx is cancelled first.
+// finalGrace bounds how long the final event waits for a reader once ctx is
+// cancelled, so an abandoned stream never leaves its goroutine blocked.
+const finalGrace = 2 * time.Second
+
+// send delivers a non-final ev unless ctx is cancelled first.
 func send(ctx context.Context, out chan<- Event, ev Event) bool {
 	select {
 	case out <- ev:
@@ -94,14 +103,52 @@ func send(ctx context.Context, out chan<- Event, ev Event) bool {
 	}
 }
 
-// fail emits the final EventError for err (redacted). It is the single place
-// that turns failures into events.
-func (c *Client) fail(ctx context.Context, out chan<- Event, err error) {
-	if err == nil {
-		err = fmt.Errorf("unknown error")
+// final delivers the one final event. While ctx is live it waits for the
+// reader; after a cancel it waits at most finalGrace.
+func final(ctx context.Context, out chan<- Event, ev Event) {
+	select {
+	case out <- ev:
+		return
+	case <-ctx.Done():
 	}
-	msg := c.red.Redact(err.Error())
-	send(ctx, out, Event{Kind: EventError, Err: fmt.Errorf("%s", msg)})
+	t := time.NewTimer(finalGrace)
+	defer t.Stop()
+	select {
+	case out <- ev:
+	case <-t.C:
+	}
+}
+
+// redactedError carries a redacted message but keeps the original error for
+// errors.Is / errors.As.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
+// redact masks the configured secrets and always the client's own API key.
+func (c *Client) redact(s string) string {
+	return c.own.Redact(c.red.Redact(s))
+}
+
+// fail emits the final EventError for err. It is the single place that turns
+// failures into events: the text is always redacted, and a cancelled ctx is
+// always reported as such (errors.Is(err, ctx.Err())).
+func (c *Client) fail(ctx context.Context, out chan<- Event, err error) {
+	if cerr := ctx.Err(); cerr != nil && !errors.Is(err, cerr) {
+		if err == nil {
+			err = cerr
+		} else {
+			err = fmt.Errorf("%w (%w)", cerr, err)
+		}
+	}
+	if err == nil {
+		err = errors.New("unknown error")
+	}
+	final(ctx, out, Event{Kind: EventError, Err: &redactedError{msg: c.redact(err.Error()), err: err}})
 }
 
 type wireToolCall struct {
@@ -169,12 +216,49 @@ type chunk struct {
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+// errStreamInterrupted marks a body that ended before [DONE] and before any
+// finish_reason.
+var errStreamInterrupted = errors.New("stream interrupted")
+
+// errInvalidChunk marks a data payload that is not valid JSON.
+var errInvalidChunk = errors.New("invalid stream chunk")
+
+// maxErrorBody is how much of a non-2xx body is read for the excerpt.
+const maxErrorBody = 64 << 10
+
+// excerptLen is the excerpt length in characters.
+const excerptLen = 500
+
+// httpError builds "HTTP <status>: <excerpt>" from a non-2xx response. The
+// body is redacted before it is cut so that no secret fragment survives.
+func (c *Client) httpError(resp *http.Response) error {
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody+1))
+	if len(raw) > maxErrorBody {
+		// Drop the trailing token that the read limit may have cut, so
+		// that a secret straddling the limit cannot leave a fragment.
+		raw = raw[:maxErrorBody]
+		if i := strings.LastIndexFunc(string(raw), unicode.IsSpace); i >= 0 {
+			raw = raw[:i]
+		}
+	}
+	text := strings.Join(strings.Fields(c.redact(string(raw))), " ")
+	if r := []rune(text); len(r) > excerptLen {
+		text = string(r[:excerptLen])
+	}
+	text = c.redact(text)
+	if text == "" {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, text)
 }
 
 func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
@@ -199,8 +283,12 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 		return
 	}
 	defer resp.Body.Close()
+	// Unblock a pending body read as soon as ctx is cancelled, even if the
+	// server keeps the connection open.
+	stop := context.AfterFunc(ctx, func() { resp.Body.Close() })
+	defer stop()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		c.fail(ctx, out, fmt.Errorf("HTTP %d", resp.StatusCode))
+		c.fail(ctx, out, c.httpError(resp))
 		return
 	}
 
@@ -210,20 +298,26 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	}
 	calls := map[int]*acc{}
 	var usage *Usage
-	alive := true
+	alive, done, finished := true, false, false
+	var chunkErr error
 	err = readSSE(resp.Body, func(data string) bool {
 		if strings.TrimSpace(data) == "[DONE]" {
+			done = true
 			return false
 		}
 		var ch chunk
-		if json.Unmarshal([]byte(data), &ch) != nil {
-			return true // ignore malformed chunks
+		if jerr := json.Unmarshal([]byte(data), &ch); jerr != nil {
+			chunkErr = fmt.Errorf("%w: %w", errInvalidChunk, jerr)
+			return false
 		}
 		if ch.Usage != nil {
 			usage = &Usage{ch.Usage.PromptTokens, ch.Usage.CompletionTokens, ch.Usage.TotalTokens}
 		}
 		if len(ch.Choices) == 0 {
 			return true
+		}
+		if fr := ch.Choices[0].FinishReason; fr != nil && *fr != "" {
+			finished = true
 		}
 		d := ch.Choices[0].Delta
 		if d.Content != "" {
@@ -247,13 +341,22 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 		}
 		return true
 	})
-	if !alive {
+	switch {
+	case !alive || ctx.Err() != nil:
+		c.fail(ctx, out, ctx.Err())
+		return
+	case chunkErr != nil:
+		c.fail(ctx, out, chunkErr)
+		return
+	case !done && !finished:
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		c.fail(ctx, out, fmt.Errorf("%w: %w", errStreamInterrupted, err))
 		return
 	}
-	if err != nil {
-		c.fail(ctx, out, err)
-		return
-	}
+	// [DONE], or a finish_reason followed by EOF or a read error: the reply
+	// is complete; partial tool calls of an interrupted stream never get here.
 
 	idx := make([]int, 0, len(calls))
 	for i := range calls {
@@ -264,13 +367,15 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 		a := calls[i]
 		tc := ToolCall{ID: a.id, Name: a.name, Arguments: a.args.String()}
 		if !send(ctx, out, Event{Kind: EventToolCall, ToolCall: tc}) {
+			c.fail(ctx, out, ctx.Err())
 			return
 		}
 	}
 	if usage != nil {
 		if !send(ctx, out, Event{Kind: EventUsage, Usage: *usage}) {
+			c.fail(ctx, out, ctx.Err())
 			return
 		}
 	}
-	send(ctx, out, Event{Kind: EventDone})
+	final(ctx, out, Event{Kind: EventDone})
 }
