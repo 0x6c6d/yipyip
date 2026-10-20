@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -40,5 +42,23 @@ func TestUnknownFlag(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "usage") {
 		t.Fatalf("stderr = %q, want it to mention usage", stderr.String())
+	}
+}
+
+func TestConfigErrorExitCode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "yipyip.json"), []byte("{bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	var stdout, stderr bytes.Buffer
+	code := run(nil, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run(nil) = %d, want 1 (stderr: %q)", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "yipyip.json") {
+		t.Fatalf("stderr = %q, want it to name yipyip.json", stderr.String())
 	}
 }

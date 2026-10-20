@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"yipyip/internal/config"
 	"yipyip/internal/tui"
 )
 
@@ -23,8 +27,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "yip: interactive UI not built yet")
-		return 0
+		return runUI(stderr)
 	}
 	for _, arg := range args {
 		switch arg {
@@ -39,6 +42,36 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "yip: unknown argument %q\n%s\n", arg, usage)
 			return 2
 		}
+	}
+	return 0
+}
+
+// runUI loads the configuration and runs the interactive UI.
+func runUI(stderr io.Writer) int {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
+	}
+	startDir, err := filepath.EvalSymlinks(wd)
+	if err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
+	}
+	cfg, err := config.Load(home, startDir, os.Getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
+	}
+	p := tea.NewProgram(tui.New(tui.Options{StartDir: startDir, ModelID: cfg.DefaultModel}), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
 	}
 	return 0
 }
