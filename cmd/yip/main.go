@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"yipyip/internal/tui"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
 const usage = "usage: yip [--version] [--help]"
+
+const helpUsage = "Usage: yip [--version] [--help]\n\n" +
+	"yip is a terminal coding assistant that works in the current directory.\n\n" +
+	"Commands:\n"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -26,7 +32,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "yip %s\n", version)
 			return 0
 		case "--help", "-help", "-h":
-			fmt.Fprintln(stdout, usage)
+			fmt.Fprint(stdout, helpUsage)
+			fmt.Fprint(stdout, tui.HelpText())
 			return 0
 		default:
 			fmt.Fprintf(stderr, "yip: unknown argument %q\n%s\n", arg, usage)

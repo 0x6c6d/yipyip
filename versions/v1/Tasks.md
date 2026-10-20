@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | preflight passed |
 | T101 | 1 | Go module, Makefile, .gitignore, --version | T000 | haiku | done | go.mod, Makefile, .gitignore, cmd/yip; /yip ignored (go build ./... writes it while one package exists) |
-| T102 | 1 | --help usage text and slash-command list | T101 | haiku | todo | |
+| T102 | 1 | --help usage text and slash-command list | T101 | haiku | done | internal/tui/help.go, cmd/yip --help |
 | T103 | 1 | Config loader: files, deep merge, defaults | T101 | sonnet | todo | |
 | T104 | 1 | TUI skeleton and main wiring | T102, T103 | sonnet | todo | |
 | T201 | 2 | Redactor for secret values | T101 | opus | todo | |
