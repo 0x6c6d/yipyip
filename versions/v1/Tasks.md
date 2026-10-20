@@ -31,7 +31,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | Redactor for secret values | T101 | opus | done | internal/config/redact.go (+test) |
 | T202 | 2 | {env:NAME} substitution, providers and models | T103, T201 | opus | done | internal/config/env.go, config.go providers (+tests) |
 | T203 | 2 | Host-allowlist HTTP transport | T101 | opus | done | internal/provider/transport.go (+test); redirect cap = 10 requests total |
-| T204 | 2 | providertest fake SSE provider | T101 | sonnet | todo | |
+| T204 | 2 | providertest fake SSE provider | T101 | sonnet | done | internal/provider/providertest (+test) |
 | T205 | 2 | Streaming chat client and SSE parser | T201, T203, T204 | sonnet | todo | |
 | T206 | 2 | Provider errors, dropped streams, redacted error text | T205 | opus | todo | |
 | T301 | 3 | PathGuard start-directory confinement | T101 | opus | todo | |
