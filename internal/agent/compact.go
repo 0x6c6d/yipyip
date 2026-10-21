@@ -144,7 +144,7 @@ func (s *Session) summarize(ctx context.Context, gen uint64, hist []provider.Mes
 	}
 	// The agent id keeps this request from setting the context size.
 	s.account(gen, "compact", req.Messages, text, calls, usage)
-	summary := strings.TrimSpace(text)
+	summary := strings.TrimSpace(s.Redact(text))
 	if summary == "" {
 		return nil, 0, errors.New("compaction failed: empty summary")
 	}

@@ -179,3 +179,39 @@ func TestSecretRedactor(t *testing.T) {
 		t.Errorf("json revealed secret: %s", b)
 	}
 }
+
+func TestSecretStreamRedactor(t *testing.T) {
+	r := NewRedactor("SECRET123", "abab")
+	texts := []string{
+		"key SECRET123 end",
+		"SECRET123SECRET123",
+		"SECRETX SECRET12 SECRET123",
+		"xxababab yy aba",
+		`json "SECRET123" tail SECRE`,
+		"no secret at all",
+		"héllo SECRET123 wörld",
+	}
+	for _, text := range texts {
+		want := r.Redact(text)
+		for size := 1; size <= len(text); size++ {
+			sr := r.Stream()
+			var got strings.Builder
+			for i := 0; i < len(text); i += size {
+				piece := sr.Write(text[i:min(i+size, len(text))])
+				if strings.Contains(piece, "SECRET123") {
+					t.Fatalf("piece %q of %q (size %d) leaks", piece, text, size)
+				}
+				got.WriteString(piece)
+			}
+			got.WriteString(sr.Flush())
+			if got.String() != want {
+				t.Fatalf("stream of %q (size %d) = %q, want %q", text, size, got.String(), want)
+			}
+		}
+	}
+	// A nil Redactor's stream passes text through at once.
+	sr := (*Redactor)(nil).Stream()
+	if got := sr.Write("SECRET12") + sr.Write("3"); got != "SECRET123" || sr.Flush() != "" {
+		t.Errorf("nil stream = %q", got)
+	}
+}

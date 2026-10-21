@@ -78,7 +78,7 @@ func (s *Session) Submit(text string) error {
 	gen := s.gen
 	mgr := s.subs
 	s.openTurnRecord() // records len(history) before the user message
-	s.history = append(s.history, provider.Message{Role: "user", Content: text})
+	s.history = append(s.history, provider.Message{Role: "user", Content: s.Redact(text)})
 	hist := copyHistory(s.history)
 	s.mu.Unlock()
 
@@ -229,6 +229,9 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 					res = tools.Result{Output: DeniedMessage, IsError: true}
 				}
 			}
+			// Registry results are redacted already; the agent tools'
+			// results (spawn/wait/cancel) are redacted here as well.
+			res.Output = s.Redact(res.Output)
 			s.emit(Event{Kind: EvToolResult, AgentID: agentID, Tool: tc.Name, Text: res.Output, IsError: res.IsError})
 			if res.IsError {
 				s.subLog(ts.sub, "error: "+shortLine(res.Output))
@@ -246,10 +249,30 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 
 // streamReply sends req and collects the reply, emitting text deltas. It
 // always reads the stream to its end so the producer goroutine finishes.
+//
+// The reply enters yipyip here, so it is redacted here: the deltas pass
+// through a streaming redactor (a secret split across deltas is masked too;
+// text that may still become a secret is held back until the stream ends),
+// and the returned text and tool-call arguments are redacted as a whole, so
+// the history, events, approvals and tool runs never see a secret.
 func (s *Session) streamReply(ctx context.Context, c *provider.Client, req provider.Request, agentID string) (string, []provider.ToolCall, *provider.Usage, error) {
-	return collectReply(ctx, c, req, func(delta string) {
-		s.emit(Event{Kind: EvText, AgentID: agentID, Text: delta})
-	})
+	sr := s.cfg.Redactor.Stream()
+	send := func(text string) {
+		if text != "" {
+			s.emit(Event{Kind: EvText, AgentID: agentID, Text: text})
+		}
+	}
+	text, calls, usage, err := collectReply(ctx, c, req, func(delta string) { send(sr.Write(delta)) })
+	send(sr.Flush())
+	return s.Redact(text), s.redactCalls(calls), usage, err
+}
+
+// redactCalls returns calls with every secret in the arguments masked.
+func (s *Session) redactCalls(calls []provider.ToolCall) []provider.ToolCall {
+	for i := range calls {
+		calls[i].Arguments = s.Redact(calls[i].Arguments)
+	}
+	return calls
 }
 
 // collectReply sends req and collects the reply, calling onText (when

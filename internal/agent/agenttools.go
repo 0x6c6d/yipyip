@@ -85,7 +85,20 @@ func (s *Session) newManager(gen uint64) *Manager {
 	run := func(ctx context.Context, a *Subagent, task, model string) (string, error) {
 		return s.runSubagent(ctx, gen, a, task, model)
 	}
-	return NewManager(s.cfg.MaxSubagents, run, onChange)
+	return NewManager(s.cfg.MaxSubagents, s.redactPanics(run), onChange)
+}
+
+// redactPanics wraps run so that a panic is re-raised with its text redacted:
+// the Manager records the panic text as the subagent's error.
+func (s *Session) redactPanics(run RunFunc) RunFunc {
+	return func(ctx context.Context, a *Subagent, task, model string) (string, error) {
+		defer func() {
+			if p := recover(); p != nil {
+				panic(s.Redact(fmt.Sprint(p)))
+			}
+		}()
+		return run(ctx, a, task, model)
+	}
 }
 
 // runSubagent runs one subagent's loop on a fresh history.

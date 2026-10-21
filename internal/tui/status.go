@@ -34,6 +34,7 @@ func (m Model) StatusLine() string {
 	if model == "" {
 		model = "no model"
 	}
+	cwd, model = m.redact(cwd), m.redact(model)
 	if dim {
 		effort = dimStyle.Render(effort)
 	}

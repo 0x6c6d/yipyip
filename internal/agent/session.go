@@ -77,7 +77,9 @@ func NewSession(opts Options) (*Session, error) {
 		var err error
 		hc, err = provider.NewHTTPClient(cfg.BaseURLs())
 		if err != nil {
-			return nil, fmt.Errorf("agent: %w", err)
+			// A base URL may contain an {env:} value and URL parse errors
+			// quote the URL.
+			return nil, &redactedError{msg: "agent: " + cfg.Redactor.Redact(err.Error()), err: err}
 		}
 	}
 	s := &Session{
@@ -95,7 +97,7 @@ func NewSession(opts Options) (*Session, error) {
 		BeforeWrite: func(path string) { s.beforeWrite(path) },
 	})
 	if err != nil {
-		return nil, fmt.Errorf("agent: %w", err)
+		return nil, &redactedError{msg: "agent: " + cfg.Redactor.Redact(err.Error()), err: err}
 	}
 	s.registry = reg
 	s.startDir = reg.Guard().Root()
@@ -294,3 +296,13 @@ func (s *Session) Reset() {
 	s.gate.Reset()
 	s.events.drain()
 }
+
+// redactedError is an error whose text has been redacted; it still wraps the
+// original error for errors.Is/As.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }

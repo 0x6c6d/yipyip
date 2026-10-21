@@ -81,8 +81,14 @@ func (r *Redactor) Redact(s string) string {
 	if st == nil || len(st.patterns) == 0 {
 		return s
 	}
+	return replaceSpans(s, findSpans(s, st.patterns))
+}
+
+// findSpans returns every occurrence of every pattern in s, sorted by start
+// (longest first on ties).
+func findSpans(s string, patterns []string) []span {
 	var spans []span
-	for _, p := range st.patterns {
+	for _, p := range patterns {
 		// Advance by one byte after each match so overlapping occurrences
 		// of the same pattern (e.g. "aa" in "aaa") are all covered.
 		for off := 0; off < len(s); {
@@ -95,15 +101,21 @@ func (r *Redactor) Redact(s string) string {
 			off = start + 1
 		}
 	}
-	if len(spans) == 0 {
-		return s
-	}
 	sort.Slice(spans, func(i, j int) bool {
 		if spans[i].start != spans[j].start {
 			return spans[i].start < spans[j].start
 		}
 		return spans[i].end > spans[j].end
 	})
+	return spans
+}
+
+// replaceSpans replaces the (sorted) spans of s by Redacted, merging
+// overlapping spans into one.
+func replaceSpans(s string, spans []span) string {
+	if len(spans) == 0 {
+		return s
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	pos := 0
@@ -126,6 +138,75 @@ func (r *Redactor) Redact(s string) string {
 	flush(cur)
 	b.WriteString(s[pos:])
 	return b.String()
+}
+
+// StreamRedactor redacts text that arrives in pieces (for example streamed
+// text deltas), so that a secret split across pieces is masked as well. Write
+// returns the part of the text received so far that can no longer become part
+// of a secret, already redacted; the rest is held back until more text
+// arrives or Flush is called. The concatenation of all returned pieces equals
+// Redact of the concatenated input. A StreamRedactor is not safe for
+// concurrent use.
+type StreamRedactor struct {
+	r   *Redactor
+	buf string
+}
+
+// Stream returns a StreamRedactor using r's secrets (nil-safe: a nil
+// Redactor yields a StreamRedactor that passes text through unchanged).
+func (r *Redactor) Stream() *StreamRedactor { return &StreamRedactor{r: r} }
+
+// Write adds piece and returns the redacted text that is safe to release.
+func (sr *StreamRedactor) Write(piece string) string {
+	if sr == nil {
+		return piece
+	}
+	var st *redactState
+	if sr.r != nil {
+		st = sr.r.state.Load()
+	}
+	if st == nil || len(st.patterns) == 0 {
+		out := sr.buf + piece
+		sr.buf = ""
+		return out
+	}
+	buf := sr.buf + piece
+	// cut starts at the earliest suffix that is a proper prefix of a pattern:
+	// that text may still turn into a secret.
+	cut := len(buf)
+	for _, p := range st.patterns {
+		for k := min(len(p)-1, len(buf)); k > 0 && len(buf)-k < cut; k-- {
+			if strings.HasSuffix(buf, p[:k]) {
+				cut = len(buf) - k
+				break
+			}
+		}
+	}
+	// Never cut through a match (or a chain of overlapping matches): move
+	// the cut back to its start so the released part redacts exactly as the
+	// whole text would.
+	spans := findSpans(buf, st.patterns)
+	for moved := true; moved; {
+		moved = false
+		for _, sp := range spans {
+			if sp.start < cut && cut < sp.end {
+				cut = sp.start
+				moved = true
+			}
+		}
+	}
+	sr.buf = buf[cut:]
+	return replaceSpans(buf[:cut], findSpans(buf[:cut], st.patterns))
+}
+
+// Flush returns the redacted rest of the held-back text.
+func (sr *StreamRedactor) Flush() string {
+	if sr == nil {
+		return ""
+	}
+	out := sr.r.Redact(sr.buf)
+	sr.buf = ""
+	return out
 }
 
 // Format implements fmt.Formatter so that no fmt verb can reveal a secret;
