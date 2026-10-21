@@ -48,6 +48,7 @@ type tab struct {
 	turnOut0    int       // session output tokens at submit
 	openCalls   int       // main-agent tool calls without a result yet
 	interrupted bool      // the user cancelled the running turn (Esc or first Ctrl+C)
+	retryStatus string    // "retrying (n/max) in <wait>" while a provider retry wait is pending, else ""
 
 	subs map[string]*subState // live subagent blocks by subagent id
 

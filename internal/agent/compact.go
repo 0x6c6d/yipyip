@@ -135,7 +135,7 @@ func (s *Session) summarize(ctx context.Context, gen uint64, hist []provider.Mes
 		Effort:     s.Effort(),
 		SendEffort: m.Reasoning,
 	}
-	text, calls, usage, err := collectReply(ctx, client, req, nil)
+	text, calls, usage, err := collectReply(ctx, client, req, nil, nil)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, 0, cerr

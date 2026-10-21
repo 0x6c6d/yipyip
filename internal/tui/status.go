@@ -68,7 +68,11 @@ func (m Model) StatusRows() (row1, row2 string) {
 	if dim {
 		effort = dimStyle.Render(effort)
 	}
-	rest := strings.Join([]string{model, effort, modeLabel(mode)}, statusSep)
+	fields := []string{model, effort, modeLabel(mode)}
+	if m.retryStatus != "" {
+		fields = append(fields, dimStyle.Render(m.retryStatus))
+	}
+	rest := strings.Join(fields, statusSep)
 	avail := m.width - lipgloss.Width(rest) - lipgloss.Width(statusSep)
 	row1 = shortenLeft(cwd, avail) + statusSep + rest
 

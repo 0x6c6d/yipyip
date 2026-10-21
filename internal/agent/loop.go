@@ -276,7 +276,14 @@ func (s *Session) streamReply(ctx context.Context, c *provider.Client, req provi
 			s.emit(Event{Kind: EvText, AgentID: agentID, Text: text})
 		}
 	}
-	text, calls, usage, err := collectReply(ctx, c, req, func(delta string) { send(sr.Write(delta)) })
+	// A retry status is forwarded with the id of the agent whose request is
+	// retried (main agent or subagent); the TUI shows only the main agent's.
+	// Only attempt, max and wait are forwarded, never the provider's reason.
+	onRetry := func(r provider.Retry) {
+		info := RetryInfo{Attempt: r.Attempt, Max: r.Max, Wait: r.Wait.Round(time.Second)}
+		s.emit(Event{Kind: EvRetry, AgentID: agentID, Text: retryText(info), Retry: &info})
+	}
+	text, calls, usage, err := collectReply(ctx, c, req, func(delta string) { send(sr.Write(delta)) }, onRetry)
 	send(sr.Flush())
 	return s.Redact(text), s.redactCalls(calls), usage, err
 }
@@ -290,8 +297,9 @@ func (s *Session) redactCalls(calls []provider.ToolCall) []provider.ToolCall {
 }
 
 // collectReply sends req and collects the reply, calling onText (when
-// non-nil) for every text delta. It always reads the stream to its end.
-func collectReply(ctx context.Context, c *provider.Client, req provider.Request, onText func(string)) (string, []provider.ToolCall, *provider.Usage, error) {
+// non-nil) for every text delta and onRetry (when non-nil) for every retry
+// status. It always reads the stream to its end.
+func collectReply(ctx context.Context, c *provider.Client, req provider.Request, onText func(string), onRetry func(provider.Retry)) (string, []provider.ToolCall, *provider.Usage, error) {
 	var (
 		text  []byte
 		calls []provider.ToolCall
@@ -310,6 +318,10 @@ func collectReply(ctx context.Context, c *provider.Client, req provider.Request,
 		case provider.EventUsage:
 			u := ev.Usage
 			usage = &u
+		case provider.EventRetry:
+			if onRetry != nil {
+				onRetry(ev.Retry)
+			}
 		case provider.EventError:
 			err = ev.Err
 			if err == nil {

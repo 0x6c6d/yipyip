@@ -31,6 +31,7 @@ func isMainAgent(id string) bool { return id == "" || id == agent.MainAgentID }
 func (m *Model) startTurn() tea.Cmd {
 	m.turnActive = true
 	m.interrupted = false
+	m.retryStatus = ""
 	m.turnStart = m.now()
 	m.openCalls = 0
 	m.turnOut0 = 0

@@ -493,7 +493,18 @@ func (m *Model) anyTurnActive() bool {
 // apply renders one session event. It returns the tick command of a turn
 // started from the message queue at the end of the previous one, else nil.
 func (m *Model) apply(ev agent.Event) tea.Cmd {
+	if isMainAgent(ev.AgentID) {
+		switch ev.Kind {
+		case agent.EvText, agent.EvToolCall, agent.EvToolResult, agent.EvError, agent.EvTurnDone:
+			m.retryStatus = "" // the retry wait is over
+		}
+	}
 	switch ev.Kind {
+	case agent.EvRetry:
+		if isMainAgent(ev.AgentID) && ev.Text != "" {
+			m.retryStatus = ev.Text // "retrying (n/max) in <wait>", built by the agent
+		}
+		return nil
 	case agent.EvText:
 		if m.streaming && len(m.blocks) > 0 {
 			m.blocks[len(m.blocks)-1].text += ev.Text

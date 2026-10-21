@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 )
 
 // EventKind is the type of a session event.
@@ -19,6 +21,7 @@ const (
 	EvTurnDone
 	EvSubagent
 	EvQuestion // the question tool waits for the user's answer; see Event.Question
+	EvRetry    // a provider request is retried after a wait; see Event.Retry (status only, not history)
 )
 
 // Event is one thing that happened in a session, reported to the UI.
@@ -31,6 +34,20 @@ type Event struct {
 	IsError  bool             // EvToolResult
 	Approval *ApprovalRequest // EvApproval
 	Question *QuestionRequest // EvQuestion
+	Retry    *RetryInfo       // EvRetry; Text holds "retrying (<n>/<max>) in <wait>"
+}
+
+// RetryInfo describes one pending retry wait of a provider request. It never
+// carries the provider's failure reason.
+type RetryInfo struct {
+	Attempt int           // number of the coming attempt, 2..Max
+	Max     int           // total attempts
+	Wait    time.Duration // wait before that attempt, rounded to whole seconds
+}
+
+// retryText is the display string of a retry status.
+func retryText(r RetryInfo) string {
+	return fmt.Sprintf("retrying (%d/%d) in %s", r.Attempt, r.Max, r.Wait)
 }
 
 // eventQueue is an unbounded FIFO of events. Pushing never blocks.

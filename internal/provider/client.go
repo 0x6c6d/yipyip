@@ -119,7 +119,8 @@ type Client struct {
 	session string // x-opencode-session value, "" = omit
 	hc      *http.Client
 	red     *config.Redactor
-	own     *config.Redactor // masks apiKey even when red is nil
+	own     *config.Redactor                                 // masks apiKey even when red is nil
+	wait    func(ctx context.Context, d time.Duration) error // retry wait; nil = retryWait
 }
 
 // NewClient returns a client for baseURL. hc must come from NewHTTPClient.
@@ -131,6 +132,10 @@ func NewClient(baseURL, apiKey string, hc *http.Client, red *config.Redactor) *C
 // x-opencode-session header. Gateways such as the OpenCode Console require it
 // to route a conversation and reuse its prompt cache.
 func (c *Client) SetSession(id string) { c.session = id }
+
+// SetRetryWait replaces the wait before a retry for this client (nil restores
+// the default). It is a seam for tests that must not sleep.
+func (c *Client) SetRetryWait(fn func(ctx context.Context, d time.Duration) error) { c.wait = fn }
 
 // Stream sends req and streams the reply. The channel always ends with exactly
 // one EventDone or EventError and is then closed.
@@ -370,7 +375,11 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 			c.fail(ctx, out, ctx.Err())
 			return
 		}
-		if werr := retryWait(ctx, wait); werr != nil || ctx.Err() != nil {
+		waitFn := retryWait
+		if c.wait != nil {
+			waitFn = c.wait
+		}
+		if werr := waitFn(ctx, wait); werr != nil || ctx.Err() != nil {
 			if werr == nil {
 				werr = ctx.Err()
 			}

@@ -1,12 +1,14 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"yipyip/internal/config"
 	"yipyip/internal/provider"
@@ -52,7 +54,8 @@ type Session struct {
 	modelID          string
 	effort           string
 	mode             Mode
-	sessID           string // stable per-conversation id, sent as x-opencode-session
+	sessID           string                                           // stable per-conversation id, sent as x-opencode-session
+	retryWait        func(ctx context.Context, d time.Duration) error // test seam, see SetRetryWait; nil = default
 	systemPrompt     string
 	history          []provider.Message // [0] is the system prompt
 	tokens           Tokens
@@ -173,6 +176,14 @@ func (s *Session) currentModel() (config.Provider, config.Model, bool) {
 	return s.cfg.Lookup(s.ModelID())
 }
 
+// SetRetryWait replaces the provider retry wait of clients built from now on
+// (nil restores the default). A seam for tests that must not sleep.
+func (s *Session) SetRetryWait(fn func(ctx context.Context, d time.Duration) error) {
+	s.mu.Lock()
+	s.retryWait = fn
+	s.mu.Unlock()
+}
+
 // newClient returns a provider client for the current model, or an error
 // wrapping ErrNoModel when none is configured.
 func (s *Session) newClient() (*provider.Client, config.Model, error) {
@@ -192,7 +203,9 @@ func (s *Session) clientFor(id string) (*provider.Client, config.Model, error) {
 	c := provider.NewClient(p.BaseURL, p.APIKey, s.hc, s.cfg.Redactor)
 	s.mu.Lock()
 	c.SetSession(s.sessID)
+	wait := s.retryWait
 	s.mu.Unlock()
+	c.SetRetryWait(wait)
 	return c, m, nil
 }
 
