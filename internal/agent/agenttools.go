@@ -103,7 +103,7 @@ func (s *Session) redactPanics(run RunFunc) RunFunc {
 
 // runSubagent runs one subagent's loop on a fresh history.
 func (s *Session) runSubagent(ctx context.Context, gen uint64, a *Subagent, task, model string) (string, error) {
-	sys := s.SystemPrompt() + "\n\nYou are subagent " + a.ID() + "; finish with a short summary."
+	sys := s.SystemPrompt() + "\n\nYou are subagent " + a.ID() + "; finish with a short summary. You cannot ask the user questions."
 	hist := []provider.Message{
 		{Role: "system", Content: sys},
 		{Role: "user", Content: task},
@@ -127,10 +127,10 @@ func (s *Session) registryDefs() []provider.ToolDef {
 }
 
 // turnTools returns the main agent's tools for one turn: the registry tools
-// plus spawn_agent, wait_agent and cancel_agent. Subagents spawned are
+// plus spawn_agent, wait_agent, cancel_agent and question. Subagents spawned are
 // recorded in spawned and run under the turn context.
 func (s *Session) turnTools(mgr *Manager, spawned *spawnedSubs) toolSet {
-	defs := append(s.registryDefs(), spawnAgentDef, waitAgentDef, cancelAgentDef)
+	defs := append(s.registryDefs(), spawnAgentDef, waitAgentDef, cancelAgentDef, questionDef)
 	return toolSet{
 		defs: defs,
 		run: func(ctx context.Context, name, args string) tools.Result {
@@ -141,6 +141,8 @@ func (s *Session) turnTools(mgr *Manager, spawned *spawnedSubs) toolSet {
 				return s.waitTool(ctx, mgr, MainAgentID, args)
 			case toolCancelAgent:
 				return s.cancelTool(ctx, mgr, args)
+			case toolQuestion:
+				return s.questionTool(ctx, MainAgentID, args)
 			}
 			return s.registry.Run(ctx, name, json.RawMessage(args))
 		},
@@ -148,7 +150,8 @@ func (s *Session) turnTools(mgr *Manager, spawned *spawnedSubs) toolSet {
 }
 
 // subTools returns a subagent's tools: the registry tools plus wait_agent
-// and cancel_agent. Subagents cannot spawn subagents.
+// and cancel_agent. Subagents cannot spawn subagents and are not offered the
+// question tool (they have no channel to the user).
 func (s *Session) subTools(a *Subagent) toolSet {
 	defs := append(s.registryDefs(), waitAgentDef, cancelAgentDef)
 	return toolSet{

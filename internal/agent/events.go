@@ -18,6 +18,7 @@ const (
 	EvInfo
 	EvTurnDone
 	EvSubagent
+	EvQuestion // the question tool waits for the user's answer; see Event.Question
 )
 
 // Event is one thing that happened in a session, reported to the UI.
@@ -29,6 +30,7 @@ type Event struct {
 	Args     string           // EvToolCall: raw JSON arguments
 	IsError  bool             // EvToolResult
 	Approval *ApprovalRequest // EvApproval
+	Question *QuestionRequest // EvQuestion
 }
 
 // eventQueue is an unbounded FIFO of events. Pushing never blocks.

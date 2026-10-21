@@ -232,6 +232,13 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 					if tc.Name == "bash" {
 						s.recordBash(gen, tc.Arguments)
 					}
+					if tc.Name == toolQuestion && ts.offers(toolQuestion) {
+						// A question interrupted by the turn cancel unwinds
+						// exactly like an approval cancelled while waiting.
+						if err := ctx.Err(); err != nil {
+							return out, "", err
+						}
+					}
 				} else {
 					res = tools.Result{Output: DeniedMessage, IsError: true}
 				}
