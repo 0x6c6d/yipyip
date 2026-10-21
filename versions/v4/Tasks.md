@@ -40,6 +40,15 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T405 | 4 | Jev risk screen wired into the session | T401, T404 | opus | todo | |
 | T406 | 4 | /jev command, /jev stats and status line | T402, T403 | sonnet | todo | |
 | T407 | 4 | e2e TestJevE2E | T402, T403, T405, T406 | sonnet | todo | |
+| T501 | 5 | Input click-to-cursor | T000 | sonnet | todo | |
+| T502 | 5 | Input select-to-copy (redacted) | T501 | opus | todo | |
+| T503 | 5 | Tab bar layout with × / + and 1-row bounds | T000 | sonnet | todo | |
+| T504 | 5 | Tab bar clicks: × closes, + opens, title switches | T503 | sonnet | todo | |
+| T505 | 5 | Tab hotkeys trimmed to Ctrl+T / Ctrl+W | T504 | sonnet | todo | |
+| T601 | 6 | Shift+Enter removed (no modifyOtherKeys, no CSI map) | T000 | sonnet | todo | |
+| T602 | 6 | Question rendered inline in the transcript | T000 | opus | todo | |
+| T603 | 6 | Docs: usage, CLAUDE.md architecture, /help | T204, T407, T502, T504, T505, T601, T602 | sonnet | todo | |
+| T799 | 6 | Global Definition of Done | all | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
@@ -61,3 +70,4 @@ Run with the `loop-coding` skill (`/loop-coding v4`). The authoritative procedur
 
 - 2026-10-22: batch 1 of 3 generated (phases 0–2: T000, T101–T102, T201–T204). Phases 3–4 and 5–6 follow as later batches appended to this table.
 - 2026-10-22: batch 2 of 3 generated (phases 3–4: T301–T304, T401–T407); rows appended after T204, earlier rows unchanged. Phases 5–6 follow as batch 3.
+- 2026-10-22: batch 3 of 3 generated (phases 5–6: T501–T505, T601–T603, T799); rows appended after T407, earlier rows unchanged. Assumption added in T504: a click on a tab title switches tabs (the v4 spec removes every switch key). Existing v3 tests of the removed behaviour (Shift+Enter, Ctrl+Tab, Alt+N, question overlay) are adapted by T505, T601 and T602.
