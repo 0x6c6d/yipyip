@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +52,7 @@ type Session struct {
 	modelID          string
 	effort           string
 	mode             Mode
+	sessID           string // stable per-conversation id, sent as x-opencode-session
 	systemPrompt     string
 	history          []provider.Message // [0] is the system prompt
 	tokens           Tokens
@@ -89,6 +92,7 @@ func NewSession(opts Options) (*Session, error) {
 		modelID: cfg.DefaultModelID(),
 		effort:  EffortMedium,
 		mode:    ModeManual,
+		sessID:  newSessionID(),
 	}
 	reg, err := tools.NewRegistry(tools.Options{
 		StartDir:    opts.StartDir,
@@ -183,7 +187,23 @@ func (s *Session) clientFor(id string) (*provider.Client, config.Model, error) {
 	if !ok {
 		return nil, config.Model{}, ErrNoModel
 	}
-	return provider.NewClient(p.BaseURL, p.APIKey, s.hc, s.cfg.Redactor), m, nil
+	c := provider.NewClient(p.BaseURL, p.APIKey, s.hc, s.cfg.Redactor)
+	s.mu.Lock()
+	c.SetSession(s.sessID)
+	s.mu.Unlock()
+	return c, m, nil
+}
+
+// newSessionID returns a stable conversation id: "ses_" plus 12 random bytes
+// in hex, as expected by gateways that route requests by session.
+func newSessionID() string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand never fails in practice; fall back to a zero id rather
+		// than losing requests.
+		return ""
+	}
+	return "ses_" + hex.EncodeToString(b[:])
 }
 
 // Mode returns the approval mode.
@@ -268,7 +288,7 @@ func (s *Session) Redact(text string) string {
 // subagents, starts a new empty subagent manager (ids restart at a1), re-reads
 // the system prompt, clears the history and token counts, forgets "always"
 // approvals, clears the undo journal and drops queued events. Model, effort
-// and mode are kept.
+// and mode are kept, and a fresh session id is generated.
 func (s *Session) Reset() {
 	prompt := buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor)
 	s.mu.Lock()
@@ -283,6 +303,7 @@ func (s *Session) Reset() {
 	s.tokens = Tokens{}
 	s.lastPromptTokens = 0
 	s.journal = nil
+	s.sessID = newSessionID()
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()

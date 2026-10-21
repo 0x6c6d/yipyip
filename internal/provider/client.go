@@ -68,6 +68,7 @@ type Event struct {
 type Client struct {
 	baseURL string
 	apiKey  string
+	session string // x-opencode-session value, "" = omit
 	hc      *http.Client
 	red     *config.Redactor
 	own     *config.Redactor // masks apiKey even when red is nil
@@ -77,6 +78,11 @@ type Client struct {
 func NewClient(baseURL, apiKey string, hc *http.Client, red *config.Redactor) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, hc: hc, red: red, own: config.NewRedactor(apiKey)}
 }
+
+// SetSession sets the stable session id sent with every request in the
+// x-opencode-session header. Gateways such as the OpenCode Console require it
+// to route a conversation and reuse its prompt cache.
+func (c *Client) SetSession(id string) { c.session = id }
 
 // Stream sends req and streams the reply. The channel always ends with exactly
 // one EventDone or EventError and is then closed.
@@ -276,6 +282,9 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	hreq.Header.Set("Accept", "text/event-stream")
 	if c.apiKey != "" {
 		hreq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	if c.session != "" {
+		hreq.Header.Set("x-opencode-session", c.session)
 	}
 	resp, err := c.hc.Do(hreq)
 	if err != nil {

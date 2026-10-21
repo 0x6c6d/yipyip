@@ -74,6 +74,33 @@ func TestRequestPathAndHeaders(t *testing.T) {
 	}
 }
 
+func TestSessionHeader(t *testing.T) {
+	srv := providertest.New(providertest.Response{Text: "hello"})
+	defer srv.Close()
+
+	hc, err := provider.NewHTTPClient([]string{srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := provider.NewClient(srv.URL+"/", "SECRET123", hc, config.NewRedactor("SECRET123"))
+	c.SetSession("ses_abc123")
+	evs := collect(t, c.Stream(context.Background(), userReq()))
+	if last := evs[len(evs)-1]; last.Kind != provider.EventDone {
+		t.Fatalf("last event = %+v", last)
+	}
+	if got := srv.Requests()[0].Header.Get("x-opencode-session"); got != "ses_abc123" {
+		t.Errorf("x-opencode-session = %q", got)
+	}
+
+	// Unset session ids are never sent.
+	srv2 := providertest.New()
+	defer srv2.Close()
+	collect(t, newTestClient(t, srv2, "").Stream(context.Background(), userReq()))
+	if _, ok := srv2.Requests()[0].Header["X-Opencode-Session"]; ok {
+		t.Error("x-opencode-session sent without a session id")
+	}
+}
+
 func TestRequestBodyFields(t *testing.T) {
 	srv := providertest.New()
 	defer srv.Close()
