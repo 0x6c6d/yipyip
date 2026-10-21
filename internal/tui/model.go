@@ -37,6 +37,20 @@ type Options struct {
 	// SaveOnExit writes the session data of a tab on /exit, /quit and the
 	// double Ctrl+C; nil = the session Store of StartDir. A test seam.
 	SaveOnExit func(*session.SessionData) error
+
+	// ResumeData is a saved session loaded by `yip --resume <id>` to restore
+	// into Session; nil = a fresh start. The restore itself is not done yet
+	// (a later task), so New currently ignores it.
+	ResumeData *session.SessionData
+
+	// ResumePick asks the UI to open the session picker at startup
+	// (`yip --resume` without id, stdin a tty, at least one saved session).
+	// Without the picker the start is a fresh session.
+	ResumePick bool
+
+	// StdinTTY reports whether stdin is a terminal (a character device); set
+	// by cmd/yip, a plain value so tests never fake a tty.
+	StdinTTY bool
 }
 
 // EventMsg carries one agent session event into Update.
