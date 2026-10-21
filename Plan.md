@@ -25,7 +25,8 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` → `agent.Session.Subm
 events → approval gate → `tools.Registry.Run` → results into history → repeat; `tui` renders events.
 - **cmd/yip**: responsibility: `--version` (`yip <version>`, `-ldflags -X main.version`, default
   `dev`) and `--help` (usage + slash commands) before any config load; start dir = symlink-resolved
-  `os.Getwd()`; startup errors → stderr + exit 1; talks to: config, agent, tui. (since v1)
+  `os.Getwd()`; startup errors → stderr + exit 1; talks to: config, agent, tui. (since v1; v2:
+  `SetMode(agent.ModeAuto)` at start, `tea.WithMouseCellMotion()`, `--help` lists new keys)
 - **internal/config**: responsibility: load `~/.config/yipyip/config.json` (missing = empty) and
   `<startdir>/yipyip.json`, deep-merge objects key by key (non-object values replaced),
   substitute `{env:NAME}` in every string (unset/empty → error naming `NAME`, exit 1), parse
@@ -55,11 +56,13 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   tokens added to session), **Undo journal** (in-memory pre-turn snapshots per turn, incl.
   subagent writes), compaction (manual + auto at 80% of `limit.context`), `/init` prompt,
   system prompt (+ `AGENTS.md` of the start dir if present); talks to: provider, tools. (v1)
-- **internal/tui**: responsibility: Bubble Tea `Model` (alt screen): streaming viewport, tool
-  blocks (name, args, collapsible result), chroma fences, bordered textarea, subagent panel,
-  status line `cwd · provider/model · effort · mode · tokens in / out / total · context size`,
+- **internal/tui**: responsibility: Bubble Tea `Model` (alt screen, mouse): viewport in Claude
+  Code layout (`>`, `●`, `⎿`, live subagent blocks), chroma fences, bordered textarea (ghost-text
+  suggest, history, paste placeholders, busy-time queue), subagent panel, `Thinking…` line and
+  `Worked for` marker (`Options.Now`), two-row status (cwd · model · effort · mode + hint / tokens ·
+  ctx), wheel/`Ctrl+Home`/`Ctrl+End` scroll, copy-on-select (`clipboard.go`, `Options.Clipboard`),
   slash commands + `/` completion, model picker, approval prompt, Esc / Shift+Tab / double
-  Ctrl+C; all text passes the redactor; talks to: agent (events → `tea.Msg`). (since v1)
+  Ctrl+C; all text passes the redactor; talks to: agent (events → `tea.Msg`). (v1; reworked v2)
 - **e2e**: responsibility: offline tests `Init`, `Compact`, `Undo`, `Secret` via `agent.Session`
   + tui dispatcher against `providertest` in temp dirs/HOME; talks to: agent, tui. (since v1)
 
@@ -120,3 +123,8 @@ Non-blocking; tasks touching an item get opus and negative-case verification.
   chroma v2.27.0 needs go ≥ 1.25. No other modules; servers that omit usage or reject
   `reasoning_effort` yield a chars/4 estimate or a shown HTTP error, never a crash.
 - Testability: no teatest; TUI tests drive `Model.Update` and assert on `View()`.
+- C (v2): start mode is `auto` (set in `cmd/yip`; agent constructor stays `manual`): tools run
+  unprompted until the user switches; the mode label + hint is never dropped from the status.
+- C (v2): `atotto/clipboard` (via `internal/tui/clipboard.go` only) is the sole exec besides
+  `bash.go`: fixed `wl-copy`/`xclip`/`xsel`, text on stdin, input is the redacted view text;
+  tests inject the clipboard and never run a tool. History, pastes, queue: memory only.
