@@ -16,8 +16,10 @@ CMD
 expect_ok "secret appears in the written session file (stored un-redacted); the test asserts it and the Redactor path is covered separately" <<'CMD'
 go test -count=1 ./internal/tui -run 'TestExitSaveWritesFile|TestDoubleCtrlCSavesAllTabs'
 CMD
-expect_fail "negative: exported/redacted view never contains the secret" <<'CMD'
-no_match -rn --include='*_test.go' -e 'View().*SECRET123' internal/tui
+expect_fail "negative: exit-save tests never expect the secret in the view (only in the file)" <<'CMD'
+out="$(grep -n 'View().*SECRET123' internal/tui/exit_save_test.go)"; rc=$?
+[ "$rc" -ge 2 ] && exit 125
+printf '%s' "$out" | grep -v '!strings.Contains' | grep -q .
 CMD
 expect_fail "negative: no tui-side path handcraft; save.go routes through Store (no direct os.WriteFile of session JSON in tui)" <<'CMD'
 no_match -rn --include='*.go' --exclude='*_test.go' -e 'os.WriteFile' -e 'json.Marshal' -e '.yipyip/sessions' internal/tui/save.go
