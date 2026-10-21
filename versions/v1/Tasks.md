@@ -45,7 +45,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T404 | 4 | Subagent manager | T101 | opus | done | internal/agent/subagent.go (+test); panic in run func recovered as failed; onChange also on AddTokens |
 | T405 | 4 | Subagent tools in the session | T403, T404 | opus | done | internal/agent/agenttools.go (+test); loop.go toolSet gains model+sub; subagents still running at turn end are cancelled and waited for; subagent.go: final status reported before done closes |
 | T501 | 5 | TUI connected to the agent session | T104, T403 | sonnet | done | internal/tui/model.go, cmd/yip/main.go, session_test.go; slashCommands map; events stored raw and redacted at render; EvApproval only a dim line until T505 |
-| T502 | 5 | Status line | T501 | sonnet | todo | |
+| T502 | 5 | Status line | T501 | sonnet | done | internal/tui/status.go, status_test.go; TestStatusNoCost ignores the temp start dir string (named after the test) |
 | T503 | 5 | Slash-command dispatcher, completion, Shift+Tab | T502 | sonnet | todo | |
 | T504 | 5 | /model picker and direct selection | T503 | sonnet | todo | |
 | T505 | 5 | Approval prompt in the TUI | T503 | sonnet | todo | |

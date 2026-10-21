@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -339,26 +338,4 @@ func (m Model) View() string {
 		Border(lipgloss.RoundedBorder()).
 		Render(m.input.View())
 	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), box, m.StatusLine())
-}
-
-// StatusLine returns the single status line shown under the input.
-func (m Model) StatusLine() string {
-	model, effort, mode := m.opts.ModelID, m.opts.Effort, m.opts.Mode
-	tokens, ctxUsed := agent.Tokens{}, 0
-	if sess := m.opts.Session; sess != nil {
-		model, effort, mode = sess.ModelID(), sess.Effort(), string(sess.Mode())
-		tokens = sess.Tokens()
-		ctxUsed, _ = sess.ContextSize()
-	}
-	if model == "" {
-		model = "no model"
-	}
-	return strings.Join([]string{
-		m.opts.StartDir,
-		model,
-		effort,
-		mode,
-		fmt.Sprintf("in %d / out %d / total %d", tokens.In, tokens.Out, tokens.Total),
-		fmt.Sprintf("ctx %d", ctxUsed),
-	}, " · ")
 }
