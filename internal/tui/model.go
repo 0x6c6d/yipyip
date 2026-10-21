@@ -83,6 +83,8 @@ type Model struct {
 	picker    picker                   // /model picker state
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 	expanded  bool                     // Ctrl+O: tool results shown in full
+
+	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -236,6 +238,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		return m.runSlash(text)
 	}
+	start := len(m.blocks)
 	m.add(blockPlain, "> "+text)
 	sess := m.opts.Session
 	if sess == nil {
@@ -244,6 +247,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	}
 	switch err := sess.Submit(text); {
 	case err == nil:
+		m.pushTurnStart(start)
 	case errors.Is(err, agent.ErrNoModel):
 		m.add(blockInfo, "no model configured")
 	case errors.Is(err, agent.ErrBusy):

@@ -26,7 +26,7 @@ var slashCommands = map[string]commandFunc{
 	"/agents":  cmdAgents,
 	"/init":    notAvailable("/init"),
 	"/compact": notAvailable("/compact"),
-	"/undo":    notAvailable("/undo"),
+	"/undo":    cmdUndo,
 }
 
 // runSlash dispatches a line that starts with "/". It never reaches the model.
@@ -61,6 +61,7 @@ func cmdNew(m Model, _ string) (Model, tea.Cmd) {
 		sess.Reset()
 	}
 	m.blocks = nil
+	m.turnStarts = nil
 	m.streaming = false
 	m.add(blockInfo, "new session")
 	return m, nil
