@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	maxArgsLen      = 200
-	collapsedLines  = 3
-	mainAgentID     = "main"
-	toolBlockMargin = 2 // border columns of a tool block
+	maxArgsLen     = 200
+	collapsedLines = 3
+	mainAgentID    = "main"
 )
 
-var toolBorderStyle = lipgloss.NewStyle().
-	Border(lipgloss.RoundedBorder()).
-	BorderForeground(lipgloss.Color("8"))
+var (
+	toolBulletDim = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	toolBulletOK  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	toolBulletErr = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+)
 
 // toolCall is the data of a tool call block. Raw strings are redacted at
 // render time.
@@ -84,42 +85,81 @@ func compactArgs(raw string) string {
 	return raw
 }
 
-// renderTool renders a tool call block of the given total width.
-func (m *Model) renderTool(c *toolCall, width int) string {
-	header := c.tool
-	if args := compactArgs(m.redact(c.args)); args != "" {
-		header += " " + args
-	}
-	if c.agentID != "" && c.agentID != mainAgentID {
-		header = "[" + c.agentID + "] " + header
-	}
-	body := lipgloss.NewStyle().Bold(true).Render(header)
-	if c.hasRes {
-		if res := m.resultText(c); res != "" {
-			if c.isError {
-				res = errorStyle.Render(res)
-			}
-			body += "\n" + res
-		}
-	}
-	inner := width - toolBlockMargin
-	if inner < 1 {
-		inner = 1
-	}
-	return toolBorderStyle.Width(inner).Render(body)
+// toolSummaryKeys maps a tool to the JSON argument shown in its header.
+var toolSummaryKeys = map[string]string{
+	"bash":        "command",
+	"read_file":   "path",
+	"write_file":  "path",
+	"edit_file":   "path",
+	"glob":        "pattern",
+	"grep":        "pattern",
+	"spawn_agent": "task",
 }
 
-// resultText returns the redacted result, collapsed unless expanded.
-func (m *Model) resultText(c *toolCall) string {
+// toolSummary returns the one-line header summary of a call from its
+// (already redacted) JSON arguments.
+func toolSummary(tool, args string) string {
+	if key, ok := toolSummaryKeys[tool]; ok {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal([]byte(args), &obj) == nil {
+			var v string
+			if json.Unmarshal(obj[key], &v) == nil && obj[key] != nil {
+				v = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(v)
+				if r := []rune(v); len(r) > maxArgsLen {
+					v = string(r[:maxArgsLen-1]) + "…"
+				}
+				return v
+			}
+		}
+	}
+	return compactArgs(args)
+}
+
+// renderTool renders a tool call block in Claude Code style, without borders.
+func (m *Model) renderTool(c *toolCall, _ int) string {
+	bullet := toolBulletDim
+	if c.hasRes {
+		bullet = toolBulletOK
+		if c.isError {
+			bullet = toolBulletErr
+		}
+	}
+	header := bullet.Render("●") + " "
+	if c.agentID != "" && c.agentID != mainAgentID {
+		header += "[" + c.agentID + "] "
+	}
+	header += lipgloss.NewStyle().Bold(true).Render(c.tool) + "(" + toolSummary(c.tool, m.redact(c.args)) + ")"
+	if !c.hasRes {
+		return header
+	}
+	res, hint := m.resultLines(c)
+	for i, l := range res {
+		prefix := "     "
+		if i == 0 {
+			prefix = "  ⎿  "
+		}
+		if c.isError {
+			l = errorStyle.Render(l)
+		}
+		header += "\n" + prefix + l
+	}
+	if hint != "" {
+		header += "\n     " + infoStyle.Render(hint)
+	}
+	return header
+}
+
+// resultLines returns the redacted result lines, collapsed unless expanded,
+// plus the collapse hint (empty when nothing is hidden).
+func (m *Model) resultLines(c *toolCall) (lines []string, hint string) {
 	text := strings.TrimRight(m.redact(c.result), "\r\n")
 	if text == "" {
-		return ""
+		return nil, ""
 	}
-	lines := strings.Split(text, "\n")
+	lines = strings.Split(text, "\n")
 	if m.expanded || len(lines) <= collapsedLines {
-		return text
+		return lines, ""
 	}
 	more := len(lines) - collapsedLines
-	return strings.Join(lines[:collapsedLines], "\n") +
-		"\n" + infoStyle.Render(fmt.Sprintf("… (%d more lines, ctrl+o to expand)", more))
+	return lines[:collapsedLines], fmt.Sprintf("… +%d lines (ctrl+o to expand)", more)
 }
