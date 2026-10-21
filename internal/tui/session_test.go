@@ -18,6 +18,13 @@ import (
 // talks to srv; a nil srv gives a config without any provider.
 func newSessionModel(t *testing.T, srv *providertest.Server) (Model, *agent.Session) {
 	t.Helper()
+	return newSessionModelIn(t, srv, "start")
+}
+
+// newSessionModelIn is newSessionModel with the start directory at the given
+// slash-separated path below the temp directory.
+func newSessionModelIn(t *testing.T, srv *providertest.Server, rel string) (Model, *agent.Session) {
+	t.Helper()
 	cfgJSON := `{"provider": {}}`
 	if srv != nil {
 		cfgJSON = providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", 8000)
@@ -26,7 +33,7 @@ func newSessionModel(t *testing.T, srv *providertest.Server) (Model, *agent.Sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, dir := filepath.Join(base, "home"), filepath.Join(base, "start")
+	home, dir := filepath.Join(base, "home"), filepath.Join(base, filepath.FromSlash(rel))
 	for _, d := range []string{filepath.Join(home, ".config", "yipyip"), dir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)

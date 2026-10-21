@@ -13,7 +13,24 @@ const statusSep = " · "
 
 var dimStyle = lipgloss.NewStyle().Faint(true)
 
-const modeHint = " (shift+tab to toggle)"
+// modeHint follows the mode word on row 1; it never mentions the slash
+// command, only the key.
+const modeHint = "(shift+tab to toggle)"
+
+// autoModeStyle colours the word "auto" on row 1; "manual" keeps the
+// terminal's default colour.
+var autoModeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E8A33D"))
+
+// modeHintStyle colours the key hint after the mode word in both modes.
+var modeHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+
+// modeLabel renders "<mode> (shift+tab to toggle)" with the mode colours.
+func modeLabel(mode string) string {
+	if mode == string(agent.ModeAuto) {
+		mode = autoModeStyle.Render(mode)
+	}
+	return mode + " " + modeHintStyle.Render(modeHint)
+}
 
 var tokenRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
@@ -30,7 +47,9 @@ func (m Model) StatusLine() string {
 //
 // It reads the session on every call. When row 1 is wider than the terminal,
 // the cwd is shortened from the left with a leading ellipsis; the other
-// fields are never dropped. Row 2 is rendered in a grey colour.
+// fields are never dropped. The mode word "auto" is coloured amber, "manual"
+// keeps the default colour, and the key hint is light grey. Row 2 is rendered
+// in a grey colour.
 func (m Model) StatusRows() (row1, row2 string) {
 	cwd, model, effort, mode := m.opts.StartDir, m.opts.ModelID, m.opts.Effort, m.opts.Mode
 	tokens, used, limit := agent.Tokens{}, 0, 0
@@ -49,7 +68,7 @@ func (m Model) StatusRows() (row1, row2 string) {
 	if dim {
 		effort = dimStyle.Render(effort)
 	}
-	rest := strings.Join([]string{model, effort, mode}, statusSep) + modeHint
+	rest := strings.Join([]string{model, effort, modeLabel(mode)}, statusSep)
 	avail := m.width - lipgloss.Width(rest) - lipgloss.Width(statusSep)
 	row1 = shortenLeft(cwd, avail) + statusSep + rest
 

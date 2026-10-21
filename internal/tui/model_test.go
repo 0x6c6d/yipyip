@@ -34,13 +34,13 @@ func TestSkeletonStatusLine(t *testing.T) {
 	want1 := "/work/dir · no model · medium · manual (shift+tab to toggle)"
 	want2 := "in 0 · out 0 · total 0 · ctx 0"
 	row1, row2 := m.StatusRows()
-	if row1 != want1 || ansi.Strip(row2) != want2 {
+	if ansi.Strip(row1) != want1 || ansi.Strip(row2) != want2 {
 		t.Fatalf("StatusRows() = %q, %q; want %q, %q", row1, row2, want1, want2)
 	}
 	if got := m.StatusLine(); got != row1+"\n"+row2 {
 		t.Fatalf("StatusLine() = %q", got)
 	}
-	if v := m.View(); !strings.Contains(v, want1) || !strings.Contains(ansi.Strip(v), want2) {
+	if v := m.View(); !strings.Contains(ansi.Strip(v), want1) || !strings.Contains(ansi.Strip(v), want2) {
 		t.Fatalf("View() does not contain the status rows:\n%s", v)
 	}
 	for _, bad := range []string{"cost", "price", "$"} {
@@ -50,7 +50,7 @@ func TestSkeletonStatusLine(t *testing.T) {
 	}
 	m2 := New(Options{StartDir: "/x", ModelID: "p/m", Effort: "high", Mode: "auto"})
 	r1, r2 := m2.StatusRows()
-	if r1 != "/x · p/m · high · auto (shift+tab to toggle)" || ansi.Strip(r2) != want2 {
+	if ansi.Strip(r1) != "/x · p/m · high · auto (shift+tab to toggle)" || ansi.Strip(r2) != want2 {
 		t.Fatalf("StatusRows() = %q, %q", r1, r2)
 	}
 }
