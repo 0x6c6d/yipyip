@@ -13,8 +13,8 @@ CMD
 expect_ok "Esc maps to the Cancelled constant (not a local string)" <<'CMD'
 grep -rn 'agent.Cancelled' internal/tui/question.go | grep -q -e 'agent.Cancelled'
 CMD
-expect_fail "negative: overlay text passes the redactor" <<'CMD'
-grep -rnq 'm.redact' internal/tui/question.go
+expect_ok "overlay text passes the redactor (question and options)" <<'CMD'
+[ "$(grep -c '\.redact(' internal/tui/question.go)" -ge 2 ]
 CMD
 expect_fail "negative: an empty result is never sent (Enter with nothing selected stays open — the negative test; also no \"+\"\"\")" <<'CMD'
 no_match -rn --include='*.go' --exclude='*_test.go' -e 'Respond("")' internal/tui

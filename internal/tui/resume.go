@@ -157,7 +157,13 @@ func (m Model) resumeBox() string {
 // overlayResume draws the picker box centered over the dimmed viewport view
 // vp. The height stays that of vp.
 func (m Model) overlayResume(vp string) string {
-	box := strings.Split(m.resumeBox(), "\n")
+	return m.overlayCentered(vp, m.resumeBox())
+}
+
+// overlayCentered draws the box (a rendered multi-line string) centered over
+// the dimmed viewport view vp. The height stays that of vp.
+func (m Model) overlayCentered(vp, boxText string) string {
+	box := strings.Split(boxText, "\n")
 	lines := strings.Split(vp, "\n")
 	w := m.width
 	bw := lipgloss.Width(box[0])
@@ -236,6 +242,7 @@ func (m *Model) restoreTab(data *session.SessionData) {
 	// Live turn state: none.
 	m.turnActive, m.interrupted, m.openCalls, m.streaming = false, false, 0, false
 	m.pending, m.turnStarts, m.ctrlCAt = nil, nil, time.Time{}
+	m.cancelQuestions()
 
 	m.blocks = restoreBlocks(data.Conversation)
 	m.refreshTo(true)

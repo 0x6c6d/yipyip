@@ -40,6 +40,9 @@ type tab struct {
 	streaming bool                     // the last block is an assistant block still receiving deltas
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 
+	questions []*agent.QuestionRequest // question-tool requests waiting for an answer, FIFO (copy-on-write)
+	qs        questionState            // row cursor, marks and free text of questions[0]
+
 	turnActive  bool      // a turn is running: the Thinking line is shown and ticks go on
 	turnStart   time.Time // when the running turn was submitted
 	turnOut0    int       // session output tokens at submit

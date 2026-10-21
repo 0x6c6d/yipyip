@@ -23,7 +23,7 @@ var ghostStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 // line starting with "/", the cursor is at its end, and no approval prompt or
 // model picker is open.
 func (m Model) suggestion() (ghost string, accept string) {
-	if len(m.pending) > 0 || m.picker.open {
+	if len(m.pending) > 0 || len(m.questions) > 0 || m.picker.open {
 		return "", ""
 	}
 	v := m.input.Value()

@@ -269,6 +269,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k, isKey := msg.(tea.KeyMsg); isKey && len(m.pending) > 0 && k.String() != "ctrl+c" {
 			return m.approvalKey(k)
 		}
+		if k, isKey := msg.(tea.KeyMsg); isKey && len(m.questions) > 0 && k.String() != "ctrl+c" {
+			return m.questionKey(k)
+		}
 		if k, isKey := msg.(tea.KeyMsg); m.picker.open && !(isKey && k.String() == "ctrl+c") {
 			return m.pickerKey(msg)
 		}
@@ -378,6 +381,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) ctrlC() (tea.Model, tea.Cmd) {
 	m.denyPending()
+	m.cancelQuestions()
 	if sess := m.sess; sess != nil && sess.Busy() {
 		m.interrupted = m.interrupted || m.turnActive
 		sess.Cancel()
@@ -514,6 +518,10 @@ func (m *Model) apply(ev agent.Event) tea.Cmd {
 		if ev.Approval != nil {
 			m.enqueueApproval(ev.Approval)
 		}
+	case agent.EvQuestion:
+		if ev.Question != nil {
+			m.enqueueQuestion(ev.Question)
+		}
 	case agent.EvError:
 		m.add(blockError, "error: "+ev.Text)
 	case agent.EvInfo:
@@ -539,6 +547,7 @@ func (m *Model) apply(ev agent.Event) tea.Cmd {
 		m.streaming = false
 		m.closeToolCalls()
 		m.pending = nil // stale: the turn is over, the gate no longer waits
+		m.cancelQuestions()
 		if isMainAgent(ev.AgentID) && !interrupted {
 			return m.sendQueue()
 		}
@@ -619,6 +628,8 @@ func (m Model) View() string {
 func (m Model) overlays(vp string) string {
 	if len(m.pending) > 0 {
 		vp = m.overlayApproval(vp)
+	} else if len(m.questions) > 0 {
+		vp = m.overlayQuestion(vp)
 	} else if m.resume.open {
 		vp = m.overlayResume(vp)
 	} else if m.picker.open {
