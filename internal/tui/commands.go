@@ -47,7 +47,10 @@ func cmdHelp(m Model, _ string) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func cmdQuit(m Model, _ string) (Model, tea.Cmd) { return m, m.quit() }
+func cmdQuit(m Model, _ string) (Model, tea.Cmd) {
+	m = m.saveTabs()
+	return m, m.quit()
+}
 
 func cmdNew(m Model, _ string) (Model, tea.Cmd) {
 	if sess := m.opts.Session; sess != nil {

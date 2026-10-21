@@ -122,10 +122,11 @@ func (s *Session) Busy() bool {
 // turn and its subagents are queued before the turn is marked as finished.
 func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, mgr *Manager, hist []provider.Message, done chan struct{}) {
 	defer func() {
+		cut := ctx.Err() != nil // cancelled by the user, before our own cancel below
 		cancel()
 		s.mu.Lock()
 		s.busy = false
-		if ctx.Err() != nil {
+		if cut {
 			s.turnInterrupted = true
 		}
 		s.cancelTurn = nil

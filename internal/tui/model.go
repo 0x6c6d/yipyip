@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"yipyip/internal/agent"
+	"yipyip/internal/session"
 )
 
 // Options configures the initial state of the UI.
@@ -32,6 +33,10 @@ type Options struct {
 	// Clipboard copies already redacted plain text to the system clipboard;
 	// nil = defaultClipboard (OSC 52 plus the platform tool).
 	Clipboard func(string) error
+
+	// SaveOnExit writes the session data of a tab on /exit, /quit and the
+	// double Ctrl+C; nil = the session Store of StartDir. A test seam.
+	SaveOnExit func(*session.SessionData) error
 }
 
 // EventMsg carries one agent session event into Update.
@@ -109,6 +114,8 @@ type Model struct {
 
 	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
 
+	saved *saveState // created time and id of the saved conversation, shared by all copies
+
 	clip func(string) error // clipboard writer: Options.Clipboard or defaultClipboard
 
 	lines       []string  // rendered (redacted) conversation lines, as given to the viewport
@@ -156,6 +163,7 @@ func New(opts Options) Model {
 		subs:     map[string]*subState{},
 		hist:     &inputHistory{},
 		pastes:   &pasteStore{},
+		saved:    &saveState{},
 		clip:     clip,
 	}
 	m.resize(defaultWidth, defaultHeight)
@@ -311,6 +319,7 @@ func (m Model) ctrlC() (tea.Model, tea.Cmd) {
 	}
 	now := m.now()
 	if !m.ctrlCAt.IsZero() && now.Sub(m.ctrlCAt) <= ctrlCWindow {
+		m = m.saveTabs()
 		return m, m.quit()
 	}
 	m.ctrlCAt = now
