@@ -25,6 +25,13 @@ func newSessionModel(t *testing.T, srv *providertest.Server) (Model, *agent.Sess
 // slash-separated path below the temp directory.
 func newSessionModelIn(t *testing.T, srv *providertest.Server, rel string) (Model, *agent.Session) {
 	t.Helper()
+	return newSessionModelOpts(t, srv, rel, nil)
+}
+
+// newSessionModelOpts is newSessionModelIn with an editor for the model's
+// Options (nil = none).
+func newSessionModelOpts(t *testing.T, srv *providertest.Server, rel string, edit func(*Options)) (Model, *agent.Session) {
+	t.Helper()
 	cfgJSON := `{"provider": {}}`
 	if srv != nil {
 		cfgJSON = providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", 8000)
@@ -59,7 +66,11 @@ func newSessionModelIn(t *testing.T, srv *providertest.Server, rel string) (Mode
 		sess.Cancel()
 		waitSession(t, sess)
 	})
-	m := New(Options{StartDir: dir, Session: sess})
+	opts := Options{StartDir: dir, Session: sess}
+	if edit != nil {
+		edit(&opts)
+	}
+	m := New(opts)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
 	return next.(Model), sess
 }
@@ -94,8 +105,8 @@ func TestSendMessageStreams(t *testing.T) {
 	defer srv.Close()
 	m, sess := newSessionModel(t, srv)
 	m, cmd := m.Command("say hi")
-	if cmd != nil {
-		t.Fatal("a message must not return a command")
+	if cmd == nil {
+		t.Fatal("a message must return the turn clock tick command")
 	}
 	waitSession(t, sess)
 	m = m.Drain()

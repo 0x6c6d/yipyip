@@ -22,6 +22,9 @@ type Options struct {
 	Effort   string // "" = "medium"
 	Mode     string // "" = "manual"
 
+	// Now is the clock of the UI (Ctrl+C window, turn clock); nil = time.Now.
+	Now func() time.Time
+
 	// Session is the agent session. When set, model, effort and mode come
 	// from it and the fields above are ignored.
 	Session *agent.Session
@@ -84,6 +87,11 @@ type Model struct {
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 	expanded  bool                     // Ctrl+O: tool results shown in full
 
+	turnActive bool      // a turn is running: the Thinking line is shown and ticks go on
+	turnStart  time.Time // when the running turn was submitted
+	turnOut0   int       // session output tokens at submit
+	openCalls  int       // main-agent tool calls without a result yet
+
 	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
 }
 
@@ -108,13 +116,17 @@ func New(opts Options) Model {
 	ta.Focus()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	m := Model{
 		opts:     opts,
 		viewport: viewport.New(defaultWidth, 1),
 		input:    ta,
 		ctx:      ctx,
 		cancel:   cancel,
-		now:      time.Now,
+		now:      now,
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
@@ -156,6 +168,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EventMsg:
 		m.apply(msg.Event)
 		return m, m.waitEvent()
+	case tickMsg:
+		if !m.turnActive {
+			return m, nil
+		}
+		return m, tickCmd()
 	case compactDoneMsg:
 		m.compactDone(msg.err)
 		return m, nil
@@ -251,6 +268,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	switch err := sess.Submit(text); {
 	case err == nil:
 		m.pushTurnStart(start)
+		return m, m.startTurn()
 	case errors.Is(err, agent.ErrNoModel):
 		m.add(blockInfo, "no model configured")
 	case errors.Is(err, agent.ErrBusy):
@@ -284,8 +302,14 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(blockAssistant, ev.Text)
 		m.streaming = true
 	case agent.EvToolCall:
+		if isMainAgent(ev.AgentID) {
+			m.openCalls++
+		}
 		m.addToolCall(ev)
 	case agent.EvToolResult:
+		if isMainAgent(ev.AgentID) && m.openCalls > 0 {
+			m.openCalls--
+		}
 		m.addToolResult(ev)
 	case agent.EvApproval:
 		if ev.Approval != nil {
@@ -300,6 +324,8 @@ func (m *Model) apply(ev agent.Event) {
 		// Subagents() live, so nothing is printed into the conversation.
 		m.refresh()
 	case agent.EvTurnDone:
+		m.turnActive = false
+		m.openCalls = 0
 		m.streaming = false
 		m.closeToolCalls()
 		m.pending = nil // stale: the turn is over, the gate no longer waits
@@ -377,6 +403,7 @@ func (m Model) View() string {
 		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(strings.Join(matches, " ")))
 	}
 	vp = m.withPanel(vp)
+	vp = m.withThinking(vp)
 	row1, row2 := m.StatusRows()
 	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
 }

@@ -21,6 +21,7 @@ func cmdInit(m Model, _ string) (Model, tea.Cmd) {
 	case err == nil:
 		m.add(blockInfo, "initializing AGENTS.md ...")
 		m.pushTurnStart(start)
+		return m, m.startTurn()
 	case errors.Is(err, agent.ErrNoModel):
 		m.add(blockInfo, "no model configured")
 	case errors.Is(err, agent.ErrBusy):
