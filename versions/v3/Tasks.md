@@ -39,8 +39,9 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T601 | 5 | Settings write in config | T000 | opus | done | three keys atomic, key-preserving, {env:NAME} literal, SECRET123 negative ; config/settings.go + settings_test.go; model key is default_model (what Load reads), effort/mode keys are new and Load does not read them yet (only in Config.Raw); file re-indented on write |
 | T602 | 6 | Settings persist trigger in TUI | T601, T202, T402 | opus | done | model/effort/mode changes write settings, failure line (A11) ; tui/settings.go + settings_test.go, Options.SettingsPath/SaveSettings seam, main.go sets GlobalPath; synchronous save after change; real ~/.config untouched by tests (hash checked) |
 | T603 | 6 | Shift+enter newline and help lines | T000 | haiku | done | shift+enter key msg inserts newline, alt+enter unchanged, /help lines ; model.go binding, help.go row, newline_test.go, help_test.go, main_test.go; bubbletea 1.3.10 has no shift+enter key type so real terminals rarely deliver it (tests use a synthetic named key) |
-| T604 | 6 | Usage docs, CLAUDE.md and --help | T201, T203, T302, T402, T502, T602, T603 | haiku | todo | docs/usage.md Sessions/Tabs/Questions/Retry, CLAUDE.md outside Delegation section |
-| T799 | 9 | Global Definition of Done | T101, T102, T103, T201, T202, T203, T204, T401, T402, T501, T502, T503, T601, T602, T603, T604 | supervisor | todo | runs the plan's DoD lines plus make check |
+| T605 | 6 | Retry status line | T302, T402 | sonnet | todo | added by supervisor: EvRetry forwarded by agent, status shows retrying (n/10) in wait; T302 only emitted the event (R37, A10) |
+| T604 | 6 | Usage docs, CLAUDE.md and --help | T201, T203, T302, T402, T502, T602, T603, T605 | haiku | todo | docs/usage.md Sessions/Tabs/Questions/Retry, CLAUDE.md outside Delegation section; row fixed: delegation check was inverted, brief now says the session file is redacted |
+| T799 | 9 | Global Definition of Done | T101, T102, T103, T201, T202, T203, T204, T401, T402, T501, T502, T503, T601, T602, T603, T604, T605 | supervisor | todo | runs the plan's DoD lines plus make check |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 

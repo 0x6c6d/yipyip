@@ -20,13 +20,11 @@ printf '%s\n' "$out" | grep -q -- '--resume' || exit 1
 printf '%s\n' "$out" | grep -qi 'shift+enter' || exit 1
 grep -rq '/sessions' internal/tui/help.go
 CMD
-expect_fail "negative: the Delegation workflow section of CLAUDE.md is untouched" <<'CMD'
-out="$(git diff --stat 9519824 -- CLAUDE.md)" || exit 125
-if [ -n "$out" ]; then
-  git show 9519824:CLAUDE.md | sed -n '/^## Delegation workflow/,/^## /p' > "$VTMP/dw-old.txt"
-  sed -n '/^## Delegation workflow/,/^## /p' CLAUDE.md > "$VTMP/dw-new.txt"
-  cmp -s "$VTMP/dw-old.txt" "$VTMP/dw-new.txt" || exit 1
-fi
+expect_ok "negative: the Delegation workflow section of CLAUDE.md is untouched (byte-identical to HEAD)" <<'CMD'
+git show HEAD:CLAUDE.md | sed -n '/^## Delegation workflow/,$p' > "$VTMP/dw-old.txt" || exit 125
+sed -n '/^## Delegation workflow/,$p' CLAUDE.md > "$VTMP/dw-new.txt"
+[ -s "$VTMP/dw-old.txt" ] || exit 125
+cmp -s "$VTMP/dw-old.txt" "$VTMP/dw-new.txt"
 CMD
 expect_fail "negative: README.md (the spec) untouched" <<'CMD'
 out="$(git diff --stat 9519824 -- README.md && git status --porcelain --untracked-files=all -- README.md)" || exit 125
