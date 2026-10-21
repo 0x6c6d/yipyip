@@ -60,7 +60,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T702 | 7 | config.example.json | T202 | haiku | done | config.example.json, internal/config/example_test.go |
 | T703 | 7 | CLI end to end: install, start dir, startup errors | T501, T702 | sonnet | done | e2e/cli_test.go only; no cmd/yip or Makefile fixes needed; symlinked start dir covered by PathGuard tests not a CLI test |
 | T704 | 7 | Docs: docs/usage.md, README Usage append, CLAUDE.md | T701, T702, T703 | haiku | done | docs/usage.md; README.md 11-line ## Usage append, 0 deleted; CLAUDE.md Commands and Architecture updated |
-| T799 | 7 | Global Definition of Done | T704 | supervisor | todo | |
+| T799 | 7 | Global Definition of Done | T704 | supervisor | done | D1-D15 pass (16 checks), scripts/verify/v1/T799.sh exit 0 |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
