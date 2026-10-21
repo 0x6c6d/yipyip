@@ -289,9 +289,9 @@ func (m *Model) apply(ev agent.Event) {
 	case agent.EvInfo:
 		m.add(blockInfo, ev.Text)
 	case agent.EvSubagent:
-		if ev.Text != "" {
-			m.add(blockInfo, ev.Text)
-		}
+		// Status changes only trigger a re-render: the panel reads
+		// Subagents() live, so nothing is printed into the conversation.
+		m.refresh()
 	case agent.EvTurnDone:
 		m.streaming = false
 		m.closeToolCalls()
@@ -380,5 +380,6 @@ func (m Model) View() string {
 		}
 		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(strings.Join(matches, " ")))
 	}
+	vp = m.withPanel(vp)
 	return lipgloss.JoinVertical(lipgloss.Left, vp, box, m.StatusLine())
 }

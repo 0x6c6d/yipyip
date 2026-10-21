@@ -50,7 +50,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T504 | 5 | /model picker and direct selection | T503 | sonnet | done | internal/tui/picker.go (+test); /model removed from TestStubCommands list (no longer a stub) |
 | T505 | 5 | Approval prompt in the TUI | T503 | sonnet | done | internal/tui/approval.go (+test); Respond only on user key (y/n/a) or Esc/Ctrl+C deny-all; EvTurnDone drops pending; Ctrl+C deny path and pending hint untested |
 | T506 | 5 | Tool blocks, collapsible results, syntax highlighting | T501 | sonnet | done | internal/tui/blocks.go, highlight.go (+test), chroma v2.27.0 in go.mod; viewport only gets PgUp/PgDn/mouse and follows bottom only when already there |
-| T507 | 5 | Subagent panel and /agents | T503, T405 | sonnet | todo | |
+| T507 | 5 | Subagent panel and /agents | T503, T405 | sonnet | done | internal/tui/agents.go (+test); panel overlays top viewport lines (height unchanged); /agents removed from TestStubCommands list |
 | T601 | 6 | Undo journal | T405 | opus | todo | |
 | T602 | 6 | /undo command and e2e Undo tests | T601, T503 | sonnet | todo | |
 | T603 | 6 | Compaction, manual and automatic | T601 | sonnet | todo | |
