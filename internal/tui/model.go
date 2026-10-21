@@ -38,14 +38,13 @@ type Options struct {
 	// double Ctrl+C; nil = the session Store of StartDir. A test seam.
 	SaveOnExit func(*session.SessionData) error
 
-	// ResumeData is a saved session loaded by `yip --resume <id>` to restore
-	// into Session; nil = a fresh start. The restore itself is not done yet
-	// (a later task), so New currently ignores it.
+	// ResumeData is a saved session loaded by `yip --resume <id>`; New
+	// restores it into Session (see Model.restore); nil = a fresh start.
 	ResumeData *session.SessionData
 
 	// ResumePick asks the UI to open the session picker at startup
-	// (`yip --resume` without id, stdin a tty, at least one saved session).
-	// Without the picker the start is a fresh session.
+	// (`yip --resume` without id, stdin a tty). With no saved session the
+	// picker does not open and the start is a fresh session.
 	ResumePick bool
 
 	// StdinTTY reports whether stdin is a terminal (a character device); set
@@ -109,6 +108,7 @@ type Model struct {
 	ctrlCAt   time.Time                // time of the armed first Ctrl+C; zero when not armed
 	streaming bool                     // the last block is an assistant block still receiving deltas
 	picker    picker                   // /model picker state
+	resume    resumePicker             // resume session picker state
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 	expanded  bool                     // Ctrl+O: tool results shown in full
 
@@ -181,6 +181,12 @@ func New(opts Options) Model {
 		clip:     clip,
 	}
 	m.resize(defaultWidth, defaultHeight)
+	switch {
+	case opts.ResumeData != nil:
+		m.restore(opts.ResumeData)
+	case opts.ResumePick:
+		m.openResumePicker()
+	}
 	return m
 }
 
@@ -234,6 +240,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compactDone(msg.err)
 		return m, nil
 	case tea.KeyMsg, tea.MouseMsg:
+		if k, isKey := msg.(tea.KeyMsg); isKey && m.resume.open && k.String() != "ctrl+c" {
+			return m.resumeKey(k)
+		}
 		if k, isKey := msg.(tea.KeyMsg); isKey && len(m.pending) > 0 && k.String() != "ctrl+c" {
 			return m.approvalKey(k)
 		}
@@ -540,6 +549,8 @@ func (m Model) View() string {
 func (m Model) overlays(vp string) string {
 	if len(m.pending) > 0 {
 		vp = m.overlayApproval(vp)
+	} else if m.resume.open {
+		vp = m.overlayResume(vp)
 	} else if m.picker.open {
 		vp = m.overlayPicker(vp)
 	} else if matches := m.completions(); len(matches) > 0 {
