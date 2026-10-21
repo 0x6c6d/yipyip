@@ -96,3 +96,77 @@ func (m Model) withGhost(view string) string {
 	}
 	return out
 }
+
+// maxHistory is the number of submitted inputs kept for Up/Down recall.
+const maxHistory = 500
+
+// inputHistory holds the submitted inputs, oldest first, for Up/Down recall.
+// It lives in memory only and is shared (by pointer) by all copies of a Model,
+// so /new and /clear keep it. pos is the entry shown while navigating;
+// pos == len(entries) means not navigating. draft is the input saved by the
+// first Up, restored by Down past the newest entry.
+type inputHistory struct {
+	entries []string
+	pos     int
+	draft   string
+}
+
+// push records a submitted input (already trimmed). A value equal to the
+// newest entry is not stored again; the oldest entries are dropped beyond
+// maxHistory. It ends any navigation.
+func (h *inputHistory) push(s string) {
+	if s != "" && (len(h.entries) == 0 || h.entries[len(h.entries)-1] != s) {
+		h.entries = append(h.entries, s)
+		if n := len(h.entries) - maxHistory; n > 0 {
+			h.entries = append([]string(nil), h.entries[n:]...)
+		}
+	}
+	h.pos = len(h.entries)
+	h.draft = ""
+}
+
+// navigating reports whether an entry (not the draft) is being shown.
+func (h *inputHistory) navigating() bool { return h.pos < len(h.entries) }
+
+// setInput places s in the input with the cursor at its end.
+func (m *Model) setInput(s string) {
+	m.input.SetValue(s)
+	m.input.CursorEnd()
+}
+
+// historyUp shows the next older history entry when the input is empty or the
+// cursor is on its first line. It reports false when the key should move the
+// cursor instead.
+func (m Model) historyUp() (Model, bool) {
+	h := m.hist
+	if h == nil || len(h.entries) == 0 || (m.input.Value() != "" && m.input.Line() != 0) {
+		return m, false
+	}
+	if !h.navigating() {
+		h.pos = len(h.entries)
+		h.draft = m.input.Value()
+	}
+	if h.pos > 0 {
+		h.pos--
+	}
+	m.setInput(h.entries[h.pos])
+	return m, true
+}
+
+// historyDown shows the next newer history entry, or the saved draft past the
+// newest one, when navigating and the input is empty or the cursor is on its
+// last line. It reports false when the key should move the cursor instead.
+func (m Model) historyDown() (Model, bool) {
+	h := m.hist
+	if h == nil || !h.navigating() || (m.input.Value() != "" && m.input.Line() != m.input.LineCount()-1) {
+		return m, false
+	}
+	h.pos++
+	if h.navigating() {
+		m.setInput(h.entries[h.pos])
+	} else {
+		m.setInput(h.draft)
+		h.draft = ""
+	}
+	return m, true
+}

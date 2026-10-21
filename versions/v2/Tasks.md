@@ -31,7 +31,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T301 | 3 | Live subagent blocks | T201, T203 | sonnet | done | subagents.go, model.go apply, blocks.go, agents.go subInfo seam, subagents_test.go; tick refreshes running subs |
 | T302 | 3 | Subagent panel format | T301 | haiku | done | agents.go panelLines, agents_test.go, subagents_test.go |
 | T401 | 4 | Command autosuggest ghost text | T000 | sonnet | done | input.go, input_test.go, model.go; Tab on a bare command name keeps v1 longest-common-prefix (TestCompletion), Tab accepts ghost after a space; Right always accepts |
-| T402 | 4 | Input history | T000 | opus | todo | |
+| T402 | 4 | Input history | T000 | opus | done | input.go inputHistory, model.go hist + Up/Down, input_test.go; memory only, no-files test |
 | T403 | 4 | Collapsed paste placeholders | T402 | opus | todo | |
 | T501 | 5 | Queue messages while busy | T204, T402, T403 | opus | todo | |
 | T502 | 5 | Restore queued messages into the input | T501 | opus | todo | |

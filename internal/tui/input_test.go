@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"yipyip/internal/agent"
 	"yipyip/internal/provider/providertest"
 )
 
@@ -172,5 +177,186 @@ func TestSuggestNeverSent(t *testing.T) {
 		if strings.Contains(msg.Content, "ort") {
 			t.Fatalf("history contains the ghost: %q", msg.Content)
 		}
+	}
+}
+
+// histSend submits text through the input box and waits for any turn.
+func histSend(t *testing.T, m Model, sess *agent.Session, text string) Model {
+	t.Helper()
+	m.input.SetValue(text)
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	waitSession(t, sess)
+	return tm.(Model).Drain()
+}
+
+// histKey sends one key and returns the input value afterwards.
+func histKey(m Model, k tea.KeyType) (Model, string) {
+	tm, _ := m.Update(tea.KeyMsg{Type: k})
+	nm := tm.(Model)
+	return nm, nm.input.Value()
+}
+
+// histModel returns a session model after sending one, /mode auto, three.
+func histModel(t *testing.T) (Model, *agent.Session, *providertest.Server) {
+	t.Helper()
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	for _, s := range []string{"one", "/mode auto", "three"} {
+		m = histSend(t, m, sess, s)
+	}
+	return m, sess, srv
+}
+
+func histSteps(t *testing.T, m Model, steps []tea.KeyType, want []string) Model {
+	t.Helper()
+	var got string
+	for i, k := range steps {
+		m, got = histKey(m, k)
+		if got != want[i] {
+			t.Fatalf("step %d (%v): input = %q, want %q", i, k, got, want[i])
+		}
+	}
+	return m
+}
+
+func TestHistoryUpDownOrder(t *testing.T) {
+	m, _, _ := histModel(t)
+	up, down := tea.KeyUp, tea.KeyDown
+	histSteps(t, m,
+		[]tea.KeyType{up, up, up, up, down, down},
+		[]string{"three", "/mode auto", "one", "one", "/mode auto", "three"})
+}
+
+func TestHistoryDraftRestored(t *testing.T) {
+	m, _, _ := histModel(t)
+	m = typeText(m, "draft").(Model)
+	m = histSteps(t, m,
+		[]tea.KeyType{tea.KeyUp, tea.KeyUp, tea.KeyDown, tea.KeyDown},
+		[]string{"three", "/mode auto", "three", "draft"})
+	if m.hist.navigating() {
+		t.Fatal("still navigating after the draft was restored")
+	}
+	// Not navigating any more: Down leaves the draft alone.
+	if _, got := histKey(m, tea.KeyDown); got != "draft" {
+		t.Fatalf("Down after the draft: input = %q", got)
+	}
+}
+
+func TestHistoryDuplicateCollapse(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	for _, s := range []string{"earlier", "same", "same"} {
+		m = histSend(t, m, sess, s)
+	}
+	if want := []string{"earlier", "same"}; !reflect.DeepEqual(m.hist.entries, want) {
+		t.Fatalf("entries = %q, want %q", m.hist.entries, want)
+	}
+	histSteps(t, m, []tea.KeyType{tea.KeyUp, tea.KeyUp}, []string{"same", "earlier"})
+}
+
+func TestHistoryCap500(t *testing.T) {
+	m := New(Options{StartDir: "/w"})
+	for i := 1; i <= 510; i++ {
+		m.hist.push(fmt.Sprintf("entry %d", i))
+	}
+	if n := len(m.hist.entries); n != 500 {
+		t.Fatalf("len = %d, want 500", n)
+	}
+	if first, last := m.hist.entries[0], m.hist.entries[499]; first != "entry 11" || last != "entry 510" {
+		t.Fatalf("oldest, newest = %q, %q", first, last)
+	}
+}
+
+func TestHistoryMultilineMovesCursor(t *testing.T) {
+	m, _, _ := histModel(t)
+	m.input.SetValue("a\nb")
+	if l := m.input.Line(); l != 1 {
+		t.Fatalf("cursor line = %d, want 1", l)
+	}
+	m, got := histKey(m, tea.KeyUp)
+	if got != "a\nb" || m.input.Line() != 0 {
+		t.Fatalf("first Up: input = %q, line %d; want the cursor moved to line 0", got, m.input.Line())
+	}
+	if m.hist.navigating() {
+		t.Fatal("first Up started history navigation")
+	}
+	if _, got = histKey(m, tea.KeyUp); got != "three" {
+		t.Fatalf("second Up: input = %q, want %q", got, "three")
+	}
+}
+
+func TestHistorySurvivesNew(t *testing.T) {
+	for _, cmd := range []string{"/new", "/clear"} {
+		t.Run(cmd, func(t *testing.T) {
+			m, sess, _ := histModel(t)
+			m = histSend(t, m, sess, cmd)
+			histSteps(t, m,
+				[]tea.KeyType{tea.KeyUp, tea.KeyUp, tea.KeyUp},
+				[]string{cmd, "three", "/mode auto"})
+		})
+	}
+}
+
+func TestHistoryRecallEditResend(t *testing.T) {
+	m, sess, srv := histModel(t)
+	m, got := histKey(m, tea.KeyUp)
+	if got != "three" {
+		t.Fatalf("Up: input = %q", got)
+	}
+	m = typeText(m, "!").(Model)
+	if v := m.input.Value(); v != "three!" {
+		t.Fatalf("edited input = %q", v)
+	}
+	before := len(srv.Requests())
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	waitSession(t, sess)
+	m = tm.(Model).Drain()
+	reqs := srv.Requests()
+	if len(reqs) != before+1 {
+		t.Fatalf("requests %d -> %d, want one more", before, len(reqs))
+	}
+	msgs := reqs[len(reqs)-1].Messages
+	if last := msgs[len(msgs)-1]; last.Role != "user" || last.Content != "three!" {
+		t.Fatalf("last message = %+v, want user %q", last, "three!")
+	}
+	if n := len(m.hist.entries); m.hist.entries[n-1] != "three!" {
+		t.Fatalf("newest entry = %q", m.hist.entries[n-1])
+	}
+}
+
+// listFiles returns every path below root (directories included), sorted.
+func listFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(root, func(p string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		out = append(out, p)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestHistoryNoFiles(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	root := filepath.Dir(sess.StartDir()) // holds the temp HOME and the start dir
+	before := listFiles(t, root)
+	for _, s := range []string{"one", "/mode auto", "/effort high", "three", "/new", "four"} {
+		m = histSend(t, m, sess, s)
+	}
+	for _, k := range []tea.KeyType{tea.KeyUp, tea.KeyUp, tea.KeyUp, tea.KeyDown, tea.KeyUp, tea.KeyDown, tea.KeyDown, tea.KeyDown} {
+		m, _ = histKey(m, k)
+	}
+	m = histSend(t, m, sess, "five")
+	if len(m.hist.entries) == 0 {
+		t.Fatal("no history recorded")
+	}
+	if after := listFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatalf("files changed:\nbefore %q\nafter  %q", before, after)
 	}
 }

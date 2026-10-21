@@ -99,6 +99,8 @@ type Model struct {
 	subInfo func() []agent.SubInfo // test seam for subagents(); nil = Session.Subagents()
 
 	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
+
+	hist *inputHistory // submitted inputs for Up/Down recall, shared by all copies
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -134,6 +136,7 @@ func New(opts Options) Model {
 		cancel:   cancel,
 		now:      now,
 		subs:     map[string]*subState{},
+		hist:     &inputHistory{},
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
@@ -231,6 +234,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if nm, ok := m.acceptSuggestion(); ok {
 				return nm, nil
 			}
+		case "up":
+			if nm, ok := m.historyUp(); ok {
+				return nm, nil
+			}
+		case "down":
+			if nm, ok := m.historyDown(); ok {
+				return nm, nil
+			}
 		}
 	}
 
@@ -266,6 +277,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.input.Reset()
+	if m.hist != nil {
+		m.hist.push(text)
+	}
 	return m.Command(text)
 }
 
