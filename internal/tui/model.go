@@ -55,6 +55,14 @@ type Options struct {
 	// StdinTTY reports whether stdin is a terminal (a character device); set
 	// by cmd/yip, a plain value so tests never fake a tty.
 	StdinTTY bool
+
+	// SettingsPath is the user config file that every model, effort and
+	// mode change is saved to (see settings.go); "" = never saved.
+	SettingsPath string
+
+	// SaveSettings writes the selection to the settings file; nil =
+	// config.SaveSettings. A test seam.
+	SaveSettings func(path, model, effort, mode string) error
 }
 
 // EventMsg carries one agent session event into Update. sess is the session
@@ -321,7 +329,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "shift+tab":
+			prev := m.currentSel()
 			m.toggleMode()
+			m.saveSettingsIfChanged(prev)
 			return m, nil
 		case "ctrl+t":
 			if err := m.addTab(); err != nil {

@@ -200,7 +200,16 @@ func (m Model) overlayCentered(vp, boxText string) string {
 // tab is the index of the target tab; an index out of range changes
 // nothing.
 func (m *Model) restore(tab int, data *session.SessionData) {
-	m.inTab(tab, func(m *Model) { m.restoreTab(data) })
+	restored := false
+	m.inTab(tab, func(m *Model) {
+		m.restoreTab(data)
+		restored = m.sess != nil
+	})
+	// The restored model, effort and mode are saved once, after the
+	// restore; a failure line goes to the current tab (see settings.go).
+	if restored {
+		m.saveSettings()
+	}
 }
 
 // restoreTab is restore for the live tab.

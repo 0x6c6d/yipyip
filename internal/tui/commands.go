@@ -81,6 +81,7 @@ func cmdEffort(m Model, args string) (Model, tea.Cmd) {
 		m.add(blockError, "error: effort must be low, medium or high")
 		return m, nil
 	}
+	prev := m.currentSel()
 	if sess := m.sess; sess != nil {
 		if err := sess.SetEffort(args); err != nil {
 			m.add(blockError, "error: effort must be low, medium or high")
@@ -90,10 +91,12 @@ func cmdEffort(m Model, args string) (Model, tea.Cmd) {
 	model, _, mode := m.globals()
 	m.setGlobals(model, args, mode)
 	m.add(blockInfo, "effort: "+args)
+	m.saveSettingsIfChanged(prev)
 	return m, nil
 }
 
 func cmdMode(m Model, args string) (Model, tea.Cmd) {
+	prev := m.currentSel()
 	switch args {
 	case "":
 		m.toggleMode()
@@ -104,6 +107,7 @@ func cmdMode(m Model, args string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.add(blockInfo, "mode: "+m.mode())
+	m.saveSettingsIfChanged(prev)
 	return m, nil
 }
 

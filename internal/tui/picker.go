@@ -52,6 +52,7 @@ func (m Model) setModel(id string) Model {
 		m.add(blockError, "error: unknown model: "+id)
 		return m
 	}
+	prev := m.currentSel()
 	if err := sess.SetModel(id); err != nil {
 		if errors.Is(err, agent.ErrUnknownModel) {
 			m.add(blockError, "error: unknown model: "+id)
@@ -63,6 +64,7 @@ func (m Model) setModel(id string) Model {
 	_, effort, mode := m.globals()
 	m.setGlobals(id, effort, mode)
 	m.add(blockInfo, "model: "+id)
+	m.saveSettingsIfChanged(prev)
 	return m
 }
 
