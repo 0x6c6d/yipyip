@@ -258,6 +258,27 @@ func (m *Model) enqueue(text string) {
 	m.queue = append(slices.Clone(m.queue), text)
 }
 
+// restoreQueue moves all queued messages into the input, appended to the
+// current draft one per line, with the cursor at the end, and empties the
+// queue. Paste placeholders are kept as they are (they expand when sent). Any
+// history navigation ends.
+func (m *Model) restoreQueue() {
+	if len(m.queue) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(m.queue)+1)
+	if draft := m.input.Value(); draft != "" {
+		parts = append(parts, draft)
+	}
+	parts = append(parts, m.queue...)
+	m.queue = nil
+	if h := m.hist; h != nil {
+		h.pos = len(h.entries)
+		h.draft = ""
+	}
+	m.setInput(strings.Join(parts, "\n"))
+}
+
 // queueLines renders the queue block: one line per queued message, at most
 // maxQueueLines of them, then "… +N more"; nil while the queue is empty.
 func (m Model) queueLines() []string {

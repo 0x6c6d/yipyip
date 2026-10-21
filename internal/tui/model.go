@@ -214,6 +214,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.interrupted = m.interrupted || m.turnActive
 				sess.Cancel()
 			}
+			if m.busy() && len(m.queue) > 0 {
+				m.restoreQueue()
+			}
 			return m, nil
 		case "enter":
 			return m.submit()
@@ -242,6 +245,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return nm, nil
 			}
 		case "up":
+			if m.input.Value() == "" && len(m.queue) > 0 {
+				m.restoreQueue()
+				return m, nil
+			}
 			if nm, ok := m.historyUp(); ok {
 				return nm, nil
 			}
@@ -268,6 +275,9 @@ func (m Model) ctrlC() (tea.Model, tea.Cmd) {
 	if sess := m.opts.Session; sess != nil && sess.Busy() {
 		m.interrupted = m.interrupted || m.turnActive
 		sess.Cancel()
+	}
+	if m.busy() && len(m.queue) > 0 {
+		m.restoreQueue()
 	}
 	now := m.now()
 	if !m.ctrlCAt.IsZero() && now.Sub(m.ctrlCAt) <= ctrlCWindow {

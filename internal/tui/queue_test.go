@@ -258,3 +258,166 @@ func TestQueueNoBusyLine(t *testing.T) {
 		}
 	}
 }
+
+// requestsContain reports whether any provider request has a message
+// containing s.
+func requestsContain(srv *providertest.Server, s string) bool {
+	for _, r := range srv.Requests() {
+		for _, msg := range r.Messages {
+			if strings.Contains(msg.Content, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lastMarker returns the last "Worked for" / "Interrupted after" line.
+func lastMarker(t *testing.T, m Model) string {
+	t.Helper()
+	ls := markerLines(m)
+	if len(ls) == 0 {
+		t.Fatalf("no marker line:\n%s", plainView(m))
+	}
+	return ls[len(ls)-1]
+}
+
+func TestQueueEscRestores(t *testing.T) {
+	m, sess, srv, _ := queueModel(t)
+	m = enter(m, "q1")
+	m = enter(m, "q2")
+	m.input.SetValue("draft")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	waitSession(t, sess)
+	m = m.Drain()
+	if v := m.input.Value(); v != "draft\nq1\nq2" {
+		t.Fatalf("input = %q, want %q", v, "draft\nq1\nq2")
+	}
+	if len(m.queue) != 0 {
+		t.Fatalf("queue = %q, want empty", m.queue)
+	}
+	if got := lastMarker(t, m); !strings.HasPrefix(got, "✻ Interrupted after") {
+		t.Fatalf("last marker = %q, want ✻ Interrupted after …", got)
+	}
+	if m.blocks[len(m.blocks)-1].kind != blockMarker {
+		t.Fatalf("conversation does not end with the marker:\n%s", plainView(m))
+	}
+	if requestsContain(srv, "q1") {
+		t.Fatal("a provider request contains the queued text")
+	}
+}
+
+func TestQueueCtrlCRestores(t *testing.T) {
+	m, sess, srv, _ := queueModel(t)
+	m = enter(m, "q1")
+	m = enter(m, "q2")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = next.(Model)
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("one Ctrl+C quit the program")
+		}
+	}
+	if m.ctx.Err() != nil {
+		t.Fatal("the event context was cancelled")
+	}
+	waitSession(t, sess)
+	m = m.Drain()
+	if v := m.input.Value(); v != "q1\nq2" {
+		t.Fatalf("input = %q, want %q", v, "q1\nq2")
+	}
+	if len(m.queue) != 0 {
+		t.Fatalf("queue = %q, want empty", m.queue)
+	}
+	if got := lastMarker(t, m); !strings.HasPrefix(got, "✻ Interrupted after") {
+		t.Fatalf("last marker = %q, want ✻ Interrupted after …", got)
+	}
+	if requestsContain(srv, "q1") {
+		t.Fatal("a provider request contains the queued text")
+	}
+}
+
+func TestQueueUpRestores(t *testing.T) {
+	m, sess, _, _ := queueModel(t)
+	m = enter(m, "q1")
+	m, got := histKey(m, tea.KeyUp)
+	if got != "q1" {
+		t.Fatalf("input = %q, want %q", got, "q1")
+	}
+	if len(m.queue) != 0 {
+		t.Fatalf("queue = %q, want empty", m.queue)
+	}
+	if !sess.Busy() || !m.busy() {
+		t.Fatal("the turn stopped after Up")
+	}
+}
+
+func TestQueueUpEmptyQueueHistory(t *testing.T) {
+	srv, _ := heldServer(t)
+	m, _, _ := newClockModel(t, srv)
+	m = enter(m, "first")
+	waitRequests(t, srv, 1)
+	if len(m.queue) != 0 {
+		t.Fatalf("queue = %q, want empty", m.queue)
+	}
+	if _, got := histKey(m, tea.KeyUp); got != "first" {
+		t.Fatalf("Up: input = %q, want %q", got, "first")
+	}
+}
+
+func TestQueueClearedByNew(t *testing.T) {
+	m, sess, srv, release := queueModel(t)
+	m = enter(m, "q1")
+	m = enter(m, "/new")
+	if len(m.queue) != 0 {
+		t.Fatalf("queue = %q, want empty", m.queue)
+	}
+	if v := plainView(m); strings.Contains(v, "> q1") {
+		t.Fatalf("queue line after /new:\n%s", v)
+	}
+	release()
+	waitSession(t, sess)
+	m = m.Drain()
+	waitSession(t, sess)
+	m = m.Drain()
+	if n := len(srv.Requests()); n != 1 {
+		t.Fatalf("requests = %d, want 1", n)
+	}
+	if requestsContain(srv, "q1") {
+		t.Fatal("a provider request contains the queued text")
+	}
+	if v := plainView(m); strings.Contains(v, "> q1") {
+		t.Fatalf("queued message shown after /new:\n%s", v)
+	}
+}
+
+func TestQueueNothingSentAfterInterrupt(t *testing.T) {
+	m, sess, srv, release := queueModel(t)
+	m = enter(m, "q1")
+	m = enter(m, "q2")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	waitSession(t, sess)
+	m = m.Drain()
+	before := len(srv.Requests())
+	release()
+	waitSession(t, sess)
+	m = m.Drain()
+	waitSession(t, sess)
+	m = m.Drain()
+	if sess.Busy() || m.busy() {
+		t.Fatal("a turn is running after the interrupt")
+	}
+	if n := len(srv.Requests()); n != before {
+		t.Fatalf("requests grew from %d to %d", before, n)
+	}
+	for _, q := range []string{"q1", "q2"} {
+		if requestsContain(srv, q) {
+			t.Fatalf("a provider request contains %q", q)
+		}
+	}
+	if v := m.input.Value(); v != "q1\nq2" {
+		t.Fatalf("input = %q, want %q", v, "q1\nq2")
+	}
+}
