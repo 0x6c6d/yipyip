@@ -62,6 +62,7 @@ func NewRegistry(opts Options) (*Registry, error) {
 	// Built-in tools. Later tasks append their registration calls here
 	// (each tool lives in its own file and calls r.register).
 	r.registerBash()
+	r.registerFileTools()
 
 	return r, nil
 }
