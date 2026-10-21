@@ -30,7 +30,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | --resume flag in cmd/yip | T000 | opus | done | -c alias, unknown id exit 1, picker vs fresh decision (A6, A7) ; row fixed: hand-over check now requires Options.ResumeData/ResumePick/StdinTTY (was vacuous) ; main.go parseArgs/runWith/applyResume, Options.ResumeData/ResumePick/StdinTTY, 6 tests; combined short flags unsupported (parser has none) |
 | T202 | 2 | Resume picker overlay | T201, T101, T102 | sonnet | done | picker.go pattern, newest-first rows, Enter restores, Esc exits ; tui/resume.go (resumePicker, restore), model.go wiring, resume_test.go; stored mode != auto restores as manual, empty effort keeps current |
 | T203 | 2 | /sessions command | T101, T102, T103 | sonnet | done | list 10 newest, load into tab, rm y/n, R35a colors ; tui/sessions.go (ls/load/rm via Store), commands.go, help.go, model.go rmPending; restore now restore(tab, data); help_test count adapted |
-| T204 | 2 | e2e Session round-trip fidelity | T101, T103, T201 | sonnet | todo | e2e/session_test.go: request diff, counters, SECRET123 |
+| T204 | 2 | e2e Session round-trip fidelity | T101, T103, T201 | sonnet | todo | e2e/session_test.go: request diff, counters, SECRET123 ; row fixed: file stores redacted text (no SECRET123), verify grep path internal/session |
 | T401 | 4 | Tab state refactor | T103, T102 | opus | todo | tabs.go per-tab struct, global model/effort/mode, /new opens tab (A6, A8) |
 | T402 | 4 | Tab bar and keys | T401, T103 | sonnet | todo | bar, Ctrl+T/W/Tab/Shift+Tab, Alt+1..8, limit line, old keys unchanged |
 | T501 | 5 | Question gate in agent | T000 | opus | todo | question tool auto-approved, reply channel, never gated (A1, A2) |

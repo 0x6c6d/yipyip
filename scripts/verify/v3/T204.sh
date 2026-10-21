@@ -11,7 +11,7 @@ expect_ok "e2e file exists with the request-diff assertion" <<'CMD'
 grep -rnq 'messages' e2e/session_test.go
 CMD
 expect_fail "negative: no api key or Authorization header material in any written session file (regex over the test's temp-dir placeholder is covered by the unit test; here guard the source)" <<'CMD'
-no_match -rni --include='*.go' --exclude='*_test.go' -e 'authorization' -e 'bearer ' e2e session
+no_match -rni --include='*.go' --exclude='*_test.go' -e 'authorization' -e 'bearer ' e2e internal/session
 CMD
 expect_fail "negative: only _test.go files name a real provider host" <<'CMD'
 grep -rn --include='*.go' -e 'openrouter\.ai' . | grep -v '^.*_test\.go:' | no_match -e .
