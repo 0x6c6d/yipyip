@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T302 | 3 | Subagent panel format | T301 | haiku | done | agents.go panelLines, agents_test.go, subagents_test.go |
 | T401 | 4 | Command autosuggest ghost text | T000 | sonnet | done | input.go, input_test.go, model.go; Tab on a bare command name keeps v1 longest-common-prefix (TestCompletion), Tab accepts ghost after a space; Right always accepts |
 | T402 | 4 | Input history | T000 | opus | done | input.go inputHistory, model.go hist + Up/Down, input_test.go; memory only, no-files test |
-| T403 | 4 | Collapsed paste placeholders | T402 | opus | todo | |
+| T403 | 4 | Collapsed paste placeholders | T402 | opus | done | input.go pasteStore, model.go paste + expand in Command, input_test.go |
 | T501 | 5 | Queue messages while busy | T204, T402, T403 | opus | todo | |
 | T502 | 5 | Restore queued messages into the input | T501 | opus | todo | |
 | T601 | 6 | Mouse wheel and key scrolling | T000 | sonnet | todo | |

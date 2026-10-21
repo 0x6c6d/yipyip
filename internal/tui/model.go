@@ -100,7 +100,8 @@ type Model struct {
 
 	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
 
-	hist *inputHistory // submitted inputs for Up/Down recall, shared by all copies
+	hist   *inputHistory // submitted inputs for Up/Down recall, shared by all copies
+	pastes *pasteStore   // paste placeholders and their full texts, shared by all copies
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -137,6 +138,7 @@ func New(opts Options) Model {
 		now:      now,
 		subs:     map[string]*subState{},
 		hist:     &inputHistory{},
+		pastes:   &pasteStore{},
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
@@ -198,6 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if _, isKey := msg.(tea.KeyMsg); !isKey {
 			break
+		}
+		if nm, ok := m.paste(msg.(tea.KeyMsg)); ok {
+			return nm, nil
 		}
 		switch msg.(tea.KeyMsg).String() {
 		case "ctrl+c":
@@ -300,7 +305,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 		m.add(blockInfo, "no model configured")
 		return m, nil
 	}
-	switch err := sess.Submit(text); {
+	switch err := sess.Submit(m.pastes.expand(text)); {
 	case err == nil:
 		m.pushTurnStart(start)
 		return m, m.startTurn()

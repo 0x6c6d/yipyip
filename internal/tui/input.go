@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -168,5 +170,67 @@ func (m Model) historyDown() (Model, bool) {
 		m.setInput(h.draft)
 		h.draft = ""
 	}
+	return m, true
+}
+
+// pasteMaxRunes is the longest single-line paste inserted verbatim.
+const pasteMaxRunes = 80
+
+// pasteStore maps each paste placeholder to the full pasted text. It lives in
+// memory only and is shared (by pointer) by all copies of a Model, so the
+// counter is never reset, also not by /new.
+type pasteStore struct {
+	n     int
+	texts map[string]string
+}
+
+// add stores text (already normalised) under a new placeholder and returns
+// the placeholder.
+func (p *pasteStore) add(text string) string {
+	p.n++
+	body := strings.TrimSuffix(text, "\n")
+	var ph string
+	if lines := strings.Count(body, "\n") + 1; lines > 1 {
+		ph = fmt.Sprintf("[Pasted text #%d +%d lines]", p.n, lines)
+	} else {
+		ph = fmt.Sprintf("[Pasted text #%d · %d chars]", p.n, utf8.RuneCountInString(body))
+	}
+	if p.texts == nil {
+		p.texts = map[string]string{}
+	}
+	p.texts[ph] = text
+	return ph
+}
+
+// expand replaces every exact placeholder in s that exists in the store by its
+// full text. Edited placeholders are not in the store and stay as they are.
+func (p *pasteStore) expand(s string) string {
+	if p == nil || len(p.texts) == 0 || !strings.Contains(s, "[Pasted text #") {
+		return s
+	}
+	pairs := make([]string, 0, 2*len(p.texts))
+	for ph, text := range p.texts {
+		pairs = append(pairs, ph, text)
+	}
+	return strings.NewReplacer(pairs...).Replace(s)
+}
+
+// normalizePaste turns \r\n and lone \r into \n.
+func normalizePaste(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+}
+
+// paste handles a bracketed paste: a large one (a newline or more than
+// pasteMaxRunes runes) is inserted as a placeholder at the cursor. It reports
+// false when the paste should be inserted verbatim.
+func (m Model) paste(k tea.KeyMsg) (Model, bool) {
+	if !k.Paste || m.pastes == nil {
+		return m, false
+	}
+	text := normalizePaste(string(k.Runes))
+	if !strings.Contains(text, "\n") && utf8.RuneCountInString(text) <= pasteMaxRunes {
+		return m, false
+	}
+	m.input.InsertString(m.pastes.add(text))
 	return m, true
 }

@@ -360,3 +360,135 @@ func TestHistoryNoFiles(t *testing.T) {
 		t.Fatalf("files changed:\nbefore %q\nafter  %q", before, after)
 	}
 }
+
+// pasteKey returns the key message of a bracketed paste of text.
+func pasteKey(text string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text), Paste: true}
+}
+
+func pasteInto(m Model, text string) Model {
+	tm, _ := m.Update(pasteKey(text))
+	return tm.(Model)
+}
+
+// pasteSend presses Enter, waits for the turn and returns the content of the
+// last user message the provider received.
+func pasteSend(t *testing.T, m Model, sess *agent.Session, srv *providertest.Server) (Model, string) {
+	t.Helper()
+	before := len(srv.Requests())
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	waitSession(t, sess)
+	m = tm.(Model).Drain()
+	reqs := srv.Requests()
+	if len(reqs) != before+1 {
+		t.Fatalf("requests %d -> %d, want one more", before, len(reqs))
+	}
+	msgs := reqs[len(reqs)-1].Messages
+	last := msgs[len(msgs)-1]
+	if last.Role != "user" {
+		t.Fatalf("last message = %+v, want a user message", last)
+	}
+	return m, last.Content
+}
+
+func TestPasteMultilinePlaceholder(t *testing.T) {
+	m := pasteInto(New(Options{StartDir: "/w"}), "alpha\nbeta\ngamma")
+	if v := m.input.Value(); v != "[Pasted text #1 +3 lines]" {
+		t.Fatalf("input = %q", v)
+	}
+	if v := ansi.Strip(m.View()); strings.Contains(v, "beta") {
+		t.Fatalf("view shows the pasted text:\n%s", v)
+	}
+}
+
+func TestPasteLongSingleLine(t *testing.T) {
+	m := pasteInto(New(Options{StartDir: "/w"}), strings.Repeat("x", 100))
+	if v := m.input.Value(); v != "[Pasted text #1 · 100 chars]" {
+		t.Fatalf("input = %q", v)
+	}
+	if v := ansi.Strip(m.View()); strings.Contains(v, strings.Repeat("x", 20)) {
+		t.Fatalf("view shows the pasted text:\n%s", v)
+	}
+}
+
+func TestPasteShortVerbatim(t *testing.T) {
+	m := pasteInto(New(Options{StartDir: "/w"}), "0123456789")
+	if v := m.input.Value(); v != "0123456789" {
+		t.Fatalf("input = %q", v)
+	}
+	if n := len(m.pastes.texts); n != 0 {
+		t.Fatalf("store holds %d entries", n)
+	}
+}
+
+func TestPasteExpandedOnSend(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	m = typeText(m, "see ").(Model)
+	m = pasteInto(m, "alpha\nbeta\ngamma")
+	if v := m.input.Value(); v != "see [Pasted text #1 +3 lines]" {
+		t.Fatalf("input = %q", v)
+	}
+	m, content := pasteSend(t, m, sess, srv)
+	if !strings.Contains(content, "see alpha\nbeta\ngamma") {
+		t.Fatalf("request content = %q", content)
+	}
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "> see [Pasted text #1 +3 lines]") || strings.Contains(v, "gamma") {
+		t.Fatalf("view:\n%s", v)
+	}
+	m, got := histKey(m, tea.KeyUp)
+	if got != "see [Pasted text #1 +3 lines]" {
+		t.Fatalf("Up: input = %q", got)
+	}
+	// A recalled message is expanded again.
+	if _, content = pasteSend(t, m, sess, srv); !strings.Contains(content, "see alpha\nbeta\ngamma") {
+		t.Fatalf("recalled request content = %q", content)
+	}
+}
+
+func TestPasteEditedSentLiterally(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	m = pasteInto(m, "alpha\nbeta\ngamma")
+	m, _ = histKey(m, tea.KeyBackspace)
+	m = typeText(m, "X").(Model)
+	if v := m.input.Value(); v != "[Pasted text #1 +3 linesX" {
+		t.Fatalf("input = %q", v)
+	}
+	_, content := pasteSend(t, m, sess, srv)
+	if !strings.Contains(content, "[Pasted text #1 +3 linesX") || strings.Contains(content, "beta") {
+		t.Fatalf("request content = %q", content)
+	}
+}
+
+func TestPasteCounter(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	m = pasteInto(m, "a\nb")
+	if v := m.input.Value(); v != "[Pasted text #1 +2 lines]" {
+		t.Fatalf("first paste: input = %q", v)
+	}
+	m.input.Reset()
+	m = pasteInto(m, "c\nd")
+	if v := m.input.Value(); v != "[Pasted text #2 +2 lines]" {
+		t.Fatalf("second paste: input = %q", v)
+	}
+	m = histSend(t, m, sess, "/new")
+	m = pasteInto(m, "e\nf")
+	if v := m.input.Value(); v != "[Pasted text #3 +2 lines]" {
+		t.Fatalf("paste after /new: input = %q", v)
+	}
+}
+
+func TestPasteCRLF(t *testing.T) {
+	srv := suggestServer(t)
+	m, sess := newSessionModel(t, srv)
+	m = pasteInto(m, "a\r\nb")
+	if v := m.input.Value(); v != "[Pasted text #1 +2 lines]" {
+		t.Fatalf("input = %q", v)
+	}
+	if _, content := pasteSend(t, m, sess, srv); !strings.Contains(content, "a\nb") || strings.Contains(content, "\r") {
+		t.Fatalf("request content = %q", content)
+	}
+}
