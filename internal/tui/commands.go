@@ -25,7 +25,7 @@ var slashCommands = map[string]commandFunc{
 	"/model":   cmdModel,
 	"/agents":  cmdAgents,
 	"/init":    notAvailable("/init"),
-	"/compact": notAvailable("/compact"),
+	"/compact": cmdCompact,
 	"/undo":    cmdUndo,
 }
 

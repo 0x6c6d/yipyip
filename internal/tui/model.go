@@ -156,6 +156,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EventMsg:
 		m.apply(msg.Event)
 		return m, m.waitEvent()
+	case compactDoneMsg:
+		m.compactDone(msg.err)
+		return m, nil
 	case tea.KeyMsg, tea.MouseMsg:
 		if k, isKey := msg.(tea.KeyMsg); isKey && len(m.pending) > 0 && k.String() != "ctrl+c" {
 			return m.approvalKey(k)

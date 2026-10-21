@@ -54,7 +54,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T601 | 6 | Undo journal | T405 | opus | done | internal/agent/undo.go (+test); paths re-checked with PathGuard on undo, os.Remove only, busy held during restore |
 | T602 | 6 | /undo command and e2e Undo tests | T601, T503 | sonnet | done | internal/tui/undo.go, e2e/{doc,helpers_test,undo_test}.go; helpers: newEnv, e.submit, path/write/read; /undo removed from TestStubCommands |
 | T603 | 6 | Compaction, manual and automatic | T601 | sonnet | done | internal/agent/compact.go (+test); loop.go collectReply + autoCompact hook; Compact sets cancelTurn/turnDone; summary usage added to totals |
-| T604 | 6 | /compact command and e2e Compact tests | T603, T602 | sonnet | todo | |
+| T604 | 6 | /compact command and e2e Compact tests | T603, T602 | sonnet | done | internal/tui/compact.go (+test), e2e/compact_test.go, e2e helpers: newEnvServer + envOpts; /compact removed from TestStubCommands |
 | T605 | 6 | /init and e2e Init test | T602 | sonnet | todo | |
 | T701 | 7 | Secret audit across all packages | T504, T505, T506, T507, T604, T605 | opus | todo | |
 | T702 | 7 | config.example.json | T202 | haiku | todo | |

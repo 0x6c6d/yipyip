@@ -28,7 +28,19 @@ type env struct {
 // mode) and the TUI model (160x50) on top of it.
 func newEnv(t *testing.T, resps ...providertest.Response) *env {
 	t.Helper()
-	srv := providertest.New(resps...)
+	return newEnvServer(t, providertest.New(resps...), envOpts{contextLimit: 8000})
+}
+
+// envOpts tunes newEnvServer.
+type envOpts struct {
+	contextLimit int    // context limit of the fake model
+	projectJSON  string // content of the start directory's yipyip.json, "" = none
+}
+
+// newEnvServer builds the environment around an already started fake srv
+// (closed on cleanup).
+func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
+	t.Helper()
 	t.Cleanup(srv.Close)
 
 	base, err := filepath.EvalSymlinks(t.TempDir())
@@ -41,9 +53,14 @@ func newEnv(t *testing.T, resps ...providertest.Response) *env {
 			t.Fatal(err)
 		}
 	}
-	cfgJSON := providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", 8000)
+	cfgJSON := providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", o.contextLimit)
 	if err := os.WriteFile(config.GlobalPath(home), []byte(cfgJSON), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if o.projectJSON != "" {
+		if err := os.WriteFile(filepath.Join(dir, config.ProjectFile), []byte(o.projectJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cfg, err := config.Load(home, dir, func(k string) string {
 		if k == "FAKE_KEY" {
