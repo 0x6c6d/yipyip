@@ -84,8 +84,9 @@ colour.
 | `/init` | write or update `AGENTS.md` in the start directory |
 | `/compact` | summarize the conversation to free context |
 | `/undo` | undo the last turn's file changes |
-| `/new` | start a fresh session |
+| `/new` | open a fresh session in a new tab |
 | `/clear` | alias of `/new` |
+| `/sessions [id \| rm id]` | list saved sessions, load one into this tab, or remove one |
 | `/exit` | quit |
 | `/quit` | alias of `/exit` |
 | `/help` | show the command and key help |
@@ -98,9 +99,9 @@ while you type a command (see [Input](#input)).
 - **Suggestions**: typing `/` shows the matching slash command as grey ghost
   text after the cursor. `Tab` or `Right` accepts it. Mode and effort values
   are suggested the same way.
-- **History**: `Up` and `Down` recall earlier inputs. History is kept in
-  memory only (nothing is written to disk), survives `/new` within the same
-  run, and keeps at most 500 entries.
+- **History**: `Up` and `Down` recall earlier inputs. History is kept per tab
+  (see [Tabs](#tabs)) and saved with the tab's session (see [Sessions](#sessions)).
+  It keeps at most 500 entries.
 - **Large pastes**: a long paste is shown as a placeholder such as
   `[Pasted text #1 +40 lines]`. The placeholder stands for the full text, and
   the full text is sent to the model.
@@ -116,8 +117,13 @@ while you type a command (see [Input](#input)).
 | --- | --- |
 | Enter | send the message; while the agent is busy, queue it |
 | Alt+Enter | new line in the input |
+| Shift+Enter | new line in the input, where the terminal sends a distinct sequence for it |
 | Esc | cancel the running turn (queued messages return to the input); deny a pending approval |
 | Shift+Tab | toggle auto/manual mode (auto is the default) |
+| Ctrl+T | open a new tab (see [Tabs](#tabs)) |
+| Ctrl+W | close the current tab (saved first) |
+| Ctrl+Tab / Ctrl+Shift+Tab | next / previous tab |
+| Alt+1 … Alt+8 | jump to tab 1 … 8 |
 | Ctrl+C | twice: quit (the first press cancels the running turn) |
 | Tab / Right | accept a suggestion or complete a command |
 | Up / Down | input history (Up first restores queued messages) |
@@ -188,6 +194,91 @@ the mode. When the row is too wide, the working directory is shortened from the
 left. Row 2 shows the session token totals and context use (`ctx used/limit`,
 or `ctx used` when the limit is unknown). No costs are shown.
 
+## Sessions
+
+A session is a conversation with its input history, queue and token totals.
+Sessions are stored in `<startdir>/.yipyip/sessions/<id>.json`. The id is 12
+hex characters derived from the SHA-256 of the saved content.
+
+- **When saved**: every open tab with a conversation is saved when yip exits
+  (`/exit`, `/quit`, or Ctrl+C twice) and when a tab is closed with `Ctrl+W`.
+  An empty tab saves nothing. A failed save prints
+  `could not save session: <err>` and yip still exits with status 0.
+- **What is stored**: the conversation as the agent holds it, which is already
+  redacted: a resolved secret (an API key or an `{env:NAME}` value) appears as
+  `[redacted]`, never in clear. The file can still hold file contents and
+  command output, so keep it private. `.yipyip/` is in `.gitignore`. API keys
+  are never stored.
+- `yip --resume [id]` (alias `-c`) reopens a saved session. With an id it
+  loads that session. An unknown id prints `unknown session <id>` and exits 1.
+- `yip --resume` with no id opens a picker when stdin is a terminal and at
+  least one session exists: `↑`/`↓` move, `Enter` restores the session, and
+  `Esc` or `q` exits without starting one. Otherwise the start is a fresh
+  session.
+- `/sessions` lists saved sessions, newest first, at most 10 rows, then
+  `… +N more`. `/sessions <id>` loads one into the current tab.
+  `/sessions rm <id>` asks `remove session <id>? y/n` and deletes the file on
+  `y`. The current tab's own session can never be removed.
+
+## Tabs
+
+yip keeps up to 8 sessions open side by side, one per tab. The tab bar is the
+top line: one `N:<title>` segment per tab, with the current tab in bold. A
+tab's title is its first user message.
+
+- Each tab has its own conversation, input history, queue and pasted text. The
+  model, effort and mode are global: a change applies to all tabs.
+- `Ctrl+T` opens a new tab. At 8 tabs the line `tab limit reached` appears
+  instead.
+- `Ctrl+W` closes the current tab. It saves the tab first, then selects the
+  tab on its left, or the one on its right if there is none. Closing the last
+  tab is the same as `/exit`.
+- `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle through the tabs. Many terminals do not
+  send these two keys to programs; `Alt+1` … `Alt+8` jump to a tab and work in
+  every terminal.
+- `/new` (and `/clear`) opens a fresh session in a new tab. The saved file of
+  the old tab is kept.
+- Plain `Tab` (completion) and `Shift+Tab` (mode toggle) are unchanged.
+
+## Questions
+
+The model can ask you a question with its `question` tool. An overlay shows the
+question, up to 6 options and a free-text row. Options are radio buttons, or
+checkboxes when the model allows several answers.
+
+- `↑`/`↓` move the cursor, `Space` selects an option, `Enter` confirms, and
+  `Esc` cancels. A cancelled question reaches the model as `cancelled`.
+- Questions are never approval-gated and work in both modes. The turn waits
+  while the overlay is open.
+
+## Retry
+
+A provider request that fails before the first byte of the response is retried
+automatically: connection resets, dial, TLS or write timeouts, HTTP 429 and
+HTTP 5xx.
+
+- Up to 10 attempts in total, with waits of `1s, 2s, 4s, 8s, 16s, 32s, 60s,
+  60s, 60s`. The status line shows `retrying (n/10) in <wait>` while it waits.
+- Retries go to the same host-restricted connection with the same request.
+- After the first response byte there is no retry. Other 4xx errors (such as a
+  bad request or bad credentials) are not retried.
+
+## Settings defaults
+
+Changing the model, effort or mode in the TUI (`/model`, `/effort`, `/mode`,
+`Shift+Tab`, or a resumed session) writes `default_model`, `effort` and `mode`
+to `~/.config/yipyip/config.json`.
+
+- The file is replaced atomically. Other keys, unknown keys and `{env:NAME}`
+  references are kept as they are. Secrets are never written.
+- A new `yip` starts with the stored values. An invalid stored `effort` or
+  `mode` is ignored.
+- A `yipyip.json` in the start directory still overrides each key it sets.
+- If the write fails, yip prints `could not save settings: <err>`. Nothing else
+  changes.
+- A resumed session's stored model, effort and mode become the current
+  selection.
+
 ## Security
 
 - Network traffic goes only to the provider hosts configured in your config
@@ -199,4 +290,7 @@ or `ctx used` when the limit is unknown). No costs are shown.
   approval. Review commands before approving them, and switch to manual mode
   (`Shift+Tab`) if you want to approve each one.
 - API keys are read only from environment variables. They are never shown in
-  the UI or in errors, and yip writes no logs, history or config files.
+  the UI or in errors, and never written to a file.
+- yip writes no logs. Its only files are the saved sessions in
+  `<startdir>/.yipyip/` (see [Sessions](#sessions)) and the model, effort and
+  mode settings in your user config (see [Settings defaults](#settings-defaults)).

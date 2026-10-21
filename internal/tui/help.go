@@ -19,7 +19,7 @@ var commands = []CommandInfo{
 	{Name: "/compact", Help: "summarize the conversation"},
 	{Name: "/undo", Help: "undo the last turn's file changes"},
 	{Name: "/sessions", Args: "[id | rm id]", Help: "list, load or remove saved sessions"},
-	{Name: "/new", Help: "start a fresh session"},
+	{Name: "/new", Help: "open a fresh session in a new tab"},
 	{Name: "/clear", Help: "alias of /new"},
 	{Name: "/exit", Help: "quit"},
 	{Name: "/quit", Help: "alias of /exit"},
@@ -39,6 +39,10 @@ var keys = []struct{ Key, Help string }{
 	{"Mouse wheel", "scroll 3 lines"},
 	{"Ctrl+Home/Ctrl+End", "scroll to the first/last line (Home/End with an empty input)"},
 	{"Mouse drag", "select text; releasing copies it to the clipboard"},
+	{"Ctrl+T", "new tab (up to 8)"},
+	{"Ctrl+W", "close the tab (saves it first)"},
+	{"Ctrl+Tab/Ctrl+Shift+Tab", "next/previous tab"},
+	{"Alt+1..Alt+8", "switch to tab 1..8"},
 }
 
 // Commands returns the slash commands in display order.

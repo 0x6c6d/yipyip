@@ -313,6 +313,23 @@ func TestResumeHelpMentionsFlag(t *testing.T) {
 	}
 }
 
+func TestHelpFlagListsNewFeatures(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(--help) = %d, want 0 (stderr: %q)", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"--resume", "/sessions"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help output does not contain %q", want)
+		}
+	}
+	if !strings.Contains(strings.ToLower(out), "shift+enter") {
+		t.Errorf("help output does not contain shift+enter (case-insensitive)")
+	}
+}
+
 func TestHelpFlagMentionsShiftEnter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)
