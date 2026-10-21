@@ -77,6 +77,7 @@ func (s *Session) Submit(text string) error {
 	s.turnDone = done
 	gen := s.gen
 	mgr := s.subs
+	s.openTurnRecord() // records len(history) before the user message
 	s.history = append(s.history, provider.Message{Role: "user", Content: text})
 	hist := copyHistory(s.history)
 	s.mu.Unlock()
@@ -220,6 +221,9 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 				}
 				if ok {
 					res = ts.run(ctx, tc.Name, tc.Arguments)
+					if tc.Name == "bash" {
+						s.recordBash(gen, tc.Arguments)
+					}
 				} else {
 					res = tools.Result{Output: DeniedMessage, IsError: true}
 				}

@@ -59,6 +59,9 @@ type Session struct {
 	turnDone         chan struct{} // closed when the running turn ends; nil when idle
 	gen              uint64        // incremented by Reset so a stale turn can detect it
 	subs             *Manager      // subagents of the current generation
+	journal          []*turnRecord // undo journal, one record per turn (memory only)
+
+	jmu sync.Mutex // guards the snapshots and bash lists of the journal records
 }
 
 // NewSession returns a session for opts.StartDir with the defaults: the
@@ -104,10 +107,6 @@ func NewSession(opts Options) (*Session, error) {
 	s.subs = s.newManager(0)
 	return s, nil
 }
-
-// beforeWrite is called by the write tools before a file is modified. The
-// undo task records the file's previous state here.
-func (s *Session) beforeWrite(path string) { _ = path }
 
 // ModelID returns the current model id ("" when none is configured).
 func (s *Session) ModelID() string {
@@ -266,7 +265,8 @@ func (s *Session) Redact(text string) string {
 // Reset starts a new conversation (/new): it cancels a running turn and all
 // subagents, starts a new empty subagent manager (ids restart at a1), re-reads
 // the system prompt, clears the history and token counts, forgets "always"
-// approvals and drops queued events. Model, effort and mode are kept.
+// approvals, clears the undo journal and drops queued events. Model, effort
+// and mode are kept.
 func (s *Session) Reset() {
 	prompt := buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor)
 	s.mu.Lock()
@@ -280,6 +280,7 @@ func (s *Session) Reset() {
 	s.history = []provider.Message{{Role: "system", Content: prompt}}
 	s.tokens = Tokens{}
 	s.lastPromptTokens = 0
+	s.journal = nil
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
