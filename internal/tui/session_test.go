@@ -105,7 +105,7 @@ func TestSendMessageStreams(t *testing.T) {
 	if reqs := srv.Requests(); len(reqs) != 1 {
 		t.Fatalf("requests = %d, want 1", len(reqs))
 	}
-	if !strings.Contains(m.StatusLine(), "fake/m1") || !strings.Contains(m.StatusLine(), "in 100 / out 20 / total 120") {
+	if !strings.Contains(m.StatusLine(), "fake/m1") || !strings.Contains(m.StatusLine(), "in 100 · out 20 · total 120") {
 		t.Errorf("status line = %q", m.StatusLine())
 	}
 }

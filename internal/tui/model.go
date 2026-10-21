@@ -60,7 +60,7 @@ const (
 	defaultWidth  = 80
 	defaultHeight = 24
 	inputRows     = 3 // text rows inside the border
-	statusRows    = 1
+	statusRows    = 2
 	borderRows    = 2
 	borderCols    = 2
 )
@@ -388,5 +388,6 @@ func (m Model) View() string {
 		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(strings.Join(matches, " ")))
 	}
 	vp = m.withPanel(vp)
-	return lipgloss.JoinVertical(lipgloss.Left, vp, box, m.StatusLine())
+	row1, row2 := m.StatusRows()
+	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
 }

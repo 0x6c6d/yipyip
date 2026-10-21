@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func typeText(m tea.Model, s string) tea.Model {
@@ -30,12 +31,17 @@ func TestSkeletonExit(t *testing.T) {
 
 func TestSkeletonStatusLine(t *testing.T) {
 	m := New(Options{StartDir: "/work/dir"})
-	want := "/work/dir · no model · medium · manual · in 0 / out 0 / total 0 · ctx 0"
-	if got := m.StatusLine(); got != want {
-		t.Fatalf("StatusLine() = %q, want %q", got, want)
+	want1 := "/work/dir · no model · medium · manual (shift+tab to toggle)"
+	want2 := "in 0 · out 0 · total 0 · ctx 0"
+	row1, row2 := m.StatusRows()
+	if row1 != want1 || ansi.Strip(row2) != want2 {
+		t.Fatalf("StatusRows() = %q, %q; want %q, %q", row1, row2, want1, want2)
 	}
-	if !strings.Contains(m.View(), want) {
-		t.Fatalf("View() does not contain the status line:\n%s", m.View())
+	if got := m.StatusLine(); got != row1+"\n"+row2 {
+		t.Fatalf("StatusLine() = %q", got)
+	}
+	if v := m.View(); !strings.Contains(v, want1) || !strings.Contains(ansi.Strip(v), want2) {
+		t.Fatalf("View() does not contain the status rows:\n%s", v)
 	}
 	for _, bad := range []string{"cost", "price", "$"} {
 		if strings.Contains(strings.ToLower(m.View()), bad) {
@@ -43,8 +49,9 @@ func TestSkeletonStatusLine(t *testing.T) {
 		}
 	}
 	m2 := New(Options{StartDir: "/x", ModelID: "p/m", Effort: "high", Mode: "auto"})
-	if got := m2.StatusLine(); got != "/x · p/m · high · auto · in 0 / out 0 / total 0 · ctx 0" {
-		t.Fatalf("StatusLine() = %q", got)
+	r1, r2 := m2.StatusRows()
+	if r1 != "/x · p/m · high · auto (shift+tab to toggle)" || ansi.Strip(r2) != want2 {
+		t.Fatalf("StatusRows() = %q, %q", r1, r2)
 	}
 }
 
