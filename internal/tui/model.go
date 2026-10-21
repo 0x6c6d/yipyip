@@ -78,6 +78,7 @@ type Model struct {
 	now       func() time.Time
 	ctrlCAt   time.Time // time of the armed first Ctrl+C; zero when not armed
 	streaming bool      // the last block is an assistant block still receiving deltas
+	picker    picker    // /model picker state
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -149,8 +150,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EventMsg:
 		m.apply(msg.Event)
 		return m, m.waitEvent()
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyMsg, tea.MouseMsg:
+		if k, isKey := msg.(tea.KeyMsg); m.picker.open && !(isKey && k.String() == "ctrl+c") {
+			return m.pickerKey(msg)
+		}
+		if _, isKey := msg.(tea.KeyMsg); !isKey {
+			break
+		}
+		switch msg.(tea.KeyMsg).String() {
 		case "ctrl+c":
 			return m.ctrlC()
 		case "esc":
@@ -329,7 +336,9 @@ func (m Model) View() string {
 		Border(lipgloss.RoundedBorder()).
 		Render(m.input.View())
 	vp := m.viewport.View()
-	if matches := m.completions(); len(matches) > 0 {
+	if m.picker.open {
+		vp = m.overlayPicker(vp)
+	} else if matches := m.completions(); len(matches) > 0 {
 		// The completion line takes the place of the top viewport line.
 		if _, rest, ok := strings.Cut(vp, "\n"); ok {
 			vp = rest

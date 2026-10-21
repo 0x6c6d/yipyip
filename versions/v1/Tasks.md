@@ -47,7 +47,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T501 | 5 | TUI connected to the agent session | T104, T403 | sonnet | done | internal/tui/model.go, cmd/yip/main.go, session_test.go; slashCommands map; events stored raw and redacted at render; EvApproval only a dim line until T505 |
 | T502 | 5 | Status line | T501 | sonnet | done | internal/tui/status.go, status_test.go; TestStatusNoCost ignores the temp start dir string (named after the test) |
 | T503 | 5 | Slash-command dispatcher, completion, Shift+Tab | T502 | sonnet | done | internal/tui/commands.go (+test); slashCommands + runSlash; stubs for /model /agents /init /compact /undo |
-| T504 | 5 | /model picker and direct selection | T503 | sonnet | todo | |
+| T504 | 5 | /model picker and direct selection | T503 | sonnet | done | internal/tui/picker.go (+test); /model removed from TestStubCommands list (no longer a stub) |
 | T505 | 5 | Approval prompt in the TUI | T503 | sonnet | todo | |
 | T506 | 5 | Tool blocks, collapsible results, syntax highlighting | T501 | sonnet | todo | |
 | T507 | 5 | Subagent panel and /agents | T503, T405 | sonnet | todo | |
