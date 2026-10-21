@@ -312,3 +312,14 @@ func TestResumeHelpMentionsFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpFlagMentionsShiftEnter(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(--help) = %d, want 0 (stderr: %q)", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Shift+Enter") {
+		t.Errorf("help output does not contain %q", "Shift+Enter")
+	}
+}
