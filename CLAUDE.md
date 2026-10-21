@@ -8,26 +8,26 @@ yipyip is a terminal UI coding assistant written in Go (Bubble Tea), in the styl
 
 ## Commands
 
-Go 1.27, GNU Make; the module is `yipyip`. Tests run offline against an `httptest` fake provider.
+Go 1.27, GNU Make; the module is `yipyip`. Tests run offline against the `httptest` fake provider in `internal/provider/providertest`.
 
-- Install deps: `go mod download`
-- Test: `go test ./...`
+- Install deps: `go mod download` (only `proxy.golang.org` is contacted)
+- Test all: `go test ./...`; end-to-end only: `go test ./e2e/...`
 - Lint: `gofmt -l .` (must print nothing) and `go vet ./...`
-- Build: `go build ./...` (or `make build`)
+- Build: `make build` (also builds `bin/yip`, with the version from git)
 - Install the binary as `yip` into `$(go env GOBIN)` or `$(go env GOPATH)/bin`: `make install`
-- Combined check, exits 0 only if healthy: `make check` (runs `gofmt -l .` with empty output, `go vet ./...`, `go test ./...`, `go build ./...`)
+- Combined check, exits 0 only if healthy: `make check` (`gofmt -l .` must be empty, `go vet ./...`, `go test ./...`, `go build ./...`)
 
 ## Architecture
 
-Layout (assumption, from the spec's Tech stack):
+- `cmd/yip`: `main`, `--version` / `--help`, start-directory handling, runs the Bubble Tea program
+- `internal/config`: `config.go` loads `~/.config/yipyip/config.json` merged key by key with `yipyip.json`; `env.go` resolves `{env:NAME}`; `redact.go` holds every resolved secret value for redaction
+- `internal/provider`: `client.go` OpenAI-compatible streaming client; `sse.go` own SSE parser; `transport.go` host-restricted HTTP transport (the only place that builds HTTP clients); `providertest/` httptest fake provider used by tests
+- `internal/agent`: `session.go` session state and modes; `loop.go` agent loop; `approval.go` the approval gate shared by main agent and subagents; `subagent.go` subagent manager; `compact.go` compaction; `undo.go` per-turn file journal; `prompt.go` system prompt; `init.go` `/init`
+- `internal/tools`: `registry.go` tool registry; `files.go` `read_file`, `write_file`, `edit_file`; `search.go` `glob` (own `**`) and `grep`; `bash.go` `bash` (the only `os/exec` user); `pathguard.go` start-directory confinement for all file paths
+- `internal/tui`: `model.go` Bubble Tea model and keys; `commands.go` slash-command dispatcher; `help.go` `/help` text; `status.go` status line; `agents.go` subagent panel; `approval.go` approval prompt; `blocks.go` and `highlight.go` conversation rendering
+- `e2e`: end-to-end tests (`/init`, `/compact`, `/undo`, CLI, secrets) against the fake provider
 
-- `cmd/yip`: main, flags (`--version`, `--help`), start-directory handling
-- `internal/config`: loads `~/.config/yipyip/config.json` plus `yipyip.json` override, `{env:NAME}` substitution
-- `internal/provider`: OpenAI-compatible streaming client, own SSE parser, host-restricted HTTP transport
-- `internal/agent`: agent loop, modes and approvals, subagents, compaction, undo
-- `internal/tools`: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, confined to the start directory
-- `internal/tui`: Bubble Tea model, slash commands, status line, subagent panel
-- `e2e`: end-to-end tests (`/init`, `/compact`, `/undo`) against the fake provider
+Security-critical logic lives only in `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go`, `internal/agent/approval.go` and `internal/config/redact.go`; other code calls these and never re-implements them. Non-test code never uses `http.DefaultClient`, `http.DefaultTransport` or `http.Get`/`Post`/`Head`.
 
 ## Delegation workflow: supervise, don't implement
 

@@ -59,7 +59,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T701 | 7 | Secret audit across all packages | T504, T505, T506, T507, T604, T605 | opus | done | 6 leaks fixed: history/summary/user msgs, tool-call args (a command with the literal key runs with [redacted]), split deltas (Redactor.Stream), subagent panic text, NewSession errors, status line; tests TestSecret* in agent, config, e2e |
 | T702 | 7 | config.example.json | T202 | haiku | done | config.example.json, internal/config/example_test.go |
 | T703 | 7 | CLI end to end: install, start dir, startup errors | T501, T702 | sonnet | done | e2e/cli_test.go only; no cmd/yip or Makefile fixes needed; symlinked start dir covered by PathGuard tests not a CLI test |
-| T704 | 7 | Docs: docs/usage.md, README Usage append, CLAUDE.md | T701, T702, T703 | haiku | todo | |
+| T704 | 7 | Docs: docs/usage.md, README Usage append, CLAUDE.md | T701, T702, T703 | haiku | done | docs/usage.md; README.md 11-line ## Usage append, 0 deleted; CLAUDE.md Commands and Architecture updated |
 | T799 | 7 | Global Definition of Done | T704 | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.

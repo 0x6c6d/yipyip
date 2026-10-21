@@ -129,3 +129,14 @@ Layout (assumption): `cmd/yip` (main), `internal/config`, `internal/provider`, `
 - Per-subagent model and effort overrides in the UI
 - Optional sandboxing of the `bash` tool
 - Shell completion and man page
+
+## Usage
+
+Install with `make install`; the binary `yip` goes to `$(go env GOBIN)` or `$(go env GOPATH)/bin` (usually `~/go/bin`, which must be on `PATH`). Run `yip` in a project directory.
+
+- Config: `~/.config/yipyip/config.json`, merged key by key with `yipyip.json` in the start directory. API keys come from environment variables via `{env:NAME}`; see `config.example.json`.
+- Modes: manual (approve `bash`, `write_file`, `edit_file`, `spawn_agent` with `y` / `n` / `a`) or auto; toggle with `Shift+Tab` or `/mode`.
+- Commands: `/model`, `/effort`, `/mode`, `/agents`, `/init`, `/compact`, `/undo`, `/new` (`/clear`), `/exit` (`/quit`), `/help`.
+- Keys: Enter sends, Alt+Enter newline, Esc cancels, Ctrl+C twice quits, Tab completes, Ctrl+O expands tool results, PgUp/PgDn scroll.
+
+Full reference, including configuration fields, subagents, undo, compaction and security notes: [docs/usage.md](docs/usage.md).
