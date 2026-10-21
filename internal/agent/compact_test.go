@@ -114,7 +114,7 @@ func TestCompactKeepsLastTwoTurns(t *testing.T) {
 	if !findEvent(s.PollEvents(), EvInfo, "compacted: 9 messages -> 6") {
 		t.Error("no compacted info event")
 	}
-	if used, _ := s.ContextSize(); used != estimateTokens(messageChars(h)) {
+	if used, _ := s.ContextSize(); used != estimateTokens(historyChars(h)) {
 		t.Errorf("context used = %d", used)
 	}
 }

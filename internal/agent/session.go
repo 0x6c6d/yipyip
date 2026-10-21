@@ -58,6 +58,8 @@ type Session struct {
 	tokens           Tokens
 	lastPromptTokens int
 	busy             bool
+	turnStarted      string        // RFC 3339 start time of the current/last turn ("" before the first)
+	turnInterrupted  bool          // the last turn was cut by the user (Esc or the double Ctrl+C path)
 	cancelTurn       func()        // cancels the running turn; nil when idle
 	turnDone         chan struct{} // closed when the running turn ends; nil when idle
 	gen              uint64        // incremented by Reset so a stale turn can detect it
@@ -251,11 +253,119 @@ func (s *Session) ContextSize() (used, limit int) {
 	return used, limit
 }
 
-// History returns a copy of the conversation; [0] is the system prompt.
-func (s *Session) History() []provider.Message {
+// TurnState returns the state of the running or last turn: active is true
+// while a turn runs, started is the (already finished) turn's start marker
+// ("" when the session never ran a turn), and interrupted is true when the
+// last turn was cut by the user (Esc or the double Ctrl+C path). Per A5 an
+// interrupted turn is exported as finished: active=false, interrupted=true;
+// it is never resumable.
+func (s *Session) TurnState() (active bool, started string, interrupted bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return copyHistory(s.history)
+	return s.busy, s.turnStarted, s.turnInterrupted
+}
+
+// HistoryEntry is one immutable message of the exported conversation: the
+// role and content as sent to the model, with the tool calls the assistant
+// requested and, for role "tool", the ID of the call the result answers.
+type HistoryEntry struct {
+	Role       string // "system" | "user" | "assistant" | "tool"
+	Content    string
+	ToolCalls  []ToolCall
+	ToolCallID string
+}
+
+// ToolCall is one complete function call the model requested, with the
+// arguments as sent to the model (raw JSON text).
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
+}
+
+// History returns the full conversation: the same internal structure the
+// provider request is built from, including every tool call and every tool
+// result, un-redacted (redaction is applied to the view, never to export).
+func (s *Session) History() []HistoryEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return copyHistoryLocked(s.history)
+}
+
+// copyHistoryLocked converts the provider messages into immutable history
+// entries (no slice aliases the provider data).
+func copyHistoryLocked(h []provider.Message) []HistoryEntry {
+	out := make([]HistoryEntry, len(h))
+	for i, m := range h {
+		out[i] = HistoryEntry{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		if m.ToolCalls != nil {
+			out[i].ToolCalls = make([]ToolCall, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				out[i].ToolCalls[j] = ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments}
+			}
+		}
+	}
+	return out
+}
+
+// RestoreHistory installs hist as the conversation, replacing the current one.
+// It is the inverse of History (an interrupted turn is restored as finished:
+// its tool calls keep their recorded results; it is never resumable). The
+// session's own context (undo journal, approvals) is kept.
+func (s *Session) RestoreHistory(hist []HistoryEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(hist) == 0 {
+		s.history = nil
+		return
+	}
+	s.history = make([]provider.Message, len(hist))
+	for i, m := range hist {
+		s.history[i] = provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		if m.ToolCalls != nil {
+			s.history[i].ToolCalls = make([]provider.ToolCall, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				s.history[i].ToolCalls[j] = provider.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments}
+			}
+		}
+	}
+}
+
+// TokenCounts returns the accumulated token counters as (in, out, total).
+func (s *Session) TokenCounts() (in, out, total int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(s.tokens.In), int64(s.tokens.Out), int64(s.tokens.Total)
+}
+
+// LastContextTokens returns the prompt token count of the last request.
+func (s *Session) LastContextTokens() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastPromptTokens
+}
+
+// RestoreTokens installs the token counters and the last context size. It is
+// the inverse of TokenCounts and LastContextTokens combined.
+func (s *Session) RestoreTokens(in, out, total int64, lastContext int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokens = Tokens{In: int(in), Out: int(out), Total: int(total)}
+	s.lastPromptTokens = lastContext
+}
+
+// ModelName returns the current model id as a string ("" when none).
+func (s *Session) ModelName() string { return s.ModelID() }
+
+// RestoreModelEffortMode installs the model, effort and mode in one call. It
+// is the inverse of ModelName, Effort and Mode. An empty model is kept as
+// "no model" (an unknown model id falls back to it on the next request).
+func (s *Session) RestoreModelEffortMode(model, effort string, mode Mode) {
+	s.mu.Lock()
+	s.modelID = model
+	s.effort = effort
+	s.mode = mode
+	s.mu.Unlock()
 }
 
 func copyHistory(h []provider.Message) []provider.Message {
@@ -302,6 +412,8 @@ func (s *Session) Reset() {
 	s.history = []provider.Message{{Role: "system", Content: prompt}}
 	s.tokens = Tokens{}
 	s.lastPromptTokens = 0
+	s.turnStarted = ""
+	s.turnInterrupted = false
 	s.journal = nil
 	s.sessID = newSessionID()
 	s.mu.Unlock()

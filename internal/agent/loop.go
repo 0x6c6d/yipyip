@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"yipyip/internal/provider"
@@ -73,6 +74,8 @@ func (s *Session) Submit(text string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	s.busy = true
+	s.turnStarted = time.Now().UTC().Format(time.RFC3339)
+	s.turnInterrupted = false
 	s.cancelTurn = cancel
 	s.turnDone = done
 	gen := s.gen
@@ -122,6 +125,9 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 		cancel()
 		s.mu.Lock()
 		s.busy = false
+		if ctx.Err() != nil {
+			s.turnInterrupted = true
+		}
 		s.cancelTurn = nil
 		s.turnDone = nil
 		s.mu.Unlock()
