@@ -117,7 +117,7 @@ while you type a command (see [Input](#input)).
 | --- | --- |
 | Enter | send the message; while the agent is busy, queue it |
 | Alt+Enter | new line in the input |
-| Shift+Enter | new line in the input, where the terminal sends a distinct sequence for it |
+| Shift+Enter | new line in the input, in terminals that report modified Enter (yip requests it); Alt+Enter always works |
 | Esc | cancel the running turn (queued messages return to the input); deny a pending approval |
 | Shift+Tab | toggle auto/manual mode (auto is the default) |
 | Ctrl+T | open a new tab (see [Tabs](#tabs)) |
@@ -132,6 +132,9 @@ while you type a command (see [Input](#input)).
 | Mouse wheel | scroll 3 lines |
 | Ctrl+Home / Ctrl+End | scroll to the first/last line (Home/End with an empty input) |
 | Mouse drag | select text; releasing copies it to the clipboard |
+
+Inside tmux, Shift+Enter needs `set -g extended-keys on` in `tmux.conf`;
+otherwise tmux sends a plain Enter. `Alt+Enter` works everywhere.
 
 ### Scrolling and copying
 

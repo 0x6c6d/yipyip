@@ -237,6 +237,9 @@ func (m Model) quit() tea.Cmd {
 
 // Update implements tea.Model. It always returns a tui.Model value.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := keyFromCSI(msg); ok {
+		msg = k // a modified key bubbletea does not know (Shift+Enter)
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)

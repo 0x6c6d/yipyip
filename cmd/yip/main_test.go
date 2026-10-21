@@ -458,3 +458,21 @@ func TestStartupStoredSettingsDoNotWriteConfig(t *testing.T) {
 		t.Errorf("user config changed:\n before %q\n after  %q", before, after)
 	}
 }
+
+func TestKeyReportingRequestedOnlyOnTTY(t *testing.T) {
+	var tty bytes.Buffer
+	restore := enableKeyReporting(&tty, true)
+	if want := "\x1b[>4;1m"; tty.String() != want {
+		t.Fatalf("enable wrote %q, want %q", tty.String(), want)
+	}
+	restore()
+	if want := "\x1b[>4;1m\x1b[>4;0m"; tty.String() != want {
+		t.Fatalf("after restore wrote %q, want %q", tty.String(), want)
+	}
+	var pipe bytes.Buffer
+	restore = enableKeyReporting(&pipe, false)
+	restore()
+	if pipe.Len() != 0 {
+		t.Fatalf("non-tty writer got %q", pipe.String())
+	}
+}
