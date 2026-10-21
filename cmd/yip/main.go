@@ -116,6 +116,7 @@ func runUI(f flags, d deps, stderr io.Writer) int {
 		return 1
 	}
 	opts := newOptions(startDir, sess)
+	applyStoredSettings(&opts, cfg, sess)
 	opts.StdinTTY = d.stdinTTY
 	// Model, effort and mode changes are saved to the user config file.
 	opts.SettingsPath = config.GlobalPath(home)
@@ -183,6 +184,25 @@ func stdinIsTTY() bool {
 func newOptions(startDir string, sess *agent.Session) tui.Options {
 	sess.SetMode(agent.ModeAuto)
 	return tui.Options{StartDir: startDir, Session: sess, Mode: string(agent.ModeAuto)}
+}
+
+// applyStoredSettings applies the "effort" and "mode" keys of the merged
+// config (user config, project yipyip.json on top) to sess and opts, as the
+// /effort and /mode commands would, but without saving or printing anything.
+// A missing or invalid value (wrong type, unknown string) is ignored silently.
+func applyStoredSettings(opts *tui.Options, cfg *config.Config, sess *agent.Session) {
+	if e, ok := cfg.Raw[config.SettingsKeyEffort].(string); ok {
+		if sess.SetEffort(e) == nil {
+			opts.Effort = e
+		}
+	}
+	if m, ok := cfg.Raw[config.SettingsKeyMode].(string); ok {
+		switch agent.Mode(m) {
+		case agent.ModeAuto, agent.ModeManual:
+			sess.SetMode(agent.Mode(m))
+			opts.Mode = m
+		}
+	}
 }
 
 // newModel builds the UI model of a fresh start (see newOptions).

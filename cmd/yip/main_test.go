@@ -323,3 +323,121 @@ func TestHelpFlagMentionsShiftEnter(t *testing.T) {
 		t.Errorf("help output does not contain %q", "Shift+Enter")
 	}
 }
+
+// startupSettingsEnv makes a temp HOME holding userCfg as the user config and
+// a temp start dir holding projectCfg as yipyip.json (when non-empty); both
+// become HOME and the working directory. It returns the user config path.
+func startupSettingsEnv(t *testing.T, userCfg, projectCfg string) string {
+	t.Helper()
+	dir := resumeStartDir(t)
+	home := os.Getenv("HOME")
+	path := config.GlobalPath(home)
+	if err := os.WriteFile(path, []byte(userCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if projectCfg != "" {
+		if err := os.WriteFile(filepath.Join(dir, "yipyip.json"), []byte(projectCfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+// startupResult captures the options and the session state seen at launch.
+type startupResult struct {
+	opts   tui.Options
+	effort string
+	mode   agent.Mode
+	code   int
+	stderr string
+}
+
+func runStartup(t *testing.T) startupResult {
+	t.Helper()
+	var r startupResult
+	var stdout, errb bytes.Buffer
+	r.code = runWith(nil, &stdout, &errb, deps{launch: func(o tui.Options, _ io.Writer) int {
+		r.opts = o
+		if o.Session != nil {
+			r.effort, r.mode = o.Session.Effort(), o.Session.Mode()
+			o.Session.Cancel()
+		}
+		return 0
+	}})
+	r.stderr = errb.String()
+	return r
+}
+
+func TestStartupAppliesStoredSettings(t *testing.T) {
+	startupSettingsEnv(t, `{"provider": {}, "effort": "high", "mode": "manual"}`, "")
+	r := runStartup(t)
+	if r.code != 0 {
+		t.Fatalf("code = %d (stderr %q)", r.code, r.stderr)
+	}
+	if r.effort != "high" || r.opts.Effort != "high" {
+		t.Errorf("effort = %q / options %q, want high", r.effort, r.opts.Effort)
+	}
+	if r.mode != agent.ModeManual || r.opts.Mode != "manual" {
+		t.Errorf("mode = %q / options %q, want manual", r.mode, r.opts.Mode)
+	}
+	m := tui.New(r.opts)
+	if line := ansi.Strip(m.StatusLine()); !strings.Contains(line, "manual") || !strings.Contains(line, "high") {
+		t.Errorf("status line = %q, want manual mode and high effort", line)
+	}
+}
+
+func TestStartupProjectConfigOverridesStoredSettings(t *testing.T) {
+	startupSettingsEnv(t, `{"provider": {}, "mode": "manual", "effort": "low"}`, `{"mode": "auto"}`)
+	r := runStartup(t)
+	if r.code != 0 {
+		t.Fatalf("code = %d (stderr %q)", r.code, r.stderr)
+	}
+	if r.mode != agent.ModeAuto || r.opts.Mode != "auto" {
+		t.Errorf("mode = %q / options %q, want auto (project wins)", r.mode, r.opts.Mode)
+	}
+	if r.effort != "low" {
+		t.Errorf("effort = %q, want low (kept from the user config)", r.effort)
+	}
+}
+
+func TestStartupIgnoresInvalidStoredSettings(t *testing.T) {
+	startupSettingsEnv(t, `{"provider": {}, "effort": "ludicrous", "mode": 7}`, "")
+	r := runStartup(t)
+	if r.code != 0 {
+		t.Fatalf("code = %d (stderr %q)", r.code, r.stderr)
+	}
+	if r.mode != agent.ModeAuto || r.opts.Mode != "auto" {
+		t.Errorf("mode = %q / options %q, want auto", r.mode, r.opts.Mode)
+	}
+	if r.effort != "medium" {
+		t.Errorf("effort = %q, want the default medium", r.effort)
+	}
+	if strings.Contains(r.stderr, "ludicrous") || r.stderr != "" {
+		t.Errorf("stderr = %q, want empty", r.stderr)
+	}
+	for _, bad := range []string{`"effort": ""`, `"mode": "bogus"`} {
+		startupSettingsEnv(t, `{"provider": {}, `+bad+`}`, "")
+		if r := runStartup(t); r.code != 0 || r.mode != agent.ModeAuto || r.effort != "medium" {
+			t.Errorf("%s: code %d, mode %q, effort %q, want defaults", bad, r.code, r.mode, r.effort)
+		}
+	}
+}
+
+func TestStartupStoredSettingsDoNotWriteConfig(t *testing.T) {
+	path := startupSettingsEnv(t, `{"provider": {}, "effort": "high", "mode": "manual"}`, "")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := runStartup(t)
+	if r.code != 0 {
+		t.Fatalf("code = %d (stderr %q)", r.code, r.stderr)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("user config changed:\n before %q\n after  %q", before, after)
+	}
+}
