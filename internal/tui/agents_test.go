@@ -171,18 +171,18 @@ func TestSubagentPanel(t *testing.T) {
 	v := m.View()
 	var line string
 	for _, l := range strings.Split(v, "\n") {
-		if strings.Contains(l, "a1 running") {
+		if strings.Contains(l, "● a1 TASK-SUB") {
 			line = l
 		}
 	}
-	if line == "" || !strings.Contains(line, "TASK-SUB investigate") || !strings.Contains(line, "0 tokens") {
+	if line == "" || !strings.Contains(line, "TASK-SUB investigate") || !strings.Contains(line, "· 0 tokens)") {
 		t.Fatalf("panel line missing or wrong (%q):\n%s", line, v)
 	}
 	if got := len(strings.Split(v, "\n")); got != before {
 		t.Errorf("panel changed the view height: %d -> %d", before, got)
 	}
 	// The panel sits between the conversation and the input box.
-	if strings.LastIndex(v, "a1 running") > strings.LastIndex(v, "╭") {
+	if strings.LastIndex(v, "● a1 TASK-SUB") > strings.LastIndex(v, "╭") {
 		t.Errorf("panel is not above the input:\n%s", v)
 	}
 	if err := sess.CancelSubagent("a1"); err != nil {
@@ -191,7 +191,7 @@ func TestSubagentPanel(t *testing.T) {
 	waitSubStatus(t, sess, "a1", agent.SubCancelled)
 	waitSession(t, sess)
 	m = m.Drain()
-	if v := m.View(); strings.Contains(v, "a1 running") {
+	if v := m.View(); strings.Contains(v, "● a1 TASK-SUB") {
 		t.Errorf("panel still shown after the subagent ended:\n%s", v)
 	}
 }

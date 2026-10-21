@@ -176,3 +176,58 @@ func TestSubagentRealSpawn(t *testing.T) {
 		t.Errorf("separate blocks shown:\n%s", v)
 	}
 }
+
+func TestSubagentPanelFormat(t *testing.T) {
+	withColorProfile(t, termenv.TrueColor)
+	m, clock := subModel(t)
+	info := []agent.SubInfo{{ID: "a1", Task: "check the logs", Status: agent.SubRunning, Tokens: 1200}}
+	m.subInfo = func() []agent.SubInfo { return info }
+	mm, _ := m.Update(subEv(agent.EvSubagent, "a1", "", ""))
+	m = mm.(Model)
+	clock.Advance(14 * time.Second)
+	mm, _ = m.Update(tickMsg(clock.Now()))
+	m = mm.(Model)
+
+	lines := subLines(m)
+	const want = "● a1 check the logs (14s · 1.2k tokens)"
+	idx := -1
+	for i, l := range lines {
+		if strings.Contains(l, want) {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("missing panel line %q:\n%s", want, m.View())
+	}
+	for i, l := range lines {
+		if strings.Contains(l, "╭") && i < idx {
+			t.Errorf("panel line is below the input box:\n%s", m.View())
+		}
+	}
+	raw := m.View()
+	for _, code := range []string{"38;2;215;119;87", "38;5;244"} {
+		var line string
+		for _, l := range strings.Split(raw, "\n") {
+			if strings.Contains(ansi.Strip(l), want) {
+				line = l
+			}
+		}
+		if !strings.Contains(line, code) {
+			t.Errorf("panel line lacks colour %s: %q", code, line)
+		}
+	}
+}
+
+func TestSubagentPanelOnlyRunning(t *testing.T) {
+	m, clock := subModel(t)
+	info := []agent.SubInfo{{ID: "a1", Task: "check the logs", Status: agent.SubDone, Tokens: 1200}}
+	m.subInfo = func() []agent.SubInfo { return info }
+	mm, _ := m.Update(subEv(agent.EvSubagent, "a1", "", ""))
+	m = mm.(Model)
+	clock.Advance(14 * time.Second)
+	mm, _ = m.Update(tickMsg(clock.Now()))
+	m = mm.(Model)
+	if v := ansi.Strip(m.View()); strings.Contains(v, "● a1 check the logs") {
+		t.Errorf("panel line shown for a done subagent:\n%s", v)
+	}
+}

@@ -34,6 +34,11 @@ func (m Model) subagents() []agent.SubInfo {
 	return nil
 }
 
+var (
+	panelDotStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#D77757"))
+	panelTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+)
+
 // panelLines renders one line per running subagent; nil when none runs.
 func (m Model) panelLines() []string {
 	var lines []string
@@ -41,8 +46,14 @@ func (m Model) panelLines() []string {
 		if s.Status != agent.SubRunning {
 			continue
 		}
-		line := fmt.Sprintf("%s running %s %d tokens", s.ID, shortTask(s.Task, taskWidth), s.Tokens)
-		lines = append(lines, lipgloss.NewStyle().MaxWidth(m.width).Render(infoStyle.Render(m.redact(line))))
+		start := m.now()
+		if st, ok := m.subs[s.ID]; ok {
+			start = st.start
+		}
+		rest := m.redact(fmt.Sprintf(" %s %s (%s · %s tokens)", s.ID, shortTask(s.Task, taskWidth),
+			formatElapsed(m.now().Sub(start)), formatTokens(s.Tokens)))
+		line := panelDotStyle.Render("●") + panelTextStyle.Render(rest)
+		lines = append(lines, lipgloss.NewStyle().MaxWidth(m.width).Render(line))
 	}
 	return lines
 }
