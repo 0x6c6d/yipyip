@@ -27,6 +27,19 @@ var errIterationLimit = fmt.Errorf("iteration limit (%d) reached", MaxIterations
 type toolSet struct {
 	defs []provider.ToolDef
 	run  func(ctx context.Context, name, args string) tools.Result
+
+	model string    // model id for the requests; "" = the session's current model
+	sub   *Subagent // non-nil for a subagent: receives its tokens and transcript
+}
+
+// offers reports whether the tool set offers the named tool to the model.
+func (ts toolSet) offers(name string) bool {
+	for _, d := range ts.defs {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // mainTools returns all registry tools.
@@ -63,11 +76,12 @@ func (s *Session) Submit(text string) error {
 	s.cancelTurn = cancel
 	s.turnDone = done
 	gen := s.gen
+	mgr := s.subs
 	s.history = append(s.history, provider.Message{Role: "user", Content: text})
 	hist := copyHistory(s.history)
 	s.mu.Unlock()
 
-	go s.runTurn(ctx, cancel, gen, hist, done)
+	go s.runTurn(ctx, cancel, gen, mgr, hist, done)
 	return nil
 }
 
@@ -98,9 +112,11 @@ func (s *Session) Busy() bool {
 	return s.busy
 }
 
-// runTurn runs one main-agent turn and always ends with EvTurnDone. All of
-// its events are queued before the turn is marked as finished.
-func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, hist []provider.Message, done chan struct{}) {
+// runTurn runs one main-agent turn and always ends with EvTurnDone. The
+// subagents spawned in the turn run under its context: when the turn ends
+// (normally or cancelled) they are cancelled and waited for. All events of the
+// turn and its subagents are queued before the turn is marked as finished.
+func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, mgr *Manager, hist []provider.Message, done chan struct{}) {
 	defer func() {
 		cancel()
 		s.mu.Lock()
@@ -113,6 +129,7 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 	var (
 		newHist []provider.Message
 		err     error
+		spawned = &spawnedSubs{}
 	)
 	func() {
 		defer func() {
@@ -121,7 +138,7 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 				err = fmt.Errorf("internal error: %v", p)
 			}
 		}()
-		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, s.mainTools())
+		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, s.turnTools(mgr, spawned))
 	}()
 	if newHist != nil {
 		s.mu.Lock()
@@ -137,6 +154,8 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 	default:
 		s.emit(Event{Kind: EvError, AgentID: MainAgentID, Text: err.Error()})
 	}
+	cancel()
+	spawned.wait(mgr)
 	s.emit(Event{Kind: EvTurnDone, AgentID: MainAgentID})
 }
 
@@ -152,7 +171,7 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 		}
 	}()
 	out = hist
-	client, m, err := s.newClient()
+	client, m, err := s.clientFor(ts.model)
 	if err != nil {
 		return out, "", err
 	}
@@ -174,27 +193,43 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 			}
 			return out, "", err
 		}
-		s.account(gen, req.Messages, text, calls, usage)
+		total := s.account(gen, agentID, req.Messages, text, calls, usage)
+		if ts.sub != nil {
+			ts.sub.AddTokens(total)
+		}
 		out = append(out, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
 		if len(calls) == 0 {
+			s.subLog(ts.sub, "final: "+text)
 			return out, text, nil
 		}
 		for _, tc := range calls {
 			s.emit(Event{Kind: EvToolCall, AgentID: agentID, Tool: tc.Name, Args: tc.Arguments})
-			ok, err := s.gate.Check(ctx, s.Mode(), agentID, tc.Name, tc.Arguments)
-			if err != nil {
-				return out, "", err
-			}
-			if err := ctx.Err(); err != nil {
-				return out, "", err
-			}
+			s.subLog(ts.sub, "tool "+tc.Name+" "+shortLine(tc.Arguments))
 			var res tools.Result
-			if ok {
-				res = ts.run(ctx, tc.Name, tc.Arguments)
+			if IsGated(tc.Name) && !ts.offers(tc.Name) {
+				// A gated tool this agent is not offered is refused without
+				// asking (e.g. spawn_agent invented by a subagent).
+				res = tools.Result{Output: "tool " + tc.Name + " is not available to this agent", IsError: true}
 			} else {
-				res = tools.Result{Output: DeniedMessage, IsError: true}
+				ok, err := s.gate.Check(ctx, s.Mode(), agentID, tc.Name, tc.Arguments)
+				if err != nil {
+					return out, "", err
+				}
+				if err := ctx.Err(); err != nil {
+					return out, "", err
+				}
+				if ok {
+					res = ts.run(ctx, tc.Name, tc.Arguments)
+				} else {
+					res = tools.Result{Output: DeniedMessage, IsError: true}
+				}
 			}
 			s.emit(Event{Kind: EvToolResult, AgentID: agentID, Tool: tc.Name, Text: res.Output, IsError: res.IsError})
+			if res.IsError {
+				s.subLog(ts.sub, "error: "+shortLine(res.Output))
+			} else {
+				s.subLog(ts.sub, "result: "+shortLine(res.Output))
+			}
 			out = append(out, provider.Message{Role: "tool", Content: res.Output, ToolCallID: tc.ID})
 			if err := ctx.Err(); err != nil {
 				return out, "", err
@@ -233,9 +268,11 @@ func (s *Session) streamReply(ctx context.Context, c *provider.Client, req provi
 	return string(text), calls, usage, err
 }
 
-// account adds the token counts of one response; without reported usage it
-// estimates characters/4. Counts of a stale generation are dropped.
-func (s *Session) account(gen uint64, msgs []provider.Message, text string, calls []provider.ToolCall, usage *provider.Usage) {
+// account adds the token counts of one response of agentID to the session
+// totals and returns the response's total; without reported usage it
+// estimates characters/4. Counts of a stale generation are dropped. Only the
+// main agent's requests set the context size.
+func (s *Session) account(gen uint64, agentID string, msgs []provider.Message, text string, calls []provider.ToolCall, usage *provider.Usage) int {
 	var in, out, total int
 	if usage != nil {
 		in, out, total = usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens
@@ -254,12 +291,15 @@ func (s *Session) account(gen uint64, msgs []provider.Message, text string, call
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.gen != gen {
-		return
+		return total
 	}
 	s.tokens.In += in
 	s.tokens.Out += out
 	s.tokens.Total += total
-	s.lastPromptTokens = in
+	if agentID == MainAgentID {
+		s.lastPromptTokens = in
+	}
+	return total
 }
 
 // messageChars counts the characters of message contents and tool arguments.

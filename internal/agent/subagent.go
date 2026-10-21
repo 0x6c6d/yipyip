@@ -148,10 +148,12 @@ func (m *Manager) execute(ctx context.Context, e *subEntry, a *Subagent, task, m
 	}
 	m.running--
 	info := e.info
-	close(e.done)
 	m.mu.Unlock()
 
+	// Notify before signalling the end, so the final status change has been
+	// reported when Wait returns.
 	m.notify(info)
+	close(e.done)
 }
 
 func (m *Manager) safeRun(ctx context.Context, a *Subagent, task, model string) (final string, panicked bool, err error) {

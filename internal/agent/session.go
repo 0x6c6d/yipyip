@@ -58,6 +58,7 @@ type Session struct {
 	cancelTurn       func()        // cancels the running turn; nil when idle
 	turnDone         chan struct{} // closed when the running turn ends; nil when idle
 	gen              uint64        // incremented by Reset so a stale turn can detect it
+	subs             *Manager      // subagents of the current generation
 }
 
 // NewSession returns a session for opts.StartDir with the defaults: the
@@ -100,6 +101,7 @@ func NewSession(opts Options) (*Session, error) {
 	})
 	s.systemPrompt = buildSystemPrompt(s.startDir, reg.Guard(), cfg.Redactor)
 	s.history = []provider.Message{{Role: "system", Content: s.systemPrompt}}
+	s.subs = s.newManager(0)
 	return s, nil
 }
 
@@ -167,7 +169,16 @@ func (s *Session) currentModel() (config.Provider, config.Model, bool) {
 // newClient returns a provider client for the current model, or an error
 // wrapping ErrNoModel when none is configured.
 func (s *Session) newClient() (*provider.Client, config.Model, error) {
-	p, m, ok := s.currentModel()
+	return s.clientFor("")
+}
+
+// clientFor returns a provider client for model id ("" = the current model),
+// or an error wrapping ErrNoModel when it is not configured.
+func (s *Session) clientFor(id string) (*provider.Client, config.Model, error) {
+	if id == "" {
+		id = s.ModelID()
+	}
+	p, m, ok := s.cfg.Lookup(id)
 	if !ok {
 		return nil, config.Model{}, ErrNoModel
 	}
@@ -252,7 +263,8 @@ func (s *Session) Redact(text string) string {
 	return s.cfg.Redactor.Redact(text)
 }
 
-// Reset starts a new conversation (/new): it cancels a running turn, re-reads
+// Reset starts a new conversation (/new): it cancels a running turn and all
+// subagents, starts a new empty subagent manager (ids restart at a1), re-reads
 // the system prompt, clears the history and token counts, forgets "always"
 // approvals and drops queued events. Model, effort and mode are kept.
 func (s *Session) Reset() {
@@ -260,8 +272,10 @@ func (s *Session) Reset() {
 	s.mu.Lock()
 	cancel := s.cancelTurn
 	done := s.turnDone
+	oldSubs := s.subs
 	s.cancelTurn = nil
 	s.gen++
+	s.subs = s.newManager(s.gen)
 	s.systemPrompt = prompt
 	s.history = []provider.Message{{Role: "system", Content: prompt}}
 	s.tokens = Tokens{}
@@ -270,6 +284,7 @@ func (s *Session) Reset() {
 	if cancel != nil {
 		cancel()
 	}
+	oldSubs.CancelAll()
 	// Wait for the cancelled turn without holding the mutex; its stale
 	// generation keeps it from writing into the new history.
 	if done != nil {
