@@ -7,6 +7,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"yipyip/internal/agent"
+	"yipyip/internal/config"
 )
 
 func TestVersionFlag(t *testing.T) {
@@ -60,5 +65,37 @@ func TestConfigErrorExitCode(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "yipyip.json") {
 		t.Fatalf("stderr = %q, want it to name yipyip.json", stderr.String())
+	}
+}
+
+func TestNewModelStartsAuto(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, dir := filepath.Join(base, "home"), filepath.Join(base, "start")
+	for _, d := range []string{filepath.Dir(config.GlobalPath(home)), dir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(config.GlobalPath(home), []byte(`{"provider": {}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(home, dir, func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: dir})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	t.Cleanup(sess.Cancel)
+	m := newModel(dir, sess)
+	if sess.Mode() != agent.ModeAuto {
+		t.Fatalf("mode = %q, want %q", sess.Mode(), agent.ModeAuto)
+	}
+	if line := ansi.Strip(m.StatusLine()); !strings.Contains(line, "auto (shift+tab to toggle)") {
+		t.Errorf("status line = %q, want it to show auto mode", line)
 	}
 }

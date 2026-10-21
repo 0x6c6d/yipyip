@@ -74,10 +74,17 @@ func runUI(stderr io.Writer) int {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
 	}
-	p := tea.NewProgram(tui.New(tui.Options{StartDir: startDir, Session: sess}), tea.WithAltScreen())
+	p := tea.NewProgram(newModel(startDir, sess), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// newModel switches the session to auto mode, which is the mode yip starts
+// in, and builds the UI model around it.
+func newModel(startDir string, sess *agent.Session) tui.Model {
+	sess.SetMode(agent.ModeAuto)
+	return tui.New(tui.Options{StartDir: startDir, Session: sess, Mode: string(agent.ModeAuto)})
 }
