@@ -23,48 +23,51 @@ appending a `## Usage` section at the end of the file); the "Delegation workflow
 ## Architecture
 Flow: `cmd/yip` → `config.Load` → `tui.New(session)` → `agent.Session.Submit` → `provider` SSE
 events → approval gate → `tools.Registry.Run` → results into history → repeat; `tui` renders events.
-- **cmd/yip**: responsibility: `--version` (`yip <version>`, `-ldflags -X main.version`, default
-  `dev`) and `--help` (usage + slash commands) before any config load; start dir = symlink-resolved
-  `os.Getwd()`; startup errors → stderr + exit 1; talks to: config, agent, tui. (since v1; v2:
-  `SetMode(agent.ModeAuto)` at start, `tea.WithMouseCellMotion()`, `--help` lists new keys)
-- **internal/config**: responsibility: load `~/.config/yipyip/config.json` (missing = empty) and
-  `<startdir>/yipyip.json`, deep-merge objects key by key (non-object values replaced),
-  substitute `{env:NAME}` in every string (unset/empty → error naming `NAME`, exit 1), parse
-  `provider.<id>.options.{baseURL,apiKey}`, `models.<id>.{name,reasoning,limit.context}`,
-  ignore `cost`/`npm`/unknown keys; `default_model`, `max_subagents` (4), `auto_compact` (true);
-  owns the **Redactor** (all resolved secret values → `[redacted]`); talks to: nothing. (since v1)
-- **internal/provider**: responsibility: `Client.Stream(ctx, req) <-chan Event` for
-  `POST <baseURL>/chat/completions` (Bearer key if set, `stream:true`,
-  `stream_options.include_usage:true`, `tools`, `reasoning_effort` unless `reasoning:false`);
-  own SSE parser (`data:` lines, `[DONE]`, tool-call argument accumulation by `index`, usage in
-  final chunk with empty `choices`); HTTP 4xx/5xx and dropped streams become `ErrorEvent`
-  (redacted body excerpt, max 500 chars); **Transport**: the single `http.RoundTripper` used by
-  every client, allowlist of `host:port` from configured baseURLs, `Proxy: nil`, rejects other
-  hosts (also on redirects); `providertest`: scripted `httptest` SSE fake; talks to: config. (v1)
-- **internal/tools**: responsibility: `Registry` with `read_file`, `write_file`, `edit_file`,
-  `glob`, `grep`, `bash` (JSON schemas + `Run(ctx, name, args) Result`); **PathGuard** (resolve
-  against start dir, `EvalSymlinks` of the deepest existing ancestor, reject outside); **Bash
-  runner** (the only `os/exec` call site: `bash -c`, start dir, process group killed on
-  timeout/cancel, combined output, 120 s default / 600 s max, 30,000-char truncation marker, env
-  without the config's `{env:}` variables); pre-write hook for undo; never registers
-  web/fetch/search tools; talks to: config (redactor). (since v1)
-- **internal/agent**: responsibility: `Session` (history, model/effort/mode, token counters,
-  turns), loop (≤50 iterations per turn, per-turn `context.Context` cancelled by Esc),
-  **Approval gate** (manual mode prompts for `bash/write_file/edit_file/spawn_agent`, `y/n/a`,
-  "always" set per tool per session, requests labelled with agent id), **Subagent manager**
-  (`spawn_agent/wait_agent/cancel_agent`, goroutine each, cap `max_subagents`, no nesting,
-  tokens added to session), **Undo journal** (in-memory pre-turn snapshots per turn, incl.
-  subagent writes), compaction (manual + auto at 80% of `limit.context`), `/init` prompt,
-  system prompt (+ `AGENTS.md` of the start dir if present); talks to: provider, tools. (v1)
-- **internal/tui**: responsibility: Bubble Tea `Model` (alt screen, mouse): viewport in Claude
-  Code layout (`>`, `●`, `⎿`, live subagent blocks), chroma fences, bordered textarea (ghost-text
-  suggest, history, paste placeholders, busy-time queue), subagent panel, `Thinking…` line and
-  `Worked for` marker (`Options.Now`), two-row status (cwd · model · effort · mode + hint / tokens ·
-  ctx), wheel/`Ctrl+Home`/`Ctrl+End` scroll, copy-on-select (`clipboard.go`, `Options.Clipboard`),
-  slash commands + `/` completion, model picker, approval prompt, Esc / Shift+Tab / double
-  Ctrl+C; all text passes the redactor; talks to: agent (events → `tea.Msg`). (v1; reworked v2)
-- **e2e**: responsibility: offline tests `Init`, `Compact`, `Undo`, `Secret` via `agent.Session`
-  + tui dispatcher against `providertest` in temp dirs/HOME; talks to: agent, tui. (since v1)
+- **cmd/yip**: `--version` (`yip <version>`, default `dev`) and `--help` (usage + slash commands +
+  keys) before any config load; start dir = symlink-resolved `os.Getwd()`; startup errors → stderr +
+  exit 1; v3 `--resume [id]` (alias `-c`): id reopens that session, no id + TTY → session picker,
+  non-TTY/empty dir → fresh session, unknown id → `unknown session <id>` + exit 1; talks to:
+  config, agent, session, tui. (v1; v2: auto-mode start, mouse, keys; v3: `--resume`)
+- **internal/config**: load `~/.config/yipyip/config.json` (missing = empty) + `<startdir>/
+  yipyip.json` deep-merge key by key, `{env:NAME}` (unset/empty → error naming `NAME`, exit 1),
+  provider/model parsing, `max_subagents` (4), `auto_compact` (true), ignores `cost`/`npm`; owns
+  the **Redactor** (resolved secrets → `[redacted]`); v3 settings write: exactly `model`/
+  `effort`/`mode` into the user config — atomic, every other key preserved (unknown and
+  `{env:NAME}` stay literal), never a resolved secret; talks to: nothing. (v1; v3: settings)
+- **internal/provider**: `Client.Stream(ctx, req) <-chan Event` → `POST <baseURL>/chat/completions`
+  (Bearer key if set, `stream:true`, `include_usage:true`, `tools`, `reasoning_effort` unless
+  `reasoning:false`); own SSE parser; 4xx/5xx + dropped streams → redacted `ErrorEvent`s; v3 retry
+  (client.go only): pre-first-byte failures (dial/TLS/write timeout, reset, 429, 5xx) → up to 10
+  attempts, waits 1,2,4,8,16,32,60,60,60 s, same transport/body/host, `retrying (n/10) in <wait>`
+  event, never after the first SSE byte or on other 4xx; **Transport** (unchanged in v3): the
+  single `http.RoundTripper`, `host:port` allowlist, `Proxy: nil`, rejects other hosts + redirects;
+  `providertest`: scripted `httptest` SSE fake (v3: scriptable reset/429/5xx); talks to: config.
+  (v1; v3: retry)
+- **internal/session** (v3): `Store` at `<startdir>/.yipyip/sessions`, `SessionData` (R29 fields),
+  `Save`/`Load`/`List` (newest first)/`Delete`; atomic temp+`os.Rename`; every path through the
+  `tools` PathGuard (`.yipyip` symlinked outside → refused); `version`≠1 or invalid JSON → error
+  naming the file; unknown fields ignored; imports agent, never the reverse.
+- **internal/tools**: `Registry` (`read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`),
+  **PathGuard** (`EvalSymlinks` of the deepest existing ancestor, reject outside), **Bash runner**
+  (the only `os/exec` site, env without the `{env:}` variables), undo pre-write hook, never
+  registers web/fetch/search; talks to: config (redactor). (v1; unchanged in v3 — `question`
+  lives in `internal/agent`)
+- **internal/agent**: `Session` (history, model/effort/mode, counters, turns) + v3 export
+  accessors / restore setters; loop (≤50 iterations per turn, per-turn ctx, Esc cancels);
+  **Approval gate** (`y/n/a`, "always" per tool per session, id labels); v3 **Question gate**:
+  `question` (auto-approved, never gated) blocks on a TUI-fed reply channel — result: labels
+  joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**, compaction,
+  `/init`, system prompt (+`AGENTS.md`); talks to: provider, tools. (v1; v3: question, restore)
+- **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** — up to 8 sessions, top
+  bar `N:<title>` (current highlighted), per-tab conversation/counters/history/pastes/queue/turn,
+  global model/effort/mode, `Ctrl+T/W/Tab/Shift+Tab`, `Alt+1`–8; Claude Code viewport (chroma,
+  subagent blocks), textarea (suggest, history, pastes, queue), status rows, scroll,
+  copy-on-select; slash commands + v3 `/sessions` (list/load/rm) + save of every open tab on exit;
+  overlays: model picker, approval prompt, v3 resume picker + question overlay, v3 settings
+  persist on selection change; alt+enter + v3 shift+enter newline; text passes the redactor;
+  talks to: agent, session, config (settings). (v1; reworked v2; extended v3)
+- **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`
+  + v3 `Session` (round-trip fidelity), `Question`, `Retry`; talks to: agent, tui. (v1; v3: +3)
 
 ## Commands
 - install: `go mod download`
@@ -97,34 +100,33 @@ example.
   the negative checks itself (`..`/symlink escape, foreign host, unprompted bash, `SECRET123`).
 
 ## Risks & Open Questions
-Non-blocking; tasks touching an item get opus and negative-case verification.
-- C: Transport allowlist compares exact `host:port` of configured baseURLs (default port by
-  scheme), ignores `HTTP(S)_PROXY` (`Proxy: nil`), refuses redirect targets on other hosts; no
-  other `http.Client`/`http.DefaultTransport` use anywhere (grep-checked).
-- C: PathGuard: absolute or relative paths, `EvalSymlinks` on the deepest existing ancestor
-  (new files allowed only if that ancestor is inside), start dir itself symlink-resolved;
-  rejection is an error result to the model, never a panic.
-- C: Secrets: every resolved `{env:}` value is registered with the Redactor and replaced by
-  `[redacted]` in UI text, errors, tool results and HTTP error bodies; these variables are
-  removed from the `bash` child environment; no file yipyip writes contains them.
-- C: No log files, no history/session files, no config writes in v1; only tool-caused writes
-  (`write_file`, `edit_file`, `AGENTS.md` via the agent) touch disk.
-- C: Approvals: "always" (`a`) is per tool, per session, shared by main agent and subagents,
-  reset by `/new`; switching to manual mode re-enables prompts for tools not in that set; the
-  gate is the only path from a tool call to `Registry.Run` for gated tools.
-- C: Undo snapshots are in memory only (lost on exit, unbounded size); undo restores bytes and
-  mode, deletes files created in the turn, never reverts `bash` effects (listed instead).
-- C: `bash` is intentionally unsandboxed; the process group is killed on timeout and on Esc.
-- C: Public interface: config schema, tool names/arguments and slash commands as in README are
-  treated as stable; renaming later is a breaking change.
+Non-blocking; tasks touching an item get opus and negative-case verification. (v3 supersedes the
+Scope deferrals "session persistence" and "config writes".)
+- C: Transport allowlist = exact `host:port` of configured baseURLs, `Proxy: nil`, redirects
+  refused; no other `http.Client`/`http.DefaultTransport` anywhere. PathGuard: `EvalSymlinks` of
+  the deepest existing ancestor; outside paths → error results; the v3 session Store routes every
+  path through it (`.yipyip` symlinked outside → refused).
+- C: Secrets: resolved `{env:}` values → `[redacted]` in UI/errors/tool results/HTTP bodies,
+  stripped from the `bash` child env, in no file yipyip writes — session files and settings
+  writes included (`SECRET123` negatives). No logs; disk writes: tool-caused + session files
+  (`<startdir>/.yipyip/`, `.gitignore`d; save never runs a command) + settings (three keys).
+- C: Approvals: "always" per tool per session, reset by `/new`; the gate is the only path to
+  `Registry.Run` for gated tools; the v3 `question` tool is never gated (asks, not acts). Undo
+  snapshots in memory only; `bash` unsandboxed, process group killed on timeout/Esc.
+- C: Public interface (renaming later is breaking): config schema, tool names/args (v3 adds
+  `question`), slash commands (v3 adds `/sessions`), session file `version` 1, `<id>` = 12 hex
+  chars = 3 bytes of SHA-256 of the file content after the first save.
+- C (v3): session files persist tool results un-redacted (the model must see the same on resume);
+  interrupted turns stored as finished (their tool calls may have written files); queue → draft
+  on resume; live turn markers not persisted or restored.
+- C (v3): retries: 10 attempts, waits doubling 1 s→60 s cap (~4 min worst), pre-first-byte
+  failures only, same host-restricted transport — `transport.go` untouched (no other host ever
+  contacted). Settings write: atomic, key-preserving, `{env:NAME}` literal; failure → one line.
+- C (v3): tabs: model/effort/mode are one global selection; `Ctrl+W` saves then moves to the left
+  neighbour (else right); last-tab close = `/exit`; 8-tab limit.
+- C (v2): start mode `auto` (label + hint never dropped); `atotto/clipboard` (clipboard.go only)
+  is the sole exec besides `bash.go`; history/pastes/queue memory-only except the v3 session file.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter only when the user runs
-  `yip` by hand with a `:free` model; a real host in tests or Makefile fails R18.
-- Deps: bubbles v0.21.1 requires bubbletea v1.3.10 + lipgloss v1.1.0 (verified on the proxy);
-  chroma v2.27.0 needs go ≥ 1.25. No other modules; servers that omit usage or reject
-  `reasoning_effort` yield a chars/4 estimate or a shown HTTP error, never a crash.
+  `yip` by hand with a `:free` model; a real host in tests or Makefile fails R18. Deps: no new
+  modules in v3; servers omitting usage → chars/4 estimate, never a crash.
 - Testability: no teatest; TUI tests drive `Model.Update` and assert on `View()`.
-- C (v2): start mode is `auto` (set in `cmd/yip`; agent constructor stays `manual`): tools run
-  unprompted until the user switches; the mode label + hint is never dropped from the status.
-- C (v2): `atotto/clipboard` (via `internal/tui/clipboard.go` only) is the sole exec besides
-  `bash.go`: fixed `wl-copy`/`xclip`/`xsel`, text on stdin, input is the redacted view text;
-  tests inject the clipboard and never run a tool. History, pastes, queue: memory only.
