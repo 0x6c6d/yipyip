@@ -20,7 +20,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify passes (7 checks) |
 | T101 | 1 | Two-row status area | T000 | sonnet | todo | |
 | T102 | 1 | Mode label colours and key hint | T101 | opus | todo | |
 | T103 | 1 | Auto start mode in cmd/yip | T102 | opus | todo | |
