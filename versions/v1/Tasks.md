@@ -48,7 +48,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T502 | 5 | Status line | T501 | sonnet | done | internal/tui/status.go, status_test.go; TestStatusNoCost ignores the temp start dir string (named after the test) |
 | T503 | 5 | Slash-command dispatcher, completion, Shift+Tab | T502 | sonnet | done | internal/tui/commands.go (+test); slashCommands + runSlash; stubs for /model /agents /init /compact /undo |
 | T504 | 5 | /model picker and direct selection | T503 | sonnet | done | internal/tui/picker.go (+test); /model removed from TestStubCommands list (no longer a stub) |
-| T505 | 5 | Approval prompt in the TUI | T503 | sonnet | todo | |
+| T505 | 5 | Approval prompt in the TUI | T503 | sonnet | done | internal/tui/approval.go (+test); Respond only on user key (y/n/a) or Esc/Ctrl+C deny-all; EvTurnDone drops pending; Ctrl+C deny path and pending hint untested |
 | T506 | 5 | Tool blocks, collapsible results, syntax highlighting | T501 | sonnet | todo | |
 | T507 | 5 | Subagent panel and /agents | T503, T405 | sonnet | todo | |
 | T601 | 6 | Undo journal | T405 | opus | todo | |

@@ -76,9 +76,10 @@ type Model struct {
 	cancel context.CancelFunc
 
 	now       func() time.Time
-	ctrlCAt   time.Time // time of the armed first Ctrl+C; zero when not armed
-	streaming bool      // the last block is an assistant block still receiving deltas
-	picker    picker    // /model picker state
+	ctrlCAt   time.Time                // time of the armed first Ctrl+C; zero when not armed
+	streaming bool                     // the last block is an assistant block still receiving deltas
+	picker    picker                   // /model picker state
+	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -151,6 +152,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apply(msg.Event)
 		return m, m.waitEvent()
 	case tea.KeyMsg, tea.MouseMsg:
+		if k, isKey := msg.(tea.KeyMsg); isKey && len(m.pending) > 0 && k.String() != "ctrl+c" {
+			return m.approvalKey(k)
+		}
 		if k, isKey := msg.(tea.KeyMsg); m.picker.open && !(isKey && k.String() == "ctrl+c") {
 			return m.pickerKey(msg)
 		}
@@ -187,6 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) ctrlC() (tea.Model, tea.Cmd) {
+	m.denyPending()
 	if sess := m.opts.Session; sess != nil && sess.Busy() {
 		sess.Cancel()
 	}
@@ -264,7 +269,7 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(blockPlain, ev.Text)
 	case agent.EvApproval:
 		if ev.Approval != nil {
-			m.add(blockInfo, strings.TrimSpace("approval requested: "+ev.Approval.Tool+" "+ev.Approval.Args))
+			m.enqueueApproval(ev.Approval)
 		}
 	case agent.EvError:
 		m.add(blockError, "error: "+ev.Text)
@@ -276,6 +281,7 @@ func (m *Model) apply(ev agent.Event) {
 		}
 	case agent.EvTurnDone:
 		m.streaming = false
+		m.pending = nil // stale: the turn is over, the gate no longer waits
 	}
 }
 
@@ -336,7 +342,9 @@ func (m Model) View() string {
 		Border(lipgloss.RoundedBorder()).
 		Render(m.input.View())
 	vp := m.viewport.View()
-	if m.picker.open {
+	if len(m.pending) > 0 {
+		vp = m.overlayApproval(vp)
+	} else if m.picker.open {
 		vp = m.overlayPicker(vp)
 	} else if matches := m.completions(); len(matches) > 0 {
 		// The completion line takes the place of the top viewport line.
