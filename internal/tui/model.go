@@ -54,17 +54,6 @@ var (
 	infoStyle  = lipgloss.NewStyle().Faint(true)
 )
 
-// commandFunc handles one slash command; args is the text after the name.
-type commandFunc func(m Model, args string) (Model, tea.Cmd)
-
-// slashCommands is the dispatcher table of the slash commands.
-var slashCommands = map[string]commandFunc{
-	"/exit": cmdQuit,
-	"/quit": cmdQuit,
-}
-
-func cmdQuit(m Model, _ string) (Model, tea.Cmd) { return m, m.quit() }
-
 const (
 	defaultWidth  = 80
 	defaultHeight = 24
@@ -171,6 +160,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			return m.submit()
+		case "shift+tab":
+			m.toggleMode()
+			return m, nil
+		case "tab":
+			if len(m.completions()) > 0 {
+				return m.completeInput(), nil
+			}
 		}
 	}
 
@@ -213,12 +209,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if strings.HasPrefix(text, "/") {
-		name, args, _ := strings.Cut(text, " ")
-		if fn, ok := slashCommands[name]; ok {
-			return fn(m, strings.TrimSpace(args))
-		}
-		m.add(blockInfo, "unknown command: "+name)
-		return m, nil
+		return m.runSlash(text)
 	}
 	m.add(blockPlain, "> "+text)
 	sess := m.opts.Session
@@ -337,5 +328,13 @@ func (m Model) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Render(m.input.View())
-	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), box, m.StatusLine())
+	vp := m.viewport.View()
+	if matches := m.completions(); len(matches) > 0 {
+		// The completion line takes the place of the top viewport line.
+		if _, rest, ok := strings.Cut(vp, "\n"); ok {
+			vp = rest
+		}
+		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(strings.Join(matches, " ")))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, vp, box, m.StatusLine())
 }
