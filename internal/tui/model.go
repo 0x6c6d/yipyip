@@ -44,7 +44,8 @@ const (
 	blockError
 	blockInfo
 	blockTool
-	blockMarker // permanent "Worked for" / "Interrupted after" line
+	blockMarker   // permanent "Worked for" / "Interrupted after" line
+	blockSubagent // live subagent block; text is the subagent id
 )
 
 // block is one entry of the conversation. Text is kept raw and redacted when
@@ -94,6 +95,9 @@ type Model struct {
 	openCalls   int       // main-agent tool calls without a result yet
 	interrupted bool      // the user cancelled the running turn (Esc or first Ctrl+C)
 
+	subs    map[string]*subState   // live subagent blocks by subagent id
+	subInfo func() []agent.SubInfo // test seam for subagents(); nil = Session.Subagents()
+
 	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
 }
 
@@ -129,6 +133,7 @@ func New(opts Options) Model {
 		ctx:      ctx,
 		cancel:   cancel,
 		now:      now,
+		subs:     map[string]*subState{},
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
@@ -171,6 +176,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apply(msg.Event)
 		return m, m.waitEvent()
 	case tickMsg:
+		if m.anySubRunning() {
+			m.refresh() // elapsed times of running subagent blocks
+		}
 		if !m.turnActive {
 			return m, nil
 		}
@@ -306,13 +314,25 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(blockAssistant, ev.Text)
 		m.streaming = true
 	case agent.EvToolCall:
-		if isMainAgent(ev.AgentID) {
-			m.openCalls++
+		if !isMainAgent(ev.AgentID) {
+			m.subToolCall(ev)
+			return
+		}
+		m.openCalls++
+		if ev.Tool == "spawn_agent" {
+			return // shown as the subagent's live block
 		}
 		m.addToolCall(ev)
 	case agent.EvToolResult:
-		if isMainAgent(ev.AgentID) && m.openCalls > 0 {
+		if !isMainAgent(ev.AgentID) {
+			m.ensureSub(ev.AgentID)
+			return
+		}
+		if m.openCalls > 0 {
 			m.openCalls--
+		}
+		if ev.Tool == "spawn_agent" {
+			return
 		}
 		m.addToolResult(ev)
 	case agent.EvApproval:
@@ -324,9 +344,11 @@ func (m *Model) apply(ev agent.Event) {
 	case agent.EvInfo:
 		m.add(blockInfo, ev.Text)
 	case agent.EvSubagent:
-		// Status changes only trigger a re-render: the panel reads
-		// Subagents() live, so nothing is printed into the conversation.
-		m.refresh()
+		if isMainAgent(ev.AgentID) {
+			m.refresh()
+			return
+		}
+		m.subStatusEvent(ev.AgentID)
 	case agent.EvTurnDone:
 		if m.turnActive && isMainAgent(ev.AgentID) {
 			verb := "✻ Worked for "

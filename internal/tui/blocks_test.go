@@ -52,8 +52,9 @@ func TestToolBlockRendered(t *testing.T) {
 		}
 	}
 	m = feed(m, agent.Event{Kind: agent.EvToolCall, AgentID: "sub1", Tool: "glob", Args: `{"pattern":"*"}`})
-	if v := m.View(); !strings.Contains(v, "● [sub1] glob(*)") {
-		t.Fatalf("subagent prefix missing:\n%s", v)
+	// A subagent call shows in its live block, not as a tool block.
+	if v := m.View(); !strings.Contains(v, "● Subagent sub1 (") || !strings.Contains(v, "  ⎿  glob(*)") || strings.Contains(v, "[sub1]") {
+		t.Fatalf("subagent block wrong:\n%s", v)
 	}
 }
 
@@ -191,7 +192,6 @@ func TestRenderToolSummaries(t *testing.T) {
 	cases := []struct{ tool, args, want string }{
 		{"read_file", `{"path":"a.txt"}`, "● read_file(a.txt)"},
 		{"glob", `{"pattern":"**/*.go"}`, "● glob(**/*.go)"},
-		{"spawn_agent", `{"task":"do x"}`, "● spawn_agent(do x)"},
 		{"other", `{"a":1}`, `● other({"a":1})`},
 		{"bash", `{"x":1}`, `● bash({"x":1})`},
 		{"bash", `not json`, `● bash(not json)`},
@@ -204,7 +204,7 @@ func TestRenderToolSummaries(t *testing.T) {
 		}
 	}
 	m := feed(newBlockModel(), agent.Event{Kind: agent.EvToolCall, AgentID: "a1", Tool: "bash", Args: `{"command":"ls"}`})
-	if ls := plainLines(m); !hasLine(ls, "● [a1] bash(ls)") {
+	if ls := plainLines(m); !hasLine(ls, "  ⎿  bash(ls)") {
 		t.Fatalf("missing subagent line:\n%s", strings.Join(ls, "\n"))
 	}
 	long := strings.Repeat("x", 300)

@@ -25,6 +25,9 @@ func shortTask(s string, n int) string {
 
 // subagents returns the session's subagents (nil without a session).
 func (m Model) subagents() []agent.SubInfo {
+	if m.subInfo != nil {
+		return m.subInfo()
+	}
 	if sess := m.opts.Session; sess != nil {
 		return sess.Subagents()
 	}

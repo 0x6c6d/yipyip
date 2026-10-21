@@ -28,7 +28,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Borderless message blocks | T201 | sonnet | done | blocks.go renderBlock, model.go refreshTo, render_test.go |
 | T203 | 2 | Turn clock and Thinking line | T000 | sonnet | done | turn.go, clock_test.go, turn_test.go, model.go Options.Now; one 1ms test poll sleep on provider requests |
 | T204 | 2 | Finished marker | T203 | sonnet | done | model.go blockMarker + interrupted, blocks.go, commands.go /new, turn_test.go |
-| T301 | 3 | Live subagent blocks | T201, T203 | sonnet | todo | |
+| T301 | 3 | Live subagent blocks | T201, T203 | sonnet | done | subagents.go, model.go apply, blocks.go, agents.go subInfo seam, subagents_test.go; tick refreshes running subs |
 | T302 | 3 | Subagent panel format | T301 | haiku | todo | |
 | T401 | 4 | Command autosuggest ghost text | T000 | sonnet | todo | |
 | T402 | 4 | Input history | T000 | opus | todo | |

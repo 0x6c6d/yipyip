@@ -129,6 +129,9 @@ func (m *Model) renderBlock(b block, width int) string {
 	if b.kind == blockTool {
 		return m.renderTool(b.call, width)
 	}
+	if b.kind == blockSubagent {
+		return m.renderSubagent(b.text)
+	}
 	text := m.redact(b.text)
 	switch b.kind {
 	case blockAssistant:
