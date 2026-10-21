@@ -139,6 +139,7 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 				err = fmt.Errorf("internal error: %v", p)
 			}
 		}()
+		hist = s.autoCompact(ctx, gen, hist)
 		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, s.turnTools(mgr, spawned))
 	}()
 	if newHist != nil {
@@ -246,6 +247,14 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 // streamReply sends req and collects the reply, emitting text deltas. It
 // always reads the stream to its end so the producer goroutine finishes.
 func (s *Session) streamReply(ctx context.Context, c *provider.Client, req provider.Request, agentID string) (string, []provider.ToolCall, *provider.Usage, error) {
+	return collectReply(ctx, c, req, func(delta string) {
+		s.emit(Event{Kind: EvText, AgentID: agentID, Text: delta})
+	})
+}
+
+// collectReply sends req and collects the reply, calling onText (when
+// non-nil) for every text delta. It always reads the stream to its end.
+func collectReply(ctx context.Context, c *provider.Client, req provider.Request, onText func(string)) (string, []provider.ToolCall, *provider.Usage, error) {
 	var (
 		text  []byte
 		calls []provider.ToolCall
@@ -256,7 +265,9 @@ func (s *Session) streamReply(ctx context.Context, c *provider.Client, req provi
 		switch ev.Kind {
 		case provider.EventText:
 			text = append(text, ev.Text...)
-			s.emit(Event{Kind: EvText, AgentID: agentID, Text: ev.Text})
+			if onText != nil {
+				onText(ev.Text)
+			}
 		case provider.EventToolCall:
 			calls = append(calls, ev.ToolCall)
 		case provider.EventUsage:
