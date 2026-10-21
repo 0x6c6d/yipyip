@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"yipyip/internal/agent"
 	"yipyip/internal/config"
 	"yipyip/internal/tui"
 )
@@ -68,7 +69,12 @@ func runUI(stderr io.Writer) int {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
 	}
-	p := tea.NewProgram(tui.New(tui.Options{StartDir: startDir, ModelID: cfg.DefaultModel}), tea.WithAltScreen())
+	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
+	if err != nil {
+		fmt.Fprintf(stderr, "yip: %v\n", err)
+		return 1
+	}
+	p := tea.NewProgram(tui.New(tui.Options{StartDir: startDir, Session: sess}), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
