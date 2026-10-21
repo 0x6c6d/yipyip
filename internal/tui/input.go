@@ -1,13 +1,18 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"yipyip/internal/agent"
 )
 
 var ghostStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
@@ -233,4 +238,100 @@ func (m Model) paste(k tea.KeyMsg) (Model, bool) {
 	}
 	m.input.InsertString(m.pastes.add(text))
 	return m, true
+}
+
+// busyLine is the info line shown when a message cannot be sent because a
+// turn is still running.
+const busyLine = "busy: press Esc to cancel the running turn"
+
+// maxQueueLines is the number of queued messages shown above the input box.
+const maxQueueLines = 5
+
+// busy reports whether a turn is running: messages typed now are queued.
+func (m Model) busy() bool {
+	return m.turnActive || (m.opts.Session != nil && m.opts.Session.Busy())
+}
+
+// enqueue appends a message (already trimmed) to the queue sent at the end of
+// the running turn. The slice is copied so Model value copies never share it.
+func (m *Model) enqueue(text string) {
+	m.queue = append(slices.Clone(m.queue), text)
+}
+
+// queueLines renders the queue block: one line per queued message, at most
+// maxQueueLines of them, then "… +N more"; nil while the queue is empty.
+func (m Model) queueLines() []string {
+	var lines []string
+	for i, q := range m.queue {
+		if i == maxQueueLines {
+			lines = append(lines, fmt.Sprintf("… +%d more", len(m.queue)-maxQueueLines))
+			break
+		}
+		first, _, multi := strings.Cut(m.redact(q), "\n")
+		if multi {
+			first += "…"
+		}
+		lines = append(lines, "> "+first)
+	}
+	for i, l := range lines {
+		lines[i] = lipgloss.NewStyle().MaxWidth(m.width).Render(ghostStyle.Render(l))
+	}
+	return lines
+}
+
+// withQueue puts the queue block below the viewport view vp (and its panel
+// and busy line). It takes its lines from the top of the viewport area
+// (keeping at least one line), so the total height does not change.
+func (m Model) withQueue(vp string) string {
+	rows := m.queueLines()
+	if len(rows) == 0 {
+		return vp
+	}
+	lines := strings.Split(vp, "\n")
+	if room := max(len(lines)-1, 0); len(rows) > room {
+		rows = rows[len(rows)-room:]
+	}
+	lines = lines[min(len(rows), len(lines)):]
+	return strings.Join(append(lines, rows...), "\n")
+}
+
+// sendQueue submits the queued messages as one new turn (joined by "\n",
+// placeholders expanded), adds one user block per message and starts the turn
+// clock. On an error the queue is kept for the next turn end.
+func (m *Model) sendQueue() tea.Cmd {
+	sess := m.opts.Session
+	if len(m.queue) == 0 || sess == nil {
+		return nil
+	}
+	if sess.Busy() {
+		awaitIdle(sess)
+	}
+	switch err := sess.Submit(m.pastes.expand(strings.Join(m.queue, "\n"))); {
+	case err == nil:
+	case errors.Is(err, agent.ErrBusy):
+		m.add(blockInfo, busyLine)
+		return nil
+	default:
+		m.add(blockError, "error: "+err.Error())
+		return nil
+	}
+	start := len(m.blocks)
+	for _, q := range m.queue {
+		m.add(blockPlain, "> "+q)
+	}
+	m.queue = nil
+	m.pushTurnStart(start)
+	return m.startTurn()
+}
+
+// awaitIdle waits briefly for the session to mark its finished turn as done:
+// the turn-done event is emitted just before the session clears its busy
+// flag. It gives up after a second (another turn may be running).
+func awaitIdle(sess *agent.Session) {
+	done := make(chan struct{})
+	go func() { sess.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
 }

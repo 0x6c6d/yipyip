@@ -33,7 +33,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T401 | 4 | Command autosuggest ghost text | T000 | sonnet | done | input.go, input_test.go, model.go; Tab on a bare command name keeps v1 longest-common-prefix (TestCompletion), Tab accepts ghost after a space; Right always accepts |
 | T402 | 4 | Input history | T000 | opus | done | input.go inputHistory, model.go hist + Up/Down, input_test.go; memory only, no-files test |
 | T403 | 4 | Collapsed paste placeholders | T402 | opus | done | input.go pasteStore, model.go paste + expand in Command, input_test.go |
-| T501 | 5 | Queue messages while busy | T204, T402, T403 | opus | todo | |
+| T501 | 5 | Queue messages while busy | T204, T402, T403 | opus | done | input.go queue, model.go submit/apply/View, queue_test.go; awaitIdle (<=1s) before Submit at turn end covers EvTurnDone-before-idle race |
 | T502 | 5 | Restore queued messages into the input | T501 | opus | todo | |
 | T601 | 6 | Mouse wheel and key scrolling | T000 | sonnet | todo | |
 | T602 | 6 | Clipboard writer | T000 | opus | todo | |

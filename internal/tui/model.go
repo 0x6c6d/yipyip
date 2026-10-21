@@ -102,6 +102,8 @@ type Model struct {
 
 	hist   *inputHistory // submitted inputs for Up/Down recall, shared by all copies
 	pastes *pasteStore   // paste placeholders and their full texts, shared by all copies
+
+	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -178,8 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case EventMsg:
-		m.apply(msg.Event)
-		return m, m.waitEvent()
+		cmd := m.apply(msg.Event)
+		return m, tea.Batch(cmd, m.waitEvent())
 	case tickMsg:
 		if m.anySubRunning() {
 			m.refresh() // elapsed times of running subagent blocks
@@ -285,6 +287,10 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if m.hist != nil {
 		m.hist.push(text)
 	}
+	if !strings.HasPrefix(text, "/") && m.busy() {
+		m.enqueue(text)
+		return m, nil
+	}
 	return m.Command(text)
 }
 
@@ -312,14 +318,15 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	case errors.Is(err, agent.ErrNoModel):
 		m.add(blockInfo, "no model configured")
 	case errors.Is(err, agent.ErrBusy):
-		m.add(blockInfo, "busy: press Esc to cancel the running turn")
+		m.add(blockInfo, busyLine)
 	default:
 		m.add(blockError, "error: "+err.Error())
 	}
 	return m, nil
 }
 
-// Drain applies all queued session events without blocking.
+// Drain applies all queued session events without blocking. Commands returned
+// by them (the tick of a turn started from the message queue) are dropped.
 func (m Model) Drain() Model {
 	if m.opts.Session == nil {
 		return m
@@ -330,37 +337,38 @@ func (m Model) Drain() Model {
 	return m
 }
 
-// apply renders one session event.
-func (m *Model) apply(ev agent.Event) {
+// apply renders one session event. It returns the tick command of a turn
+// started from the message queue at the end of the previous one, else nil.
+func (m *Model) apply(ev agent.Event) tea.Cmd {
 	switch ev.Kind {
 	case agent.EvText:
 		if m.streaming && len(m.blocks) > 0 {
 			m.blocks[len(m.blocks)-1].text += ev.Text
 			m.refresh()
-			return
+			return nil
 		}
 		m.add(blockAssistant, ev.Text)
 		m.streaming = true
 	case agent.EvToolCall:
 		if !isMainAgent(ev.AgentID) {
 			m.subToolCall(ev)
-			return
+			return nil
 		}
 		m.openCalls++
 		if ev.Tool == "spawn_agent" {
-			return // shown as the subagent's live block
+			return nil // shown as the subagent's live block
 		}
 		m.addToolCall(ev)
 	case agent.EvToolResult:
 		if !isMainAgent(ev.AgentID) {
 			m.ensureSub(ev.AgentID)
-			return
+			return nil
 		}
 		if m.openCalls > 0 {
 			m.openCalls--
 		}
 		if ev.Tool == "spawn_agent" {
-			return
+			return nil
 		}
 		m.addToolResult(ev)
 	case agent.EvApproval:
@@ -374,7 +382,7 @@ func (m *Model) apply(ev agent.Event) {
 	case agent.EvSubagent:
 		if isMainAgent(ev.AgentID) {
 			m.refresh()
-			return
+			return nil
 		}
 		m.subStatusEvent(ev.AgentID)
 	case agent.EvTurnDone:
@@ -385,13 +393,18 @@ func (m *Model) apply(ev agent.Event) {
 			}
 			m.add(blockMarker, verb+formatElapsed(m.now().Sub(m.turnStart)))
 		}
+		interrupted := m.interrupted
 		m.turnActive = false
 		m.interrupted = false
 		m.openCalls = 0
 		m.streaming = false
 		m.closeToolCalls()
 		m.pending = nil // stale: the turn is over, the gate no longer waits
+		if isMainAgent(ev.AgentID) && !interrupted {
+			return m.sendQueue()
+		}
 	}
+	return nil
 }
 
 // add appends a block of the given kind and ends any streaming assistant block.
@@ -466,6 +479,7 @@ func (m Model) View() string {
 	}
 	vp = m.withPanel(vp)
 	vp = m.withThinking(vp)
+	vp = m.withQueue(vp)
 	row1, row2 := m.StatusRows()
 	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
 }
