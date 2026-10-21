@@ -200,8 +200,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k, isKey := msg.(tea.KeyMsg); m.picker.open && !(isKey && k.String() == "ctrl+c") {
 			return m.pickerKey(msg)
 		}
-		if _, isKey := msg.(tea.KeyMsg); !isKey {
-			break
+		if mm, isMouse := msg.(tea.MouseMsg); isMouse {
+			return m.mouse(mm)
 		}
 		if nm, ok := m.paste(msg.(tea.KeyMsg)); ok {
 			return nm, nil
@@ -228,6 +228,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
+		case "ctrl+home":
+			m.viewport.GotoTop()
+			return m, nil
+		case "ctrl+end":
+			m.viewport.GotoBottom()
+			return m, nil
+		case "home":
+			if m.input.Value() == "" {
+				m.viewport.GotoTop()
+				return m, nil
+			}
+		case "end":
+			if m.input.Value() == "" {
+				m.viewport.GotoBottom()
+				return m, nil
+			}
 		case "shift+tab":
 			m.toggleMode()
 			return m, nil
@@ -260,10 +276,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if _, isMouse := msg.(tea.MouseMsg); isMouse {
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-	}
 	// Only PgUp/PgDn (handled above) scroll the viewport: its other default
 	// keys (space, f, b, j, k, ...) are ordinary typing here.
 	m.input, cmd = m.input.Update(msg)

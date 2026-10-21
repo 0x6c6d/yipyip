@@ -74,7 +74,7 @@ func runUI(stderr io.Writer) int {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
 	}
-	p := tea.NewProgram(newModel(startDir, sess), tea.WithAltScreen())
+	p := tea.NewProgram(newModel(startDir, sess), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
