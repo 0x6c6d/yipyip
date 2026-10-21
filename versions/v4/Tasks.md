@@ -29,6 +29,17 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Skill run: built-in wins, redaction, warnings | T102, T201 | opus | todo | |
 | T203 | 2 | /skills command and / suggestions | T202 | opus | todo | |
 | T204 | 2 | e2e TestSkillE2E | T203 | sonnet | todo | |
+| T301 | 3 | Jev config block (defaults, route validation) | T000 | opus | todo | |
+| T302 | 3 | Fake System One endpoint in providertest | T000 | sonnet | todo | |
+| T303 | 3 | Jev client (internal/provider/jev.go) | T302 | opus | todo | |
+| T304 | 3 | Jev host in the allowlist; session jev client | T301, T303 | opus | todo | |
+| T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | todo | |
+| T402 | 4 | Jev answers single-choice questions | T401 | opus | todo | |
+| T403 | 4 | Jev turn routing (easy/hard per turn) | T401 | opus | todo | |
+| T404 | 4 | Risk-screen hook in the approval gate | T000 | opus | todo | |
+| T405 | 4 | Jev risk screen wired into the session | T401, T404 | opus | todo | |
+| T406 | 4 | /jev command, /jev stats and status line | T402, T403 | sonnet | todo | |
+| T407 | 4 | e2e TestJevE2E | T402, T403, T405, T406 | sonnet | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
@@ -49,3 +60,4 @@ Run with the `loop-coding` skill (`/loop-coding v4`). The authoritative procedur
 ## Changelog
 
 - 2026-10-22: batch 1 of 3 generated (phases 0–2: T000, T101–T102, T201–T204). Phases 3–4 and 5–6 follow as later batches appended to this table.
+- 2026-10-22: batch 2 of 3 generated (phases 3–4: T301–T304, T401–T407); rows appended after T204, earlier rows unchanged. Phases 5–6 follow as batch 3.
