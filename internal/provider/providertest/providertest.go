@@ -41,6 +41,7 @@ type Message struct {
 // Request is a recorded request.
 type Request struct {
 	Method, Path           string
+	Host                   string // Host the request was addressed to (host:port)
 	Header                 http.Header
 	Body                   []byte
 	JSON                   map[string]any // decoded body (nil if not JSON)
@@ -153,7 +154,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeRequest(r *http.Request, body []byte) Request {
-	req := Request{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: body}
+	req := Request{Method: r.Method, Path: r.URL.Path, Host: r.Host, Header: r.Header.Clone(), Body: body}
 	var m map[string]any
 	if json.Unmarshal(body, &m) != nil || m == nil {
 		return req

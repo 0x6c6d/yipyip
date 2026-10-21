@@ -50,7 +50,10 @@ func lastErr(t *testing.T, evs []provider.Event) error {
 
 func TestHTTP500(t *testing.T) {
 	body := "internal\n\n   server\t error " + strings.Repeat("x", 600)
-	srv := providertest.New(providertest.Response{Status: 500, Body: body})
+	// 5xx is retried: every attempt fails, the last error is reported.
+	srv := providertest.NewFunc(func(int, providertest.Request) providertest.Response {
+		return providertest.Response{Status: 500, Body: body}
+	})
 	defer srv.Close()
 
 	err := lastErr(t, collect(t, clientFor(t, srv.URL, nil).Stream(context.Background(), userReq())))
@@ -63,7 +66,9 @@ func TestHTTP500(t *testing.T) {
 	}
 
 	// Empty body: just the status.
-	srv2 := providertest.New(providertest.Response{Status: 502})
+	srv2 := providertest.NewFunc(func(int, providertest.Request) providertest.Response {
+		return providertest.Response{Status: 502}
+	})
 	defer srv2.Close()
 	if msg := lastErr(t, collect(t, clientFor(t, srv2.URL, nil).Stream(context.Background(), userReq()))).Error(); msg != "HTTP 502" {
 		t.Errorf("empty body message = %q", msg)

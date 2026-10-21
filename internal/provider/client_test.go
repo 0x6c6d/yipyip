@@ -237,11 +237,11 @@ func TestUsageParsing(t *testing.T) {
 		t.Errorf("last = %+v", d)
 	}
 
-	// No usage chunk: no EventUsage; non-2xx: single EventError.
-	srv2 := providertest.New(providertest.Response{Status: 500, Body: "boom"})
+	// No usage chunk: no EventUsage; non-retryable non-2xx: single EventError.
+	srv2 := providertest.New(providertest.Response{Status: 400, Body: "boom"})
 	defer srv2.Close()
 	evs = collect(t, newTestClient(t, srv2, "").Stream(context.Background(), userReq()))
-	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err.Error() != "HTTP 500: boom" {
+	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err.Error() != "HTTP 400: boom" {
 		t.Errorf("error events = %+v", evs)
 	}
 }

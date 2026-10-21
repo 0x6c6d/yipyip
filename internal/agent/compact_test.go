@@ -180,7 +180,7 @@ func TestCompactNothing(t *testing.T) {
 func TestCompactErrorKeepsHistory(t *testing.T) {
 	srv := providertest.NewFunc(func(n int, req providertest.Request) providertest.Response {
 		if isSummaryReq(req) {
-			return fakeResp{Status: 500, Body: "boom"}
+			return fakeResp{Status: 400, Body: "boom"}
 		}
 		return fakeResp{Text: "answer"}
 	})
@@ -324,7 +324,7 @@ func TestAutoCompactNothingToCompactContinues(t *testing.T) {
 func TestAutoCompactFailureContinues(t *testing.T) {
 	srv := providertest.NewFunc(func(n int, req providertest.Request) providertest.Response {
 		if isSummaryReq(req) {
-			return fakeResp{Status: 500, Body: "boom"}
+			return fakeResp{Status: 400, Body: "boom"}
 		}
 		return fakeResp{Text: "answer", Usage: &fakeUsage{Prompt: 900, Completion: 1}}
 	})

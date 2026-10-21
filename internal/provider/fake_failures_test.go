@@ -20,10 +20,9 @@ func streamedText(evs []provider.Event) string {
 	return s
 }
 
-// scriptedAttempts drives n attempts (one Stream call each, same request) at a
-// fake that fails the first fails attempts in mode, then streams "the answer".
-// It asserts that every failed attempt ends in an error event, that the
-// attempt after the failures streams the answer, and that every attempt was
+// scriptedAttempts drives one Stream call at a fake that fails the first
+// fails attempts in mode, then streams "the answer". The client retries the
+// failures itself: the call streams the answer, and every attempt was
 // recorded with an identical body.
 func scriptedAttempts(t *testing.T, mode providertest.FailMode, fails int) {
 	t.Helper()
@@ -31,9 +30,6 @@ func scriptedAttempts(t *testing.T, mode providertest.FailMode, fails int) {
 	defer srv.Close()
 	c := newTestClient(t, srv, "SECRET123")
 
-	for i := 0; i < fails; i++ {
-		lastErr(t, collect(t, c.Stream(context.Background(), userReq())))
-	}
 	evs := collect(t, c.Stream(context.Background(), userReq()))
 	if last := evs[len(evs)-1]; last.Kind != provider.EventDone {
 		t.Fatalf("last event = %+v, want EventDone", last)
@@ -53,43 +49,40 @@ func scriptedAttempts(t *testing.T, mode providertest.FailMode, fails int) {
 	}
 }
 
+// exhaustedAttempts streams once at a fake that always fails in mode: the
+// client gives up after provider.MaxAttempts attempts with an error event.
+func exhaustedAttempts(t *testing.T, f providertest.Failures) error {
+	t.Helper()
+	f.Count = 100
+	srv := providertest.NewWithFailures(f)
+	defer srv.Close()
+	err := lastErr(t, collect(t, newTestClient(t, srv, "SECRET123").Stream(context.Background(), userReq())))
+	if n := len(srv.Requests()); n != provider.MaxAttempts {
+		t.Fatalf("recorded %d requests, want %d", n, provider.MaxAttempts)
+	}
+	return err
+}
+
 func TestFakeConnectionResetScripted(t *testing.T) {
 	scriptedAttempts(t, providertest.FailReset, 9)
-
-	// The current client makes a single attempt: it ends in an error event.
-	srv := providertest.NewWithFailures(providertest.Failures{Mode: providertest.FailReset, Count: 9})
-	defer srv.Close()
-	lastErr(t, collect(t, newTestClient(t, srv, "SECRET123").Stream(context.Background(), userReq())))
-	if n := len(srv.Requests()); n < 1 || n > 9 {
-		t.Fatalf("recorded %d requests", n)
-	}
+	exhaustedAttempts(t, providertest.Failures{Mode: providertest.FailReset})
 }
 
 func TestFake429Scripted(t *testing.T) {
 	scriptedAttempts(t, providertest.Fail429, 9)
 
-	srv := providertest.NewWithFailures(providertest.Failures{Mode: providertest.Fail429, Count: 9, RetryAfter: "1"})
-	defer srv.Close()
-	err := lastErr(t, collect(t, newTestClient(t, srv, "SECRET123").Stream(context.Background(), userReq())))
+	err := exhaustedAttempts(t, providertest.Failures{Mode: providertest.Fail429, RetryAfter: "1"})
 	if got := err.Error(); len(got) < 8 || got[:8] != "HTTP 429" {
 		t.Fatalf("error = %q", got)
-	}
-	if n := len(srv.Requests()); n != 1 {
-		t.Fatalf("recorded %d requests, want 1 (client does not retry yet)", n)
 	}
 }
 
 func TestFake503Scripted(t *testing.T) {
 	scriptedAttempts(t, providertest.Fail503, 9)
 
-	srv := providertest.NewWithFailures(providertest.Failures{Mode: providertest.Fail503, Count: 9})
-	defer srv.Close()
-	err := lastErr(t, collect(t, newTestClient(t, srv, "SECRET123").Stream(context.Background(), userReq())))
+	err := exhaustedAttempts(t, providertest.Failures{Mode: providertest.Fail503})
 	if got := err.Error(); len(got) < 8 || got[:8] != "HTTP 503" {
 		t.Fatalf("error = %q", got)
-	}
-	if n := len(srv.Requests()); n != 1 {
-		t.Fatalf("recorded %d requests, want 1 (client does not retry yet)", n)
 	}
 }
 
@@ -97,11 +90,9 @@ func TestFakeRecordsEachAttempt(t *testing.T) {
 	srv := providertest.NewWithFailures(providertest.Failures{Mode: providertest.Fail503, Count: 2})
 	defer srv.Close()
 	c := newTestClient(t, srv, "SECRET123")
-	for i := 0; i < 3; i++ {
-		evs := collect(t, c.Stream(context.Background(), userReq()))
-		if ok := evs[len(evs)-1].Kind == provider.EventDone; ok != (i == 2) {
-			t.Fatalf("attempt %d: done=%v", i, ok)
-		}
+	evs := collect(t, c.Stream(context.Background(), userReq()))
+	if last := evs[len(evs)-1]; last.Kind != provider.EventDone {
+		t.Fatalf("last event = %+v, want EventDone", last)
 	}
 	reqs := srv.Requests()
 	if len(reqs) != 3 {

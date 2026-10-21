@@ -295,11 +295,12 @@ func TestTokenEstimate(t *testing.T) {
 }
 
 func TestProviderErrorShown(t *testing.T) {
-	srv := providertest.New(fakeResp{Status: 500, Body: "boom SECRET123"}, fakeResp{Text: "recovered"})
+	// A 4xx is final (5xx would be retried by the client).
+	srv := providertest.New(fakeResp{Status: 400, Body: "boom SECRET123"}, fakeResp{Text: "recovered"})
 	defer srv.Close()
 	s, _ := newLoopSession(t, srv)
 	evs := submitAndWait(t, s, "first")
-	if !findEvent(evs, EvError, "500") {
+	if !findEvent(evs, EvError, "400") {
 		t.Fatalf("error not shown: %+v", evs)
 	}
 	for _, ev := range evs {

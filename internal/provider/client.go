@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -53,6 +55,9 @@ const (
 	EventUsage
 	EventDone
 	EventError
+	// EventRetry is a non-final status event: an attempt failed before the
+	// first SSE byte and the request is sent again after Retry.Wait.
+	EventRetry
 )
 
 // Event is one item of a streamed response.
@@ -62,6 +67,49 @@ type Event struct {
 	ToolCall ToolCall // EventToolCall (complete call)
 	Usage    Usage    // EventUsage
 	Err      error    // EventError
+	Retry    Retry    // EventRetry
+}
+
+// Retry describes one scheduled retry ("retrying (Attempt/Max) in Wait").
+type Retry struct {
+	Attempt int           // number of the coming attempt, 2..MaxAttempts
+	Max     int           // MaxAttempts
+	Wait    time.Duration // wait before that attempt
+	Reason  string        // redacted text of the failure that caused it
+}
+
+// MaxAttempts is the total number of attempts for a request whose attempts
+// fail before the first SSE byte with a retryable error.
+const MaxAttempts = 10
+
+// retryDelays[i] is the wait after the (i+1)-th failed attempt.
+var retryDelays = [MaxAttempts - 1]time.Duration{
+	1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
+	16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second,
+}
+
+// retryDelay returns the wait after failed attempt n (1-based).
+func retryDelay(n int) time.Duration {
+	if n < 1 {
+		n = 1
+	}
+	if n > len(retryDelays) {
+		n = len(retryDelays)
+	}
+	return retryDelays[n-1]
+}
+
+// retryWait waits d or until ctx ends, whichever is first; it returns ctx's
+// error when ctx ended. Tests replace it so that they never sleep.
+var retryWait = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Client is a streaming client for one OpenAI-compatible endpoint.
@@ -267,16 +315,91 @@ func (c *Client) httpError(resp *http.Response) error {
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, text)
 }
 
+// statusError is a non-2xx response; its text is the httpError excerpt.
+type statusError struct {
+	code int
+	err  error
+}
+
+func (e *statusError) Error() string { return e.err.Error() }
+func (e *statusError) Unwrap() error { return e.err }
+
+// retryable reports whether err, a failure before the first SSE byte, is
+// worth another attempt: timeouts, connection resets (including a server that
+// closed the connection with nothing received), HTTP 429 and HTTP 5xx. Other
+// 4xx statuses, refused hosts and a cancelled ctx are final.
+func retryable(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.code == http.StatusTooManyRequests || (se.code >= 500 && se.code <= 599)
+	}
+	if errors.Is(err, ErrHostNotAllowed) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+// run sends the request, retrying failures before the first SSE byte, and
+// streams the reply of the attempt that got one.
 func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	payload, err := c.body(req)
 	if err != nil {
 		c.fail(ctx, out, err)
 		return
 	}
+	for attempt := 1; ; attempt++ {
+		err := c.attempt(ctx, payload, out)
+		if err == nil {
+			return // the attempt emitted the final event
+		}
+		if attempt >= MaxAttempts || !retryable(ctx, err) {
+			c.fail(ctx, out, err)
+			return
+		}
+		wait := retryDelay(attempt)
+		ev := Event{Kind: EventRetry, Retry: Retry{Attempt: attempt + 1, Max: MaxAttempts, Wait: wait, Reason: c.redact(err.Error())}}
+		if !send(ctx, out, ev) {
+			c.fail(ctx, out, ctx.Err())
+			return
+		}
+		if werr := retryWait(ctx, wait); werr != nil || ctx.Err() != nil {
+			if werr == nil {
+				werr = ctx.Err()
+			}
+			c.fail(ctx, out, werr)
+			return
+		}
+	}
+}
+
+// countingReader counts the bytes read, marking the first SSE byte boundary.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	r.n += int64(n)
+	return n, err
+}
+
+// attempt makes one attempt with the identical payload, ctx and http.Client.
+// A failure before the first SSE byte is returned (and nothing is emitted);
+// once the first byte has arrived the attempt emits the final event itself
+// and returns nil, so a broken stream is never retried.
+func (c *Client) attempt(ctx context.Context, payload []byte, out chan<- Event) error {
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		c.fail(ctx, out, err)
-		return
+		return err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "text/event-stream")
@@ -288,8 +411,7 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	}
 	resp, err := c.hc.Do(hreq)
 	if err != nil {
-		c.fail(ctx, out, err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 	// Unblock a pending body read as soon as ctx is cancelled, even if the
@@ -297,9 +419,9 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	stop := context.AfterFunc(ctx, func() { resp.Body.Close() })
 	defer stop()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		c.fail(ctx, out, c.httpError(resp))
-		return
+		return &statusError{code: resp.StatusCode, err: c.httpError(resp)}
 	}
+	body := &countingReader{r: resp.Body}
 
 	type acc struct {
 		id, name string
@@ -309,7 +431,7 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	var usage *Usage
 	alive, done, finished := true, false, false
 	var chunkErr error
-	err = readSSE(resp.Body, func(data string) bool {
+	err = readSSE(body, func(data string) bool {
 		if strings.TrimSpace(data) == "[DONE]" {
 			done = true
 			return false
@@ -353,16 +475,20 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 	switch {
 	case !alive || ctx.Err() != nil:
 		c.fail(ctx, out, ctx.Err())
-		return
+		return nil
 	case chunkErr != nil:
 		c.fail(ctx, out, chunkErr)
-		return
+		return nil
 	case !done && !finished:
+		if err != nil && body.n == 0 && retryable(ctx, err) {
+			// Broken before the first SSE byte: still retryable.
+			return err
+		}
 		if err == nil {
 			err = io.ErrUnexpectedEOF
 		}
 		c.fail(ctx, out, fmt.Errorf("%w: %w", errStreamInterrupted, err))
-		return
+		return nil
 	}
 	// [DONE], or a finish_reason followed by EOF or a read error: the reply
 	// is complete; partial tool calls of an interrupted stream never get here.
@@ -377,14 +503,15 @@ func (c *Client) run(ctx context.Context, req Request, out chan<- Event) {
 		tc := ToolCall{ID: a.id, Name: a.name, Arguments: a.args.String()}
 		if !send(ctx, out, Event{Kind: EventToolCall, ToolCall: tc}) {
 			c.fail(ctx, out, ctx.Err())
-			return
+			return nil
 		}
 	}
 	if usage != nil {
 		if !send(ctx, out, Event{Kind: EventUsage, Usage: *usage}) {
 			c.fail(ctx, out, ctx.Err())
-			return
+			return nil
 		}
 	}
 	final(ctx, out, Event{Kind: EventDone})
+	return nil
 }

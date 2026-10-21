@@ -12,7 +12,7 @@ go test -count=1 ./e2e
 CMD
 expect_ok "wait sequence and attempt cap encoded in client.go" <<'CMD'
 f=internal/provider/client.go
-grep -qF -e '1 \* time.Second' $f && grep -qF -e '2 \* time.Second' $f && grep -qF -e '4 \* time.Second' $f && grep -qF -e '8 \* time.Second' $f && grep -qF -e '16 \* time.Second' $f && grep -qF -e '32 \* time.Second' $f && grep -qF -e '60 \* time.Second' $f
+grep -qF -e '1 * time.Second' $f && grep -qF -e '2 * time.Second' $f && grep -qF -e '4 * time.Second' $f && grep -qF -e '8 * time.Second' $f && grep -qF -e '16 * time.Second' $f && grep -qF -e '32 * time.Second' $f && grep -qF -e '60 * time.Second' $f
 CMD
 expect_ok "waits go through an injectable wait fn (no hardcoded sleep loop)" <<'CMD'
 f=internal/provider/client.go
