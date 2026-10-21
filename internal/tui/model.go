@@ -28,6 +28,10 @@ type Options struct {
 	// Session is the agent session. When set, model, effort and mode come
 	// from it and the fields above are ignored.
 	Session *agent.Session
+
+	// Clipboard copies already redacted plain text to the system clipboard;
+	// nil = defaultClipboard (OSC 52 plus the platform tool).
+	Clipboard func(string) error
 }
 
 // EventMsg carries one agent session event into Update.
@@ -104,6 +108,8 @@ type Model struct {
 	pastes *pasteStore   // paste placeholders and their full texts, shared by all copies
 
 	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
+
+	clip func(string) error // clipboard writer: Options.Clipboard or defaultClipboard
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -131,6 +137,10 @@ func New(opts Options) Model {
 	if now == nil {
 		now = time.Now
 	}
+	clip := opts.Clipboard
+	if clip == nil {
+		clip = defaultClipboard
+	}
 	m := Model{
 		opts:     opts,
 		viewport: viewport.New(defaultWidth, 1),
@@ -141,6 +151,7 @@ func New(opts Options) Model {
 		subs:     map[string]*subState{},
 		hist:     &inputHistory{},
 		pastes:   &pasteStore{},
+		clip:     clip,
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m

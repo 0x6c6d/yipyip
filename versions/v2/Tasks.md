@@ -36,7 +36,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T501 | 5 | Queue messages while busy | T204, T402, T403 | opus | done | input.go queue, model.go submit/apply/View, queue_test.go; awaitIdle (<=1s) before Submit at turn end covers EvTurnDone-before-idle race |
 | T502 | 5 | Restore queued messages into the input | T501 | opus | done | input.go restoreQueue, model.go Esc/Ctrl+C/Up, commands.go /new, queue_test.go |
 | T601 | 6 | Mouse wheel and key scrolling | T000 | sonnet | done | cmd/yip WithMouseCellMotion, mouse.go, model.go keys, scroll_test.go |
-| T602 | 6 | Clipboard writer | T000 | opus | todo | |
+| T602 | 6 | Clipboard writer | T000 | opus | done | clipboard.go, clipboard_test.go, model.go Options.Clipboard, go.mod (tidy also made ansi+termenv direct), CLAUDE.md arch notes |
 | T603 | 6 | Copy-on-select | T204, T601, T602 | opus | todo | |
 | T701 | 7 | Help lists the new keys | T000 | haiku | todo | |
 | T702 | 7 | Usage docs and CLAUDE.md notes | T103, T204, T302, T403, T502, T603, T701 | haiku | todo | |
