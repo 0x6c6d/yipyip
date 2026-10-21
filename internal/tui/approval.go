@@ -50,7 +50,7 @@ func (m Model) approvalKey(k tea.KeyMsg) (Model, tea.Cmd) {
 		d = agent.AllowAlways
 	case "esc":
 		m.denyPending()
-		if sess := m.opts.Session; sess != nil {
+		if sess := m.sess; sess != nil {
 			sess.Cancel()
 		}
 		return m, nil

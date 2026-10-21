@@ -52,7 +52,7 @@ func (m Model) suggestion() (ghost string, accept string) {
 	case "/mode":
 		values, hint = []string{"auto", "manual"}, "[auto|manual]"
 	case "/model":
-		if sess := m.opts.Session; sess != nil {
+		if sess := m.sess; sess != nil {
 			values = sess.Models()
 		}
 		hint = "[provider/model]"
@@ -249,7 +249,7 @@ const maxQueueLines = 5
 
 // busy reports whether a turn is running: messages typed now are queued.
 func (m Model) busy() bool {
-	return m.turnActive || (m.opts.Session != nil && m.opts.Session.Busy())
+	return m.turnActive || (m.sess != nil && m.sess.Busy())
 }
 
 // enqueue appends a message (already trimmed) to the queue sent at the end of
@@ -320,7 +320,7 @@ func (m Model) withQueue(vp string) string {
 // placeholders expanded), adds one user block per message and starts the turn
 // clock. On an error the queue is kept for the next turn end.
 func (m *Model) sendQueue() tea.Cmd {
-	sess := m.opts.Session
+	sess := m.sess
 	if len(m.queue) == 0 || sess == nil {
 		return nil
 	}

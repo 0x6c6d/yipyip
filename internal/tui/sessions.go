@@ -101,7 +101,7 @@ func (m *Model) sessionsLoad(store *session.Store, id string) {
 		m.add(blockInfo, busyLine)
 		return
 	}
-	m.restore(0, data)
+	m.restore(m.cur, data)
 	m.add(blockInfo, "loaded session "+id)
 }
 

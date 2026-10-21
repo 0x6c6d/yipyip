@@ -28,7 +28,7 @@ func (m Model) subagents() []agent.SubInfo {
 	if m.subInfo != nil {
 		return m.subInfo()
 	}
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		return sess.Subagents()
 	}
 	return nil
@@ -79,7 +79,7 @@ func (m Model) withPanel(vp string) string {
 
 // cmdAgents implements /agents, /agents <id> and /agents kill <id>.
 func cmdAgents(m Model, args string) (Model, tea.Cmd) {
-	sess := m.opts.Session
+	sess := m.sess
 	fields := strings.Fields(args)
 	switch {
 	case len(fields) == 0:

@@ -37,15 +37,23 @@ func TestNewClearsSession(t *testing.T) {
 		if sess.Tokens().Total == 0 {
 			t.Fatalf("%s: no tokens before reset", name)
 		}
+		// v3: the fresh session opens in a new tab; the old tab keeps its
+		// conversation.
 		m, cmd := m.Command(name)
-		if cmd != nil {
-			t.Errorf("%s returned a command", name)
+		if cmd == nil {
+			t.Errorf("%s returned no event command for the new tab", name)
 		}
-		if n := len(sess.History()); n != 1 {
+		if len(m.tabs) != 2 || m.cur != 1 || m.sess == sess {
+			t.Fatalf("%s: tabs = %d, cur = %d, want a new current tab", name, len(m.tabs), m.cur)
+		}
+		if n := len(m.sess.History()); n != 1 {
 			t.Errorf("%s: history = %d messages, want 1", name, n)
 		}
-		if tok := sess.Tokens(); tok.Total != 0 || tok.In != 0 || tok.Out != 0 {
+		if tok := m.sess.Tokens(); tok.Total != 0 || tok.In != 0 || tok.Out != 0 {
 			t.Errorf("%s: tokens = %+v, want zero", name, tok)
+		}
+		if n := len(sess.History()); n < 3 {
+			t.Errorf("%s: old tab history = %d messages, want it kept", name, n)
 		}
 		v := m.View()
 		if strings.Contains(v, "remember this question") || strings.Contains(v, "an answer to forget") {

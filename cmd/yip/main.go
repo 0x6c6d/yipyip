@@ -117,6 +117,11 @@ func runUI(f flags, d deps, stderr io.Writer) int {
 	}
 	opts := newOptions(startDir, sess)
 	opts.StdinTTY = d.stdinTTY
+	// New tabs get sessions with the same config and start directory; the
+	// UI gives them the current model, effort and mode.
+	opts.NewSession = func() (*agent.Session, error) {
+		return agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
+	}
 	if err := applyResume(&opts, f); err != nil {
 		sess.Cancel()
 		fmt.Fprintf(stderr, "unknown session %s\n", f.resumeID)

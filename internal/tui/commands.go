@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"unicode"
 
@@ -53,19 +54,20 @@ func cmdQuit(m Model, _ string) (Model, tea.Cmd) {
 	return m, m.quit()
 }
 
+// cmdNew is /new and /clear: the fresh session opens in a new tab; the old
+// tab (and any saved file of it) stays as it is. At the tab limit nothing
+// changes but one info line.
 func cmdNew(m Model, _ string) (Model, tea.Cmd) {
-	if sess := m.opts.Session; sess != nil {
-		sess.Reset()
+	switch err := m.addTab(); {
+	case errors.Is(err, errTabLimit):
+		m.add(blockInfo, tabLimitMsg)
+		return m, nil
+	case err != nil:
+		m.add(blockError, err.Error())
+		return m, nil
 	}
-	m.blocks = nil
-	m.turnStarts = nil
-	m.streaming = false
-	m.turnActive = false
-	m.interrupted = false
-	m.openCalls = 0
-	m.queue = nil
 	m.add(blockInfo, "new session")
-	return m, nil
+	return m, m.waitEvent()
 }
 
 func cmdEffort(m Model, args string) (Model, tea.Cmd) {
@@ -79,14 +81,14 @@ func cmdEffort(m Model, args string) (Model, tea.Cmd) {
 		m.add(blockError, "error: effort must be low, medium or high")
 		return m, nil
 	}
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		if err := sess.SetEffort(args); err != nil {
 			m.add(blockError, "error: effort must be low, medium or high")
 			return m, nil
 		}
-	} else {
-		m.opts.Effort = args
 	}
+	model, _, mode := m.globals()
+	m.setGlobals(model, args, mode)
 	m.add(blockInfo, "effort: "+args)
 	return m, nil
 }
@@ -106,36 +108,31 @@ func cmdMode(m Model, args string) (Model, tea.Cmd) {
 }
 
 func (m Model) effort() string {
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		return sess.Effort()
 	}
 	return m.opts.Effort
 }
 
 func (m Model) mode() string {
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		return string(sess.Mode())
 	}
 	return m.opts.Mode
 }
 
+// setMode sets the global mode (all tabs).
 func (m *Model) setMode(mode agent.Mode) {
-	if sess := m.opts.Session; sess != nil {
-		sess.SetMode(mode)
-		return
-	}
-	m.opts.Mode = string(mode)
+	model, effort, _ := m.globals()
+	m.setGlobals(model, effort, string(mode))
 }
 
+// toggleMode switches the global mode between manual and auto.
 func (m *Model) toggleMode() {
-	if sess := m.opts.Session; sess != nil {
-		sess.ToggleMode()
-		return
-	}
-	if m.opts.Mode == string(agent.ModeAuto) {
-		m.opts.Mode = string(agent.ModeManual)
+	if m.mode() == string(agent.ModeAuto) {
+		m.setMode(agent.ModeManual)
 	} else {
-		m.opts.Mode = string(agent.ModeAuto)
+		m.setMode(agent.ModeAuto)
 	}
 }
 

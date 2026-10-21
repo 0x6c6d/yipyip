@@ -147,7 +147,8 @@ func TestSessionsLoadRestores(t *testing.T) {
 func TestSessionsLoadUnknownId(t *testing.T) {
 	m := newSessionsModel(t, resumeFile(1, "stored task", time.Hour, "answer"))
 	m, _ = m.Command("hello")
-	m.Drain()
+	waitSession(t, m.opts.Session) // the turn's reply must be in the history before it is counted
+	m = m.Drain()
 	before := len(m.blocks)
 	hist := len(m.opts.Session.History())
 	m, _ = m.Command("/sessions deadbeefdead")

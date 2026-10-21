@@ -34,7 +34,7 @@ func (m *Model) startTurn() tea.Cmd {
 	m.turnStart = m.now()
 	m.openCalls = 0
 	m.turnOut0 = 0
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		m.turnOut0 = sess.Tokens().Out
 	}
 	return tickCmd()
@@ -50,7 +50,7 @@ func (m Model) thinkingLine() string {
 		verb = "Working…"
 	}
 	n := 0
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		n = sess.Tokens().Out - m.turnOut0
 	}
 	parts := formatElapsed(m.now().Sub(m.turnStart))

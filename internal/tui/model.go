@@ -26,9 +26,14 @@ type Options struct {
 	// Now is the clock of the UI (Ctrl+C window, turn clock); nil = time.Now.
 	Now func() time.Time
 
-	// Session is the agent session. When set, model, effort and mode come
-	// from it and the fields above are ignored.
+	// Session is the agent session of the first tab. When set, model, effort
+	// and mode come from it and the fields above are ignored.
 	Session *agent.Session
+
+	// NewSession builds the agent session of a new tab (/new); cmd/yip wires
+	// it with the same config as Session. nil: a new tab cannot be opened
+	// while Session is set ("could not open a new tab").
+	NewSession func() (*agent.Session, error)
 
 	// Clipboard copies already redacted plain text to the system clipboard;
 	// nil = defaultClipboard (OSC 52 plus the platform tool).
@@ -52,8 +57,13 @@ type Options struct {
 	StdinTTY bool
 }
 
-// EventMsg carries one agent session event into Update.
-type EventMsg struct{ Event agent.Event }
+// EventMsg carries one agent session event into Update. sess is the session
+// that produced it: the event goes to that session's tab (nil = the current
+// tab).
+type EventMsg struct {
+	Event agent.Event
+	sess  *agent.Session
+}
 
 // ctrlCWindow is how long a first Ctrl+C stays armed.
 const ctrlCWindow = 2 * time.Second
@@ -97,39 +107,32 @@ type Model struct {
 	opts     Options
 	viewport viewport.Model
 	input    textarea.Model
-	blocks   []block
 	width    int
 	height   int
 
 	ctx    context.Context // cancelled on quit: stops the blocking event command
 	cancel context.CancelFunc
 
-	now       func() time.Time
-	ctrlCAt   time.Time                // time of the armed first Ctrl+C; zero when not armed
-	streaming bool                     // the last block is an assistant block still receiving deltas
-	picker    picker                   // /model picker state
-	resume    resumePicker             // resume session picker state
-	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
-	expanded  bool                     // Ctrl+O: tool results shown in full
+	now      func() time.Time
+	ctrlCAt  time.Time    // time of the armed first Ctrl+C; zero when not armed
+	picker   picker       // /model picker state
+	resume   resumePicker // resume session picker state
+	expanded bool         // Ctrl+O: tool results shown in full
 
-	turnActive  bool      // a turn is running: the Thinking line is shown and ticks go on
-	turnStart   time.Time // when the running turn was submitted
-	turnOut0    int       // session output tokens at submit
-	openCalls   int       // main-agent tool calls without a result yet
-	interrupted bool      // the user cancelled the running turn (Esc or first Ctrl+C)
-
-	subs    map[string]*subState   // live subagent blocks by subagent id
 	subInfo func() []agent.SubInfo // test seam for subagents(); nil = Session.Subagents()
 
-	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
+	// tab is the live state of the current tab (conversation, session,
+	// history, pastes, queue, turn state): m.blocks, m.sess, ... are the
+	// current tab's. tabs holds every tab (1..maxTabs); its entry cur is
+	// refreshed from tab whenever the list is used (see park), and the
+	// slice is copy-on-write so Model copies never share an update.
+	tab
+	tabs []tab
+	cur  int // index of the current tab in tabs
 
-	hist   *inputHistory // submitted inputs for Up/Down recall, shared by all copies
-	pastes *pasteStore   // paste placeholders and their full texts, shared by all copies
-
-	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
-
-	rmPending string     // session id awaiting the y/n reply of /sessions rm
-	saved     *saveState // created time and id of the saved conversation, shared by all copies
+	// background is set while an event or save of a non-current tab is
+	// applied (inTab): the viewport shows the current tab and is not redrawn.
+	background bool
 
 	clip func(string) error // clipboard writer: Options.Clipboard or defaultClipboard
 
@@ -175,12 +178,10 @@ func New(opts Options) Model {
 		ctx:      ctx,
 		cancel:   cancel,
 		now:      now,
-		subs:     map[string]*subState{},
-		hist:     &inputHistory{},
-		pastes:   &pasteStore{},
-		saved:    &saveState{},
+		tab:      newTab(ctx, opts.Session),
 		clip:     clip,
 	}
+	m.tabs = []tab{m.tab}
 	m.resize(defaultWidth, defaultHeight)
 	switch {
 	case opts.ResumeData != nil:
@@ -193,14 +194,22 @@ func New(opts Options) Model {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.waitEvent())
+	cmds := []tea.Cmd{textarea.Blink}
+	for i := range m.tabs {
+		cmds = append(cmds, waitEventOf(m.tabAt(i)))
+	}
+	return tea.Batch(cmds...)
 }
 
-// waitEvent returns a command that blocks on the session's next event. It
-// ends (returning nil) when the model's context is cancelled on quit.
-func (m Model) waitEvent() tea.Cmd {
-	sess, ctx := m.opts.Session, m.ctx
-	if sess == nil {
+// waitEvent returns a command that blocks on the current tab session's next
+// event. It ends (returning nil) when the model's context is cancelled on
+// quit or the tab is closed.
+func (m Model) waitEvent() tea.Cmd { return waitEventOf(m.tab) }
+
+// waitEventOf is waitEvent for tab t.
+func waitEventOf(t tab) tea.Cmd {
+	sess, ctx := t.sess, t.pump
+	if sess == nil || ctx == nil {
 		return nil
 	}
 	return func() tea.Msg {
@@ -208,7 +217,7 @@ func (m Model) waitEvent() tea.Cmd {
 		if err != nil {
 			return nil
 		}
-		return EventMsg{Event: ev}
+		return EventMsg{Event: ev, sess: sess}
 	}
 }
 
@@ -225,20 +234,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case EventMsg:
-		cmd := m.apply(msg.Event)
-		return m, tea.Batch(cmd, m.waitEvent())
+		if msg.sess == nil {
+			cmd := m.apply(msg.Event)
+			return m, tea.Batch(cmd, m.waitEvent())
+		}
+		i := m.tabOf(msg.sess)
+		if i < 0 {
+			return m, nil // the tab was closed: its pump ends
+		}
+		var cmd tea.Cmd
+		m.inTab(i, func(t *Model) { cmd = t.apply(msg.Event) })
+		return m, tea.Batch(cmd, waitEventOf(m.tabAt(i)))
 	case tickMsg:
 		if m.anySubRunning() {
 			m.refresh() // elapsed times of running subagent blocks
 		}
-		if !m.turnActive {
+		if !m.anyTurnActive() {
 			return m, nil
 		}
 		return m, tickCmd()
 	case noticeMsg:
 		return m, nil // redraw: the copy notice has expired
 	case compactDoneMsg:
-		m.compactDone(msg.err)
+		i := m.cur
+		if msg.sess != nil {
+			i = m.tabOf(msg.sess)
+		}
+		m.inTab(i, func(t *Model) { t.compactDone(msg.err) })
 		return m, nil
 	case tea.KeyMsg, tea.MouseMsg:
 		if k, isKey := msg.(tea.KeyMsg); isKey && m.resume.open && k.String() != "ctrl+c" {
@@ -260,7 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m.ctrlC()
 		case "esc":
-			if sess := m.opts.Session; sess != nil && sess.Busy() {
+			if sess := m.sess; sess != nil && sess.Busy() {
 				m.interrupted = m.interrupted || m.turnActive
 				sess.Cancel()
 			}
@@ -334,7 +356,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) ctrlC() (tea.Model, tea.Cmd) {
 	m.denyPending()
-	if sess := m.opts.Session; sess != nil && sess.Busy() {
+	if sess := m.sess; sess != nil && sess.Busy() {
 		m.interrupted = m.interrupted || m.turnActive
 		sess.Cancel()
 	}
@@ -387,7 +409,7 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	}
 	start := len(m.blocks)
 	m.add(blockPlain, "> "+text)
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		m.add(blockInfo, "no model configured")
 		return m, nil
@@ -406,16 +428,30 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// Drain applies all queued session events without blocking. Commands returned
-// by them (the tick of a turn started from the message queue) are dropped.
+// Drain applies all queued session events of every tab without blocking,
+// each to the tab of its session. Commands returned by them (the tick of a
+// turn started from the message queue) are dropped.
 func (m Model) Drain() Model {
-	if m.opts.Session == nil {
-		return m
-	}
-	for _, ev := range m.opts.Session.PollEvents() {
-		m.apply(ev)
+	for i := range m.tabs {
+		sess := m.tabAt(i).sess
+		if sess == nil {
+			continue
+		}
+		for _, ev := range sess.PollEvents() {
+			m.inTab(i, func(t *Model) { t.apply(ev) })
+		}
 	}
 	return m
+}
+
+// anyTurnActive reports whether a turn runs in any tab (the clock ticks on).
+func (m *Model) anyTurnActive() bool {
+	for i := range m.tabs {
+		if m.tabAt(i).turnActive {
+			return true
+		}
+	}
+	return false
 }
 
 // apply renders one session event. It returns the tick command of a turn
@@ -496,7 +532,7 @@ func (m *Model) add(kind blockKind, text string) {
 }
 
 func (m *Model) redact(s string) string {
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		return sess.Redact(s)
 	}
 	return s
@@ -508,6 +544,9 @@ func (m *Model) refresh() { m.refreshTo(m.viewport.AtBottom()) }
 // refreshTo re-renders the blocks; with follow set the viewport ends at the
 // bottom, otherwise the scroll position is kept.
 func (m *Model) refreshTo(follow bool) {
+	if m.background {
+		return // a non-current tab: rendered when it becomes current
+	}
 	parts := make([]string, 0, len(m.blocks))
 	for _, b := range m.blocks {
 		if r := m.renderBlock(b, m.viewport.Width); r != "" {

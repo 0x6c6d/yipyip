@@ -66,7 +66,16 @@ func newSessionModelOpts(t *testing.T, srv *providertest.Server, rel string, edi
 		sess.Cancel()
 		waitSession(t, sess)
 	})
-	opts := Options{StartDir: dir, Session: sess}
+	opts := Options{StartDir: dir, Session: sess, NewSession: func() (*agent.Session, error) {
+		s, err := agent.NewSession(agent.Options{Config: cfg, StartDir: dir})
+		if err == nil {
+			t.Cleanup(func() {
+				s.Cancel()
+				waitSession(t, s)
+			})
+		}
+		return s, err
+	}}
 	if edit != nil {
 		edit(&opts)
 	}

@@ -19,7 +19,7 @@ type saveState struct {
 // false when there is nothing to save: no agent session or an empty
 // conversation.
 func (m Model) assembleSession() (*session.SessionData, bool) {
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		return nil, false
 	}
@@ -89,17 +89,16 @@ func (m Model) assembleSession() (*session.SessionData, bool) {
 }
 
 // saveTabs saves every open tab with a non-empty conversation before the
-// program quits (v3 has one tab; this is the loop over the tab list). A
-// failure appends one "could not save session: ..." line to that tab's
-// conversation; the quit goes on regardless.
+// program quits. A failure appends one "could not save session: ..." line to
+// that tab's conversation; the quit goes on regardless.
 func (m Model) saveTabs() Model {
-	for _, tab := range []*Model{&m} {
-		tab.saveTab()
+	for i := range m.tabs {
+		m.inTab(i, (*Model).saveTab)
 	}
 	return m
 }
 
-// saveTab saves one tab through the Options.SaveOnExit seam or, by default,
+// saveTab saves the live tab (see inTab) through the Options.SaveOnExit seam or, by default,
 // the session Store of the start directory.
 func (m *Model) saveTab() {
 	data, ok := m.assembleSession()

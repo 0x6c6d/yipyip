@@ -376,19 +376,22 @@ func TestQueueClearedByNew(t *testing.T) {
 	if v := plainView(m); strings.Contains(v, "> q1") {
 		t.Fatalf("queue line after /new:\n%s", v)
 	}
+	// v3: /new opens a new tab; the queue belongs to the old tab and is
+	// sent there at its turn end, never shown in the new tab.
 	release()
 	waitSession(t, sess)
 	m = m.Drain()
 	waitSession(t, sess)
 	m = m.Drain()
-	if n := len(srv.Requests()); n != 1 {
-		t.Fatalf("requests = %d, want 1", n)
-	}
-	if requestsContain(srv, "q1") {
-		t.Fatal("a provider request contains the queued text")
+	if n := len(srv.Requests()); n != 2 {
+		t.Fatalf("requests = %d, want 2", n)
 	}
 	if v := plainView(m); strings.Contains(v, "> q1") {
-		t.Fatalf("queued message shown after /new:\n%s", v)
+		t.Fatalf("queued message shown in the new tab:\n%s", v)
+	}
+	m.switchTab(0)
+	if v := plainView(m); !strings.Contains(v, "> q1") {
+		t.Fatalf("queued message not sent in its own tab:\n%s", v)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 // cmdInit implements /init: it asks the model to inspect the repository and
 // write or update AGENTS.md.
 func cmdInit(m Model, _ string) (Model, tea.Cmd) {
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		m.add(blockInfo, "no model configured")
 		return m, nil

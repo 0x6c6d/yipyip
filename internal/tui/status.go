@@ -54,7 +54,7 @@ func (m Model) StatusRows() (row1, row2 string) {
 	cwd, model, effort, mode := m.opts.StartDir, m.opts.ModelID, m.opts.Effort, m.opts.Mode
 	tokens, used, limit := agent.Tokens{}, 0, 0
 	dim := false
-	if sess := m.opts.Session; sess != nil {
+	if sess := m.sess; sess != nil {
 		cwd = sess.StartDir()
 		model, effort, mode = sess.ModelID(), sess.Effort(), string(sess.Mode())
 		tokens = sess.Tokens()

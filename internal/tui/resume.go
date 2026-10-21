@@ -80,7 +80,7 @@ func (m Model) resumeKey(k tea.KeyMsg) (Model, tea.Cmd) {
 		if r.cursor >= 0 && r.cursor < len(r.sessions) {
 			data := r.sessions[r.cursor]
 			m.resume = resumePicker{}
-			m.restore(0, &data)
+			m.restore(m.cur, &data)
 		}
 		return m, nil
 	}
@@ -191,10 +191,15 @@ func (m Model) overlayResume(vp string) string {
 // restored as finished: no Thinking line, no finished marker and no other
 // live turn state comes back (an interrupted turn stays stored-finished).
 //
-// tab is the target tab; v3 has exactly one tab (index 0), so the callers
-// pass 0 and a later phase only changes the caller to pass its own tab.
+// tab is the index of the target tab; an index out of range changes
+// nothing.
 func (m *Model) restore(tab int, data *session.SessionData) {
-	m.restoreInto(m.tabSession(tab), data)
+	m.inTab(tab, func(m *Model) { m.restoreTab(data) })
+}
+
+// restoreTab is restore for the live tab.
+func (m *Model) restoreTab(data *session.SessionData) {
+	m.restoreInto(m.sess, data)
 
 	// TUI-side state.
 	if m.hist == nil {
@@ -211,9 +216,15 @@ func (m *Model) restore(tab int, data *session.SessionData) {
 		m.pastes.texts[ph] = text
 	}
 	m.queue = nil
-	m.input.Reset()
-	if len(data.Queue) > 0 {
-		m.setInput(strings.Join(data.Queue, "\n"))
+	if m.background {
+		// A tab that is not current keeps the queue as its parked draft;
+		// the input box belongs to the current tab.
+		m.draft = strings.Join(data.Queue, "\n")
+	} else {
+		m.input.Reset()
+		if len(data.Queue) > 0 {
+			m.setInput(strings.Join(data.Queue, "\n"))
+		}
 	}
 
 	// Later saves overwrite the opened file.
@@ -230,17 +241,9 @@ func (m *Model) restore(tab int, data *session.SessionData) {
 	m.refreshTo(true)
 }
 
-// tabSession returns the agent session of tab (nil = none or no such tab).
-func (m *Model) tabSession(tab int) *agent.Session {
-	if tab != 0 {
-		return nil
-	}
-	return m.opts.Session
-}
-
 // restoreInto pushes the stored conversation, tokens, model, effort and mode
 // into the agent session (nil = none). The stored model, effort and mode
-// become the global selection.
+// become the global selection: they are set on the sessions of all tabs.
 func (m *Model) restoreInto(sess *agent.Session, data *session.SessionData) {
 	if sess == nil {
 		return
@@ -264,7 +267,7 @@ func (m *Model) restoreInto(sess *agent.Session, data *session.SessionData) {
 	if effort == "" {
 		effort = sess.Effort()
 	}
-	sess.RestoreModelEffortMode(data.Model, effort, mode)
+	m.setGlobals(data.Model, effort, string(mode))
 }
 
 // restoreBlocks rebuilds the conversation blocks from stored messages. Lines

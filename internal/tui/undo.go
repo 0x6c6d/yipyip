@@ -30,7 +30,7 @@ func (m *Model) popTurnStart() (int, bool) {
 // cmdUndo implements /undo: it reverts the last turn in the session and
 // removes it from the conversation view.
 func cmdUndo(m Model, _ string) (Model, tea.Cmd) {
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		m.add(blockInfo, "nothing to undo")
 		return m, nil

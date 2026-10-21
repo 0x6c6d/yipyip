@@ -22,7 +22,7 @@ type picker struct {
 // cmdModel implements /model: a picker without argument, direct selection
 // with one.
 func cmdModel(m Model, args string) (Model, tea.Cmd) {
-	sess := m.opts.Session
+	sess := m.sess
 	if args == "" {
 		var items []string
 		if sess != nil {
@@ -47,7 +47,7 @@ func cmdModel(m Model, args string) (Model, tea.Cmd) {
 
 // setModel switches the session to id and reports the result.
 func (m Model) setModel(id string) Model {
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		m.add(blockError, "error: unknown model: "+id)
 		return m
@@ -60,6 +60,8 @@ func (m Model) setModel(id string) Model {
 		}
 		return m
 	}
+	_, effort, mode := m.globals()
+	m.setGlobals(id, effort, mode)
 	m.add(blockInfo, "model: "+id)
 	return m
 }

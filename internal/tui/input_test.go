@@ -286,10 +286,16 @@ func TestHistoryMultilineMovesCursor(t *testing.T) {
 }
 
 func TestHistorySurvivesNew(t *testing.T) {
+	// v3: /new opens a new tab with its own (empty) history; the old tab
+	// keeps its history.
 	for _, cmd := range []string{"/new", "/clear"} {
 		t.Run(cmd, func(t *testing.T) {
 			m, sess, _ := histModel(t)
 			m = histSend(t, m, sess, cmd)
+			if _, got := histKey(m, tea.KeyUp); got != "" {
+				t.Fatalf("new tab: Up = %q, want nothing", got)
+			}
+			m.switchTab(0)
 			histSteps(t, m,
 				[]tea.KeyType{tea.KeyUp, tea.KeyUp, tea.KeyUp},
 				[]string{cmd, "three", "/mode auto"})
@@ -474,10 +480,18 @@ func TestPasteCounter(t *testing.T) {
 	if v := m.input.Value(); v != "[Pasted text #2 +2 lines]" {
 		t.Fatalf("second paste: input = %q", v)
 	}
+	// v3: /new opens a new tab with its own paste store; the old tab's
+	// counter goes on.
 	m = histSend(t, m, sess, "/new")
 	m = pasteInto(m, "e\nf")
+	if v := m.input.Value(); v != "[Pasted text #1 +2 lines]" {
+		t.Fatalf("paste in the new tab: input = %q", v)
+	}
+	m.input.Reset()
+	m.switchTab(0)
+	m = pasteInto(m, "g\nh")
 	if v := m.input.Value(); v != "[Pasted text #3 +2 lines]" {
-		t.Fatalf("paste after /new: input = %q", v)
+		t.Fatalf("paste after /new in the old tab: input = %q", v)
 	}
 }
 

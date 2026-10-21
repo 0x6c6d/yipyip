@@ -176,7 +176,7 @@ func TestStatusNarrowTwoRows(t *testing.T) {
 	defer srv.Close()
 	m, _ := newSessionModel(t, srv)
 	long := "/" + strings.Repeat("deep/", 20) + "start"
-	m.opts.Session = nil
+	m.sess = nil
 	m.opts.StartDir, m.opts.ModelID, m.opts.Effort, m.opts.Mode = long, "fake/m1", "medium", "manual"
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 	m = next.(Model)

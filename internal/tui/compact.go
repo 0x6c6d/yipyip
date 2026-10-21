@@ -10,21 +10,26 @@ import (
 )
 
 // compactDoneMsg reports the end of a /compact run started by cmdCompact.
-type compactDoneMsg struct{ err error }
+// sess is the compacted session: the outcome goes to its tab (nil = the
+// current tab).
+type compactDoneMsg struct {
+	err  error
+	sess *agent.Session
+}
 
 // cmdCompact implements /compact: it shows a dim "compacting..." line and
 // returns a command that runs Session.Compact off the update loop. On success
 // the session's own "compacted: N messages -> M" info event is the only
 // confirmation, so nothing contradicting it is printed.
 func cmdCompact(m Model, _ string) (Model, tea.Cmd) {
-	sess := m.opts.Session
+	sess := m.sess
 	if sess == nil {
 		m.add(blockInfo, "nothing to compact")
 		return m, nil
 	}
 	m.add(blockInfo, "compacting...")
 	return m, func() tea.Msg {
-		return compactDoneMsg{err: sess.Compact(context.Background())}
+		return compactDoneMsg{err: sess.Compact(context.Background()), sess: sess}
 	}
 }
 
