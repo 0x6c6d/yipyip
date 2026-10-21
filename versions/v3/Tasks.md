@@ -43,7 +43,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T606 | 6 | Stored settings applied at startup | T601, T602 | sonnet | done | added by supervisor: effort/mode read back at startup, project yipyip.json wins, invalid ignored (R40) ; main.go applyStoredSettings (cfg.Raw effort/mode, invalid ignored), 4 tests |
 | T607 | 6 | e2e Retry test | T302, T605 | sonnet | done | added by supervisor: 2x503 then stream = 3 requests, 400 no retry, 10-attempt cap (R37 acceptance) ; e2e/retry_test.go (4 tests, waits stubbed via Session.SetRetryWait) |
 | T604 | 6 | Usage docs, CLAUDE.md and --help | T201, T203, T302, T402, T502, T602, T603, T605, T606, T607 | haiku | done | docs/usage.md Sessions/Tabs/Questions/Retry, CLAUDE.md outside Delegation section; row fixed: delegation check was inverted, brief now says the session file is redacted ; docs/usage.md (Sessions/Tabs/Questions/Retry/Settings defaults), CLAUDE.md Architecture bullets, help.go tab key rows, 3 tests |
-| T799 | 9 | Global Definition of Done | T101, T102, T103, T201, T202, T203, T204, T401, T402, T501, T502, T503, T601, T602, T603, T604, T605, T606, T607 | supervisor | todo | runs the plan's DoD lines plus make check |
+| T799 | 9 | Global Definition of Done | T101, T102, T103, T201, T202, T203, T204, T401, T402, T501, T502, T503, T601, T602, T603, T604, T605, T606, T607 | supervisor | done | runs the plan's DoD lines plus make check ; DoD passes 10/10 (all scoped -run groups ran >=1 test); row fixed: openrouter check was inverted |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 

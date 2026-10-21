@@ -22,7 +22,7 @@ CMD
 expect_ok "--resume greps: cmd flag and atomic session write" <<'CMD'
 grep -nq -- '--resume' cmd/yip/main.go && grep -rnq -- 'os.Rename' internal/session
 CMD
-expect_ok "no openrouter.ai outside _test.go" <<'CMD'
+expect_fail "no openrouter.ai outside _test.go (no_match exits 1 when nothing is found)" <<'CMD'
 grep -rn --include='*.go' -e 'openrouter\.ai' . | grep -v '^.*_test\.go:' | no_match -e .
 CMD
 expect_fail "negative: protected path diff (transport + tools) empty at 9519824" <<'CMD'
