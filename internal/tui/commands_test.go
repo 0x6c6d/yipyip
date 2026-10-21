@@ -169,16 +169,6 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestStubCommands(t *testing.T) {
-	m, _ := newSessionModel(t, nil)
-	for _, name := range []string{"/init"} {
-		m, _ = m.Command(name)
-		if v := m.View(); !strings.Contains(v, name+": not available yet") {
-			t.Errorf("%s: view:\n%s", name, v)
-		}
-	}
-}
-
 func TestCompletion(t *testing.T) {
 	m, _ := newSessionModel(t, nil)
 	var tm tea.Model = m

@@ -13,7 +13,7 @@ import (
 type commandFunc func(m Model, args string) (Model, tea.Cmd)
 
 // slashCommands is the dispatcher table of the slash commands, used by Enter
-// and Model.Command. Later tasks replace the "not available yet" entries.
+// and Model.Command.
 var slashCommands = map[string]commandFunc{
 	"/help":    cmdHelp,
 	"/new":     cmdNew,
@@ -24,7 +24,7 @@ var slashCommands = map[string]commandFunc{
 	"/mode":    cmdMode,
 	"/model":   cmdModel,
 	"/agents":  cmdAgents,
-	"/init":    notAvailable("/init"),
+	"/init":    cmdInit,
 	"/compact": cmdCompact,
 	"/undo":    cmdUndo,
 }
@@ -40,13 +40,6 @@ func (m Model) runSlash(text string) (Model, tea.Cmd) {
 	}
 	m.add(blockInfo, "unknown command: "+name)
 	return m, nil
-}
-
-func notAvailable(name string) commandFunc {
-	return func(m Model, _ string) (Model, tea.Cmd) {
-		m.add(blockInfo, name+": not available yet")
-		return m, nil
-	}
 }
 
 func cmdHelp(m Model, _ string) (Model, tea.Cmd) {

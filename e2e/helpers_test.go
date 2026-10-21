@@ -35,6 +35,7 @@ func newEnv(t *testing.T, resps ...providertest.Response) *env {
 type envOpts struct {
 	contextLimit int    // context limit of the fake model
 	projectJSON  string // content of the start directory's yipyip.json, "" = none
+	noModel      bool   // global config without providers: no model is configured
 }
 
 // newEnvServer builds the environment around an already started fake srv
@@ -54,6 +55,9 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 		}
 	}
 	cfgJSON := providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", o.contextLimit)
+	if o.noModel {
+		cfgJSON = "{}"
+	}
 	if err := os.WriteFile(config.GlobalPath(home), []byte(cfgJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
