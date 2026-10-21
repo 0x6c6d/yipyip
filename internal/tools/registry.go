@@ -63,6 +63,7 @@ func NewRegistry(opts Options) (*Registry, error) {
 	// (each tool lives in its own file and calls r.register).
 	r.registerBash()
 	r.registerFileTools()
+	r.registerSearchTools()
 
 	return r, nil
 }

@@ -38,7 +38,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T302 | 3 | Bash runner | T101 | opus | done | internal/tools/bash.go (+test); group kill only on timeout/cancel, WaitDelay 500ms |
 | T303 | 3 | Tool registry and the bash tool | T201, T301, T302 | opus | done | internal/tools/registry.go (+test); r.register hook in NewRegistry; helpers errResult, stringArg, optIntArg |
 | T304 | 3 | read_file, write_file, edit_file | T303 | sonnet | done | internal/tools/files.go (+test), registerFileTools in registry.go |
-| T305 | 3 | glob with ** and grep | T303 | sonnet | todo | |
+| T305 | 3 | glob with ** and grep | T303 | sonnet | done | internal/tools/search.go (+test), MatchGlob, registerSearchTools; symlinks not followed |
 | T401 | 4 | Approval gate | T101 | opus | todo | |
 | T402 | 4 | Agent session core: state, events, system prompt | T202, T205, T303, T401 | opus | todo | |
 | T403 | 4 | Agent loop, token accounting, cancellation | T206, T304, T305, T402 | opus | todo | |
