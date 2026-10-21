@@ -34,3 +34,13 @@ func TestHelpTextNoCost(t *testing.T) {
 		t.Errorf("HelpText() contains '$'")
 	}
 }
+
+func TestHelpTextListsNewKeys(t *testing.T) {
+	text := HelpText()
+	for _, want := range []string{"Up/Down", "Ctrl+Home", "Ctrl+End", "Tab", "Mouse drag",
+		"copies", "queue", "restores queued", "auto is the default"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("HelpText() does not contain %q", want)
+		}
+	}
+}

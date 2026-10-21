@@ -26,14 +26,18 @@ var commands = []CommandInfo{
 }
 
 var keys = []struct{ Key, Help string }{
-	{"Enter", "send"},
+	{"Enter", "send; while the agent is busy: queue the message"},
 	{"Alt+Enter", "new line"},
-	{"Esc", "cancel the running turn"},
-	{"Shift+Tab", "toggle manual/auto mode"},
-	{"Ctrl+C", "twice quit"},
-	{"Tab", "complete a command"},
+	{"Esc", "cancel the running turn; queued messages return to the input"},
+	{"Shift+Tab", "toggle auto/manual mode (auto is the default)"},
+	{"Ctrl+C", "twice: quit"},
+	{"Tab/Right", "accept a suggestion or complete a command"},
+	{"Up/Down", "input history (Up first restores queued messages)"},
 	{"Ctrl+O", "expand tool results"},
 	{"PgUp/PgDn", "scroll"},
+	{"Mouse wheel", "scroll 3 lines"},
+	{"Ctrl+Home/Ctrl+End", "scroll to the first/last line (Home/End with an empty input)"},
+	{"Mouse drag", "select text; releasing copies it to the clipboard"},
 }
 
 // Commands returns the slash commands in display order.

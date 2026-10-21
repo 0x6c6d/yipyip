@@ -39,6 +39,19 @@ func TestHelpFlag(t *testing.T) {
 	}
 }
 
+func TestHelpFlagNewKeys(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(--help) = %d, want 0 (stderr: %q)", code, stderr.String())
+	}
+	for _, want := range []string{"Up/Down", "Ctrl+Home", "Ctrl+End", "Tab", "queue"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("help output does not contain %q", want)
+		}
+	}
+}
+
 func TestUnknownFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--bogus"}, &stdout, &stderr)
