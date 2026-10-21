@@ -22,7 +22,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify passes (7 checks) |
-| T101 | 1 | Session Store (Save/Load/List/Delete) | T000 | opus | todo | internal/session, atomic, symlink + SECRET123 negatives, .gitignore |
+| T101 | 1 | Session Store (Save/Load/List/Delete) | T000 | opus | done | internal/session/store.go+session.go+store_test.go; PathGuard confinement, id=SHA-256[0:3], 8 brief tests + TestTitle; verify 10/10 |
 | T102 | 1 | Agent export accessors + restore setters | T101 | opus | todo | agent/session.go only; interrupted-as-finished |
 | T103 | 1 | Save on exit (ExitSave wiring) | T101, T102 | sonnet | todo | tui commands.go + keycode path, ExitSave tests |
 | T301 | 3 | Providertest pre-first-byte failure hooks | T000 | sonnet | todo | providertest scripting: reset, 429, 5xx |
