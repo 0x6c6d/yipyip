@@ -23,7 +23,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify passes (7 checks) |
 | T101 | 1 | Session Store (Save/Load/List/Delete) | T000 | opus | done | internal/session/store.go+session.go+store_test.go; PathGuard confinement, id=SHA-256[0:3], 8 brief tests + TestTitle; verify 10/10 |
-| T102 | 1 | Agent export accessors + restore setters | T101 | opus | todo | agent/session.go only; interrupted-as-finished |
+| T102 | 1 | Agent export accessors + restore setters | T101 | opus | done | HistoryEntry/ToolCall export, TurnState (A5), Restore* setters; export is redacted b/c tools registry redacts at boundary (superseded part of A13 intent); 3 rounds, 2 iteration-limit restarts |
 | T103 | 1 | Save on exit (ExitSave wiring) | T101, T102 | sonnet | todo | tui commands.go + keycode path, ExitSave tests |
 | T301 | 3 | Providertest pre-first-byte failure hooks | T000 | sonnet | todo | providertest scripting: reset, 429, 5xx |
 | T302 | 3 | Retry loop in client.go | T301 | opus | todo | waits 1,2,4,8,16,32,60,60,60s, 10 attempts; negatives 400 + post-first-byte + foreign host |
