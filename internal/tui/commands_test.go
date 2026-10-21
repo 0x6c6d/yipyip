@@ -55,7 +55,7 @@ func TestNewClearsSession(t *testing.T) {
 		if n := len(sess.History()); n < 3 {
 			t.Errorf("%s: old tab history = %d messages, want it kept", name, n)
 		}
-		v := m.View()
+		v := belowTabBar(m.View())
 		if strings.Contains(v, "remember this question") || strings.Contains(v, "an answer to forget") {
 			t.Errorf("%s: view not cleared:\n%s", name, v)
 		}

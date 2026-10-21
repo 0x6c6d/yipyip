@@ -439,7 +439,7 @@ func TestPasteExpandedOnSend(t *testing.T) {
 	if !strings.Contains(content, "see alpha\nbeta\ngamma") {
 		t.Fatalf("request content = %q", content)
 	}
-	v := ansi.Strip(m.View())
+	v := belowTabBar(ansi.Strip(m.View()))
 	if !strings.Contains(v, "> see [Pasted text #1 +3 lines]") || strings.Contains(v, "gamma") {
 		t.Fatalf("view:\n%s", v)
 	}

@@ -69,7 +69,7 @@ func TestAddTabSwitchesToNewTab(t *testing.T) {
 	if got := m.sess.Mode(); got != agent.ModeAuto {
 		t.Errorf("mode = %q, want auto", got)
 	}
-	if v := plainView(m); strings.Contains(v, "first question") || strings.Contains(v, "hello") {
+	if v := belowTabBar(plainView(m)); strings.Contains(v, "first question") || strings.Contains(v, "hello") {
 		t.Errorf("new tab shows the old conversation:\n%s", v)
 	}
 }
@@ -88,7 +88,7 @@ func TestSwitchTabSwapsState(t *testing.T) {
 	if m.cur != 1 {
 		t.Fatalf("cur = %d, want 1", m.cur)
 	}
-	v := plainView(m)
+	v := belowTabBar(plainView(m))
 	if strings.Contains(v, "the answer") || strings.Contains(v, "question one") {
 		t.Errorf("tab 1 shows tab 0's conversation:\n%s", v)
 	}
@@ -333,7 +333,7 @@ func TestBackgroundTurnAppendsToItsTab(t *testing.T) {
 	}
 
 	mustAddTab(t, &m)
-	if v := plainView(m); strings.Contains(v, "Thinking…") || strings.Contains(v, "background work") {
+	if v := belowTabBar(plainView(m)); strings.Contains(v, "Thinking…") || strings.Contains(v, "background work") {
 		t.Fatalf("tab 1 shows tab 0's turn:\n%s", v)
 	}
 	clock.Advance(3e9)
@@ -364,7 +364,7 @@ func TestBackgroundTurnAppendsToItsTab(t *testing.T) {
 	if len(m.blocks) != 0 || m.turnActive {
 		t.Fatalf("tab 1 got %d blocks, turnActive %v", len(m.blocks), m.turnActive)
 	}
-	v := plainView(m)
+	v := belowTabBar(plainView(m))
 	for _, bad := range []string{"● ok", "Worked for", "Interrupted after", "Thinking…", "background work"} {
 		if strings.Contains(v, bad) {
 			t.Errorf("tab 1 view has %q:\n%s", bad, v)

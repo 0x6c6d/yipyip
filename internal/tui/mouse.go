@@ -63,6 +63,7 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	msg.Y -= tabBarRows // the tab bar is the top screen row
 	switch msg.Action {
 	case tea.MouseActionPress:
 		m.sel = selection{}

@@ -278,7 +278,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if nm, ok := m.paste(msg.(tea.KeyMsg)); ok {
 			return nm, nil
 		}
-		switch msg.(tea.KeyMsg).String() {
+		ks := msg.(tea.KeyMsg).String()
+		switch ks {
 		case "ctrl+c":
 			return m.ctrlC()
 		case "esc":
@@ -318,6 +319,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "shift+tab":
 			m.toggleMode()
+			return m, nil
+		case "ctrl+t":
+			if err := m.addTab(); err != nil {
+				if errors.Is(err, errTabLimit) {
+					m.add(blockInfo, tabLimitMsg)
+				} else {
+					m.add(blockError, "error: "+err.Error())
+				}
+				return m, nil
+			}
+			return m, m.waitEvent()
+		case "ctrl+w":
+			return m.closeTab()
+		case "ctrl+tab":
+			m.switchTab((m.cur + 1) % len(m.tabs))
+			return m, nil
+		case keyCycleBack:
+			m.switchTab((m.cur - 1 + len(m.tabs)) % len(m.tabs))
+			return m, nil
+		case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5", "alt+6", "alt+7", "alt+8":
+			m.switchTab(int(ks[len("alt+")] - '1'))
 			return m, nil
 		case "tab":
 			// On a command name the v1 completion (longest common prefix)
@@ -572,7 +594,7 @@ func (m *Model) resize(w, h int) {
 	m.width, m.height = w, h
 	m.input.SetWidth(w - borderCols)
 	m.input.SetHeight(inputRows)
-	vh := h - inputRows - borderRows - statusRows
+	vh := h - inputRows - borderRows - statusRows - tabBarRows
 	if vh < 1 {
 		vh = 1
 	}
@@ -588,7 +610,7 @@ func (m Model) View() string {
 		Render(m.withGhost(m.input.View()))
 	vp := m.overlays(m.viewportView())
 	row1, row2 := m.StatusRows()
-	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
+	return lipgloss.JoinVertical(lipgloss.Left, m.tabBar(), vp, box, row1, row2)
 }
 
 // overlays puts the approval prompt, picker or completions, the subagent

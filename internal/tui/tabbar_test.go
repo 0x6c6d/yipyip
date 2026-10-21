@@ -1,0 +1,240 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
+
+	"yipyip/internal/agent"
+)
+
+// belowTabBar returns the view without its first line (the tab bar).
+func belowTabBar(v string) string {
+	_, rest, _ := strings.Cut(v, "\n")
+	return rest
+}
+
+// tabBarLine returns the first line of the plain view, trailing spaces cut.
+func tabBarLine(m Model) string {
+	first, _, _ := strings.Cut(plainView(m), "\n")
+	return strings.TrimRight(first, " ")
+}
+
+// sendKey sends one key to the model.
+func sendKey(m Model, k tea.KeyMsg) (Model, tea.Cmd) {
+	next, cmd := m.Update(k)
+	return next.(Model), cmd
+}
+
+// namedKey is a key whose String() is name, for keys bubbletea has no key
+// type for (ctrl+tab, ctrl+shift+tab).
+func namedKey(name string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)}
+}
+
+// altDigit is Alt+<n>.
+func altDigit(n int) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune('0' + n)}, Alt: true}
+}
+
+func countInfo(m Model, text string) int {
+	n := 0
+	for _, b := range m.blocks {
+		if b.kind == blockInfo && b.text == text {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTabBarRendersSegments(t *testing.T) {
+	withColorProfile(t, termenv.ANSI256)
+	m, _ := newSessionModel(t, answerServer(t, "hello"))
+	m = tabTurn(t, m, "first question")
+	mustAddTab(t, &m)
+
+	if got, want := tabBarLine(m), "1:first question 2:new session"; got != want {
+		t.Fatalf("tab bar = %q, want %q", got, want)
+	}
+	first, _, _ := strings.Cut(m.View(), "\n")
+	if want := "\x1b[38;5;244m1:first question\x1b[0m"; !strings.Contains(first, want) {
+		t.Errorf("first segment not dim: %q", first)
+	}
+	if want := "\x1b[1m2:new session\x1b[0m"; !strings.Contains(first, want) {
+		t.Errorf("current segment not bold: %q", first)
+	}
+	if strings.Contains(first, "\x1b[1m1:") || strings.Contains(first, "244m2:") {
+		t.Errorf("styles on the wrong segments: %q", first)
+	}
+}
+
+func TestCtrlTOpensEightTabsThenLimit(t *testing.T) {
+	m, sess := newSessionModel(t, nil)
+	for i := 0; i < 7; i++ {
+		var cmd tea.Cmd
+		m, cmd = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlT})
+		if cmd == nil {
+			t.Fatalf("press %d: no event command for the new tab", i+1)
+		}
+	}
+	if len(m.tabs) != 8 || m.cur != 7 {
+		t.Fatalf("tabs = %d, cur = %d, want 8 and 7", len(m.tabs), m.cur)
+	}
+	if got := strings.Count(tabBarLine(m), "new session"); got != 8 {
+		t.Fatalf("tab bar has %d segments, want 8: %q", got, tabBarLine(m))
+	}
+	for press := 1; press <= 2; press++ {
+		before := len(m.blocks)
+		m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlT})
+		if len(m.tabs) != 8 || m.cur != 7 {
+			t.Fatalf("press %d at the limit: tabs = %d, cur = %d", press, len(m.tabs), m.cur)
+		}
+		if len(m.blocks) != before+1 || countInfo(m, tabLimitMsg) != press {
+			t.Fatalf("press %d at the limit: %d blocks (was %d), %d limit lines", press, len(m.blocks), before, countInfo(m, tabLimitMsg))
+		}
+	}
+	if n := len(sessionFiles(t, sess.StartDir())); n != 0 {
+		t.Errorf("%d session files written, want none", n)
+	}
+}
+
+func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
+	m, sess := newSessionModel(t, answerServer(t, "hello"))
+	mustAddTab(t, &m)
+	mustAddTab(t, &m)
+	m = tabTurn(t, m, "closing question")
+	if got, want := tabBarLine(m), "1:new session 2:new session 3:closing question"; got != want {
+		t.Fatalf("tab bar = %q, want %q", got, want)
+	}
+	if n := len(sessionFiles(t, sess.StartDir())); n != 0 {
+		t.Fatalf("%d session files before the close", n)
+	}
+
+	m, cmd := sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})
+	if cmd != nil {
+		t.Errorf("closing a non-last tab returned a command")
+	}
+	if n := len(sessionFiles(t, sess.StartDir())); n != 1 {
+		t.Fatalf("%d session files after the close, want 1", n)
+	}
+	if len(m.tabs) != 2 || m.cur != 1 {
+		t.Fatalf("tabs = %d, cur = %d, want 2 and 1 (left neighbour)", len(m.tabs), m.cur)
+	}
+	got := tabBarLine(m)
+	if got != "1:new session 2:new session" || strings.Contains(got, "closing question") {
+		t.Fatalf("tab bar after close = %q", got)
+	}
+
+	// Closing the first tab falls back to the right neighbour.
+	m.switchTab(0)
+	m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})
+	if len(m.tabs) != 1 || m.cur != 0 {
+		t.Fatalf("tabs = %d, cur = %d, want 1 and 0", len(m.tabs), m.cur)
+	}
+}
+
+func TestCtrlWLastTabExitsLikeExit(t *testing.T) {
+	m, sess := newSessionModel(t, answerServer(t, "hello"))
+	m = tabTurn(t, m, "only question")
+
+	m, cmd := sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})
+	if cmd == nil {
+		t.Fatal("Ctrl+W on the last tab returned no quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("Ctrl+W on the last tab did not quit")
+	}
+	doc, _ := readSavedFile(t, sess.StartDir())
+	if title, _ := doc["title"].(string); title != "only question" {
+		t.Errorf("saved title = %q", doc["title"])
+	}
+	if len(m.tabs) != 1 {
+		t.Errorf("tabs = %d, want 1 kept", len(m.tabs))
+	}
+}
+
+func TestTabCycleKeys(t *testing.T) {
+	m, _ := newSessionModel(t, nil)
+	mustAddTab(t, &m)
+	mustAddTab(t, &m)
+	steps := []struct {
+		key  string
+		want int
+	}{
+		{"ctrl+tab", 0}, {"ctrl+tab", 1}, {"ctrl+tab", 2},
+		{keyCycleBack, 1}, {keyCycleBack, 0}, {keyCycleBack, 2},
+	}
+	for _, s := range steps {
+		m, _ = sendKey(m, namedKey(s.key))
+		if m.cur != s.want {
+			t.Fatalf("%s: cur = %d, want %d", s.key, m.cur, s.want)
+		}
+	}
+	if len(m.tabs) != 3 {
+		t.Errorf("tabs = %d, want 3", len(m.tabs))
+	}
+}
+
+func TestAltDigitJumps(t *testing.T) {
+	m, _ := newSessionModel(t, nil)
+	mustAddTab(t, &m)
+	before := len(m.blocks)
+	m, _ = sendKey(m, altDigit(3))
+	if m.cur != 1 || len(m.blocks) != before || len(m.tabs) != 2 {
+		t.Fatalf("Alt+3 on 2 tabs: cur = %d, blocks %d (was %d), tabs %d", m.cur, len(m.blocks), before, len(m.tabs))
+	}
+	m, _ = sendKey(m, altDigit(1))
+	if m.cur != 0 {
+		t.Fatalf("Alt+1: cur = %d, want 0", m.cur)
+	}
+	m, _ = sendKey(m, altDigit(2))
+	if m.cur != 1 {
+		t.Fatalf("Alt+2: cur = %d, want 1", m.cur)
+	}
+	if v := plainView(m); strings.Contains(v, "error") {
+		t.Errorf("view shows an error:\n%s", v)
+	}
+}
+
+func TestTabKeyStillCompletes(t *testing.T) {
+	m := suggestSet(New(Options{StartDir: "/w"}), "/effort m")
+	m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	if got := m.input.Value(); got != "/effort medium" {
+		t.Fatalf("Tab: input = %q", got)
+	}
+	if len(m.tabs) != 1 || m.cur != 0 {
+		t.Fatalf("Tab changed tabs: %d, cur %d", len(m.tabs), m.cur)
+	}
+
+	sm, _ := newSessionModel(t, nil)
+	if got := sm.sess.Mode(); got != agent.ModeManual {
+		t.Fatalf("start mode = %q, want manual", got)
+	}
+	sm, _ = sendKey(sm, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := sm.sess.Mode(); got != agent.ModeAuto {
+		t.Fatalf("Shift+Tab: mode = %q, want auto", got)
+	}
+}
+
+// A single fresh tab still shows its one segment, and the bar takes one of
+// the window's lines.
+func TestTabBarNotShownWithOneFreshTab(t *testing.T) {
+	m, _ := newSessionModel(t, nil)
+	if got, want := tabBarLine(m), "1:new session"; got != want {
+		t.Fatalf("tab bar = %q, want %q", got, want)
+	}
+	if h := lipgloss.Height(m.View()); h != 40 {
+		t.Errorf("view height = %d, want the window height 40", h)
+	}
+	mustAddTab(t, &m)
+	if h := lipgloss.Height(m.View()); h != 40 {
+		t.Errorf("view height with 2 tabs = %d, want 40", h)
+	}
+	if got := ansi.StringWidth(strings.Split(m.View(), "\n")[0]); got > 160 {
+		t.Errorf("tab bar is %d columns wide", got)
+	}
+}
