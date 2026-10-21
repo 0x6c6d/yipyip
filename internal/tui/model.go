@@ -219,8 +219,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleMode()
 			return m, nil
 		case "tab":
+			// On a command name the v1 completion (longest common prefix)
+			// wins; arguments are completed from the ghost text.
 			if len(m.completions()) > 0 {
 				return m.completeInput(), nil
+			}
+			if nm, ok := m.acceptSuggestion(); ok {
+				return nm, nil
+			}
+		case "right":
+			if nm, ok := m.acceptSuggestion(); ok {
+				return nm, nil
 			}
 		}
 	}
@@ -423,7 +432,7 @@ func (m *Model) resize(w, h int) {
 func (m Model) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Render(m.input.View())
+		Render(m.withGhost(m.input.View()))
 	vp := m.viewport.View()
 	if len(m.pending) > 0 {
 		vp = m.overlayApproval(vp)
