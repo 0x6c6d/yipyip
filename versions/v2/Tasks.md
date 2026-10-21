@@ -39,7 +39,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T602 | 6 | Clipboard writer | T000 | opus | done | clipboard.go, clipboard_test.go, model.go Options.Clipboard, go.mod (tidy also made ansi+termenv direct), CLAUDE.md arch notes |
 | T603 | 6 | Copy-on-select | T204, T601, T602 | opus | done | mouse.go selection, model.go lines/sel/notice/overlays(), copy_test.go; copy text only from redacted rendered lines |
 | T701 | 7 | Help lists the new keys | T000 | haiku | done | help.go keys table, help_test.go, cmd/yip main_test.go |
-| T702 | 7 | Usage docs and CLAUDE.md notes | T103, T204, T302, T403, T502, T603, T701 | haiku | todo | |
+| T702 | 7 | Usage docs and CLAUDE.md notes | T103, T204, T302, T403, T502, T603, T701 | haiku | done | docs/usage.md v2 rewrite, CLAUDE.md tui line |
 | T799 | 7 | Global Definition of Done | T101, T102, T103, T201, T202, T203, T204, T301, T302, T401, T402, T403, T501, T502, T601, T602, T603, T701, T702 | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.

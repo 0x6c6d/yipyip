@@ -62,12 +62,16 @@ export OPENROUTER_API_KEY=...   # set it in your shell, never in a file
 
 ## Modes
 
-- **Manual** (default): `bash`, `write_file`, `edit_file` and `spawn_agent` need
-  your approval. The prompt offers `y` (allow once), `n` (deny; Esc also denies)
-  and `a` (always allow this tool for the rest of the session).
-- **Auto**: the same tools run without asking.
+- **Auto** (default): `bash`, `write_file`, `edit_file` and `spawn_agent` run
+  without asking.
+- **Manual**: the same tools need your approval. The prompt offers `y` (allow
+  once), `n` (deny; Esc also denies) and `a` (always allow this tool for the
+  rest of the session).
 
 Switch with `Shift+Tab`, or with `/mode [auto|manual]` (no argument toggles).
+The first status row shows the mode as `auto (shift+tab to toggle)`, with
+`auto` highlighted; in manual mode the word `manual` is shown in the default
+colour.
 
 ## Slash commands
 
@@ -86,26 +90,80 @@ Switch with `Shift+Tab`, or with `/mode [auto|manual]` (no argument toggles).
 | `/quit` | alias of `/exit` |
 | `/help` | show the command and key help |
 
-Type `/` and press `Tab` to complete a command name.
+Type `/` and press `Tab` or `Right` to accept the grey suggestion that appears
+while you type a command (see [Input](#input)).
+
+## Input
+
+- **Suggestions**: typing `/` shows the matching slash command as grey ghost
+  text after the cursor. `Tab` or `Right` accepts it. Mode and effort values
+  are suggested the same way.
+- **History**: `Up` and `Down` recall earlier inputs. History is kept in
+  memory only (nothing is written to disk), survives `/new` within the same
+  run, and keeps at most 500 entries.
+- **Large pastes**: a long paste is shown as a placeholder such as
+  `[Pasted text #1 +40 lines]`. The placeholder stands for the full text, and
+  the full text is sent to the model.
+- **Queue**: while the agent is busy, `Enter` queues the message. Queued
+  messages are shown dimmed above the input and are sent together as the next
+  turn when the current one ends. `Esc` or `Ctrl+C` cancels the running turn
+  and moves the queued messages back into the input. `Up` on an empty input
+  pulls them back for editing.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| Enter | send the message |
+| Enter | send the message; while the agent is busy, queue it |
 | Alt+Enter | new line in the input |
-| Esc | cancel the running turn (or deny a pending approval) |
-| Shift+Tab | toggle manual/auto mode |
-| Ctrl+C | press twice within 2 seconds to quit (the first press cancels the running turn) |
-| Tab | complete a slash command |
+| Esc | cancel the running turn (queued messages return to the input); deny a pending approval |
+| Shift+Tab | toggle auto/manual mode (auto is the default) |
+| Ctrl+C | twice: quit (the first press cancels the running turn) |
+| Tab / Right | accept a suggestion or complete a command |
+| Up / Down | input history (Up first restores queued messages) |
 | Ctrl+O | expand or collapse tool results |
-| PgUp / PgDn | scroll the conversation |
+| PgUp / PgDn | scroll |
+| Mouse wheel | scroll 3 lines |
+| Ctrl+Home / Ctrl+End | scroll to the first/last line (Home/End with an empty input) |
+| Mouse drag | select text; releasing copies it to the clipboard |
+
+### Scrolling and copying
+
+- The mouse wheel scrolls the conversation 3 lines per event. `PgUp` and
+  `PgDn` scroll by a page, and `Ctrl+Home` and `Ctrl+End` jump to the first
+  and last line. With an empty input, `Home` and `End` do the same.
+- Drag with the left mouse button to select text. Releasing the button copies
+  the selection: yip sends it with OSC 52 and, when installed, to `wl-copy`,
+  `xclip` or `xsel`. The status line then shows `N characters copied`.
+- yip captures the mouse, so the terminal cannot select text on its own. Hold
+  `Shift` while dragging to use the terminal's own selection.
+- Copied text is the redacted screen text. Secrets are never copied.
+
+## Conversation
+
+- Your messages start with `> `. The agent's replies and its tool calls are
+  marked with `●`. Each tool result follows a `⎿` marker and is collapsed to
+  3 lines with a hint such as `… +12 lines (ctrl+o to expand)`; `Ctrl+O`
+  expands or collapses all results.
+- While a turn runs, a busy line shows the elapsed time and the output tokens
+  so far: `✻ Thinking… (12s · ↓ 1.2k tokens · esc to interrupt)`. It reads
+  `✻ Working…` while a tool runs.
+- Each turn ends with a finished marker: `✻ Worked for 1m 15s`, or
+  `✻ Interrupted after 12s` when you cancelled it.
 
 ## Subagents
 
 The model can start subagents with `spawn_agent` (at most `max_subagents` at a
-time). A subagent panel lists each subagent with its id, state and task. Use
-`/agents` to show them and `/agents kill id` to cancel one.
+time).
+
+- Each subagent has one live block in the conversation:
+  `● Subagent a1 (task)`, its latest tool call, and a state line
+  `Running… (N tool uses · tokens · time)` that ends as `Done`, `Failed` or
+  `Cancelled`.
+- The subagent panel lists each one on a line such as
+  `● a1 task (14s · 1.2k tokens)`.
+- `/agents` lists them, `/agents <id>` shows the subagent's transcript, and
+  `/agents kill <id>` cancels one.
 
 ## Undo, compaction and the status line
 
@@ -118,10 +176,17 @@ can check their effects by hand.
 yip compacts automatically when the last prompt filled at least 80% of the
 model's context limit.
 
-The status line shows, in order: the working directory, `provider/model`, the
-reasoning effort, the mode, token counts (`in N / out N / total N`, session
-totals), and context use (`ctx used/limit`, or `ctx used` when the limit is
-unknown). Token counts are the only usage figures shown.
+The status area has two rows under the input:
+
+```text
+<cwd> · <provider/model> · <effort> · auto (shift+tab to toggle)
+in N · out N · total N · ctx used/limit
+```
+
+Row 1 shows the working directory, `provider/model`, the reasoning effort and
+the mode. When the row is too wide, the working directory is shortened from the
+left. Row 2 shows the session token totals and context use (`ctx used/limit`,
+or `ctx used` when the limit is unknown). No costs are shown.
 
 ## Security
 
@@ -129,8 +194,9 @@ unknown). Token counts are the only usage figures shown.
   files. yip has no web tools.
 - File tools (`read_file`, `write_file`, `edit_file`, `glob`, `grep`) are
   confined to the start directory; paths that escape it are refused.
-- `bash` is not confined to the start directory. In manual mode each command
-  needs your approval; in auto mode it runs without asking. Review commands
-  before approving them.
+- `bash` is not confined to the start directory. In auto mode (the default)
+  commands run without asking; in manual mode each command needs your
+  approval. Review commands before approving them, and switch to manual mode
+  (`Shift+Tab`) if you want to approve each one.
 - API keys are read only from environment variables. They are never shown in
   the UI or in errors, and yip writes no logs, history or config files.
