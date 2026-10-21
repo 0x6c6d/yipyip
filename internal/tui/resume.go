@@ -80,7 +80,7 @@ func (m Model) resumeKey(k tea.KeyMsg) (Model, tea.Cmd) {
 		if r.cursor >= 0 && r.cursor < len(r.sessions) {
 			data := r.sessions[r.cursor]
 			m.resume = resumePicker{}
-			m.restore(&data)
+			m.restore(0, &data)
 		}
 		return m, nil
 	}
@@ -190,8 +190,11 @@ func (m Model) overlayResume(vp string) string {
 // file, and the conversation blocks rebuilt from the history. The turn is
 // restored as finished: no Thinking line, no finished marker and no other
 // live turn state comes back (an interrupted turn stays stored-finished).
-func (m *Model) restore(data *session.SessionData) {
-	m.restoreInto(m.opts.Session, data)
+//
+// tab is the target tab; v3 has exactly one tab (index 0), so the callers
+// pass 0 and a later phase only changes the caller to pass its own tab.
+func (m *Model) restore(tab int, data *session.SessionData) {
+	m.restoreInto(m.tabSession(tab), data)
 
 	// TUI-side state.
 	if m.hist == nil {
@@ -225,6 +228,14 @@ func (m *Model) restore(data *session.SessionData) {
 
 	m.blocks = restoreBlocks(data.Conversation)
 	m.refreshTo(true)
+}
+
+// tabSession returns the agent session of tab (nil = none or no such tab).
+func (m *Model) tabSession(tab int) *agent.Session {
+	if tab != 0 {
+		return nil
+	}
+	return m.opts.Session
 }
 
 // restoreInto pushes the stored conversation, tokens, model, effort and mode

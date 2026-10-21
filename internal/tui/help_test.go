@@ -7,7 +7,7 @@ import (
 
 func TestHelpTextListsCommands(t *testing.T) {
 	want := []string{"/model", "/effort", "/mode", "/agents", "/init", "/compact",
-		"/undo", "/new", "/clear", "/exit", "/quit", "/help"}
+		"/undo", "/sessions", "/new", "/clear", "/exit", "/quit", "/help"}
 	cmds := Commands()
 	if len(cmds) != len(want) {
 		t.Fatalf("Commands() has %d entries, want %d", len(cmds), len(want))

@@ -18,6 +18,7 @@ var commands = []CommandInfo{
 	{Name: "/init", Help: "write or update AGENTS.md"},
 	{Name: "/compact", Help: "summarize the conversation"},
 	{Name: "/undo", Help: "undo the last turn's file changes"},
+	{Name: "/sessions", Args: "[id | rm id]", Help: "list, load or remove saved sessions"},
 	{Name: "/new", Help: "start a fresh session"},
 	{Name: "/clear", Help: "alias of /new"},
 	{Name: "/exit", Help: "quit"},

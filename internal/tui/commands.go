@@ -15,18 +15,19 @@ type commandFunc func(m Model, args string) (Model, tea.Cmd)
 // slashCommands is the dispatcher table of the slash commands, used by Enter
 // and Model.Command.
 var slashCommands = map[string]commandFunc{
-	"/help":    cmdHelp,
-	"/new":     cmdNew,
-	"/clear":   cmdNew,
-	"/exit":    cmdQuit,
-	"/quit":    cmdQuit,
-	"/effort":  cmdEffort,
-	"/mode":    cmdMode,
-	"/model":   cmdModel,
-	"/agents":  cmdAgents,
-	"/init":    cmdInit,
-	"/compact": cmdCompact,
-	"/undo":    cmdUndo,
+	"/help":     cmdHelp,
+	"/new":      cmdNew,
+	"/clear":    cmdNew,
+	"/exit":     cmdQuit,
+	"/quit":     cmdQuit,
+	"/effort":   cmdEffort,
+	"/mode":     cmdMode,
+	"/model":    cmdModel,
+	"/agents":   cmdAgents,
+	"/init":     cmdInit,
+	"/compact":  cmdCompact,
+	"/undo":     cmdUndo,
+	"/sessions": cmdSessions,
 }
 
 // runSlash dispatches a line that starts with "/". It never reaches the model.

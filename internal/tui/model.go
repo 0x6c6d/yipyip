@@ -128,7 +128,8 @@ type Model struct {
 
 	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
 
-	saved *saveState // created time and id of the saved conversation, shared by all copies
+	rmPending string     // session id awaiting the y/n reply of /sessions rm
+	saved     *saveState // created time and id of the saved conversation, shared by all copies
 
 	clip func(string) error // clipboard writer: Options.Clipboard or defaultClipboard
 
@@ -183,7 +184,7 @@ func New(opts Options) Model {
 	m.resize(defaultWidth, defaultHeight)
 	switch {
 	case opts.ResumeData != nil:
-		m.restore(opts.ResumeData)
+		m.restore(0, opts.ResumeData)
 	case opts.ResumePick:
 		m.openResumePicker()
 	}
@@ -356,6 +357,11 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.input.Reset()
+	if m.rmPending != "" {
+		// The reply to a /sessions rm confirmation: neither history, nor
+		// queue, nor the model.
+		return m.Command(text)
+	}
 	if m.hist != nil {
 		m.hist.push(text)
 	}
@@ -372,6 +378,9 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	text := strings.TrimSpace(line)
 	if text == "" {
 		return m, nil
+	}
+	if m.rmPending != "" {
+		return m.answerRm(text), nil
 	}
 	if strings.HasPrefix(text, "/") {
 		return m.runSlash(text)
