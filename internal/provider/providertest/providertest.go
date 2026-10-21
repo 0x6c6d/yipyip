@@ -20,14 +20,16 @@ type Usage struct{ Prompt, Completion int }
 
 // Response scripts one reply of the fake provider.
 type Response struct {
-	Status    int           // 0 or 200 = SSE stream; anything else = plain error response
-	Body      string        // body for an error response
-	Text      string        // streamed as content deltas
-	ToolCalls []ToolCall    // streamed as tool_calls deltas
-	Usage     *Usage        // final usage chunk when non-nil
-	Raw       []string      // if non-nil: sent verbatim as "data: <p>\n\n" lines instead of the above
-	Drop      bool          // abort the connection after the content (no finish chunk, no [DONE])
-	Delay     time.Duration // wait before the first byte (ends early if the request is cancelled)
+	Status     int           // 0 or 200 = SSE stream; anything else = plain error response
+	Body       string        // body for an error response
+	Text       string        // streamed as content deltas
+	ToolCalls  []ToolCall    // streamed as tool_calls deltas
+	Usage      *Usage        // final usage chunk when non-nil
+	Raw        []string      // if non-nil: sent verbatim as "data: <p>\n\n" lines instead of the above
+	Drop       bool          // abort the connection after the content (no finish chunk, no [DONE])
+	Delay      time.Duration // wait before the first byte (ends early if the request is cancelled)
+	Reset      bool          // close the TCP connection before writing anything (pre-first-byte failure)
+	RetryAfter string        // optional Retry-After header of an error response
 }
 
 // Message is one decoded entry of the request's "messages".
@@ -135,7 +137,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if resp.Reset {
+		resetConn(w)
+		return
+	}
 	if resp.Status != 0 && resp.Status != http.StatusOK {
+		if resp.RetryAfter != "" {
+			w.Header().Set("Retry-After", resp.RetryAfter)
+		}
 		w.WriteHeader(resp.Status)
 		_, _ = io.WriteString(w, resp.Body)
 		return
