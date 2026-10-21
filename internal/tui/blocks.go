@@ -115,6 +115,44 @@ func toolSummary(tool, args string) string {
 	return compactArgs(args)
 }
 
+var userStyle = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+
+// indentContinuation indents every line but the first by two spaces.
+func indentContinuation(s string) string {
+	return strings.ReplaceAll(s, "\n", "\n  ")
+}
+
+// renderBlock renders one conversation block in Claude Code style, without
+// borders. All text passes the redactor before styling. An empty result means
+// the block shows nothing.
+func (m *Model) renderBlock(b block, width int) string {
+	if b.kind == blockTool {
+		return m.renderTool(b.call, width)
+	}
+	text := m.redact(b.text)
+	switch b.kind {
+	case blockAssistant:
+		text = strings.TrimRight(text, "\r\n")
+		if strings.TrimSpace(text) == "" {
+			return ""
+		}
+		return "● " + indentContinuation(highlightFences(text))
+	case blockError:
+		return errorStyle.Render(text)
+	case blockInfo:
+		return infoStyle.Render(text)
+	}
+	if strings.HasPrefix(text, "> ") {
+		text = indentContinuation(strings.TrimRight(text, "\r\n"))
+		st := userStyle
+		if width > 0 {
+			st = st.Width(width)
+		}
+		return st.Render(text)
+	}
+	return text
+}
+
 // renderTool renders a tool call block in Claude Code style, without borders.
 func (m *Model) renderTool(c *toolCall, _ int) string {
 	bullet := toolBulletDim

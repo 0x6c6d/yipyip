@@ -326,24 +326,13 @@ func (m *Model) refresh() { m.refreshTo(m.viewport.AtBottom()) }
 // refreshTo re-renders the blocks; with follow set the viewport ends at the
 // bottom, otherwise the scroll position is kept.
 func (m *Model) refreshTo(follow bool) {
-	parts := make([]string, len(m.blocks))
-	for i, b := range m.blocks {
-		if b.kind == blockTool {
-			parts[i] = m.renderTool(b.call, m.viewport.Width)
-			continue
+	parts := make([]string, 0, len(m.blocks))
+	for _, b := range m.blocks {
+		if r := m.renderBlock(b, m.viewport.Width); r != "" {
+			parts = append(parts, r)
 		}
-		text := m.redact(b.text)
-		switch b.kind {
-		case blockAssistant:
-			text = highlightFences(text)
-		case blockError:
-			text = errorStyle.Render(text)
-		case blockInfo:
-			text = infoStyle.Render(text)
-		}
-		parts[i] = text
 	}
-	content := strings.Join(parts, "\n")
+	content := strings.Join(parts, "\n\n")
 	m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width).Render(content))
 	if follow {
 		m.viewport.GotoBottom()
