@@ -11,7 +11,7 @@ expect_ok "flag and alias wired in main.go" <<'CMD'
 grep -q -- '--resume' cmd/yip/main.go && grep -q -- '"-c"' cmd/yip/main.go
 CMD
 expect_ok "hand-over fields exist on tui Options" <<'CMD'
-has_symbols ./internal/tui Options
+has_symbols ./internal/tui Options.ResumeData Options.ResumePick Options.StdinTTY
 CMD
 expect_fail "negative: unknown-id message never leaks the sessions path" <<'CMD'
 no_match -rn --include='*_test.go' -e 'unknown session .*\.yipyip' cmd/yip
