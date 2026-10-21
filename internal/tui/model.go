@@ -110,6 +110,11 @@ type Model struct {
 	queue []string // messages typed while busy, sent at the turn end (copy-on-write)
 
 	clip func(string) error // clipboard writer: Options.Clipboard or defaultClipboard
+
+	lines       []string  // rendered (redacted) conversation lines, as given to the viewport
+	sel         selection // left-button drag over the conversation
+	notice      string    // copy notice, shown until noticeUntil
+	noticeUntil time.Time
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -201,6 +206,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tickCmd()
+	case noticeMsg:
+		return m, nil // redraw: the copy notice has expired
 	case compactDoneMsg:
 		m.compactDone(msg.err)
 		return m, nil
@@ -466,8 +473,9 @@ func (m *Model) refreshTo(follow bool) {
 			parts = append(parts, r)
 		}
 	}
-	content := strings.Join(parts, "\n\n")
-	m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width).Render(content))
+	content := lipgloss.NewStyle().Width(m.viewport.Width).Render(strings.Join(parts, "\n\n"))
+	m.lines = strings.Split(content, "\n")
+	m.viewport.SetContent(content)
 	if follow {
 		m.viewport.GotoBottom()
 	}
@@ -498,7 +506,15 @@ func (m Model) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Render(m.withGhost(m.input.View()))
-	vp := m.viewport.View()
+	vp := m.overlays(m.viewportView())
+	row1, row2 := m.StatusRows()
+	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
+}
+
+// overlays puts the approval prompt, picker or completions, the subagent
+// panel, the busy line, the queue block and the copy notice over the
+// viewport view vp. The height stays that of vp.
+func (m Model) overlays(vp string) string {
 	if len(m.pending) > 0 {
 		vp = m.overlayApproval(vp)
 	} else if m.picker.open {
@@ -513,6 +529,5 @@ func (m Model) View() string {
 	vp = m.withPanel(vp)
 	vp = m.withThinking(vp)
 	vp = m.withQueue(vp)
-	row1, row2 := m.StatusRows()
-	return lipgloss.JoinVertical(lipgloss.Left, vp, box, row1, row2)
+	return m.withNotice(vp)
 }
