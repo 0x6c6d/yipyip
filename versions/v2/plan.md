@@ -79,7 +79,7 @@ _Each `-run X` below also requires `go test ./internal/tui -list 'X' | grep -q '
 - `go test ./... -run Secret` exits 0 (incl. the R21 `SECRET123` copy test)
 - `git diff --stat d3eeba4..HEAD -- internal/agent internal/tools internal/provider internal/config` prints nothing
 - `grep -rln '"os/exec"\|atotto/clipboard' --include=*.go . | grep -v _test` lists only `internal/tools/bash.go` and `internal/tui/clipboard.go`
-- `git diff --quiet d3eeba4..HEAD -- README.md prompts .claude scripts/verify` exits 0
+- `git diff --quiet d3eeba4..HEAD -- README.md prompts .claude scripts/verify/_lib.sh scripts/verify/v1` exits 0 (the new `scripts/verify/v2/` is added after `d3eeba4`)
 - `make check` exits 0
 
 ### Requirement coverage
