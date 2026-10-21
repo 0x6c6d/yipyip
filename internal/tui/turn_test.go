@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,6 +192,159 @@ func TestThinkingFormat(t *testing.T) {
 	}{{0, "0"}, {999, "999"}, {1000, "1.0k"}, {1234, "1.2k"}, {1500000, "1.5M"}} {
 		if got := formatTokens(c.n); got != c.want {
 			t.Errorf("formatTokens(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+// heldServer returns a fake provider whose response waits until release is
+// closed. The channel is closed in t.Cleanup before the server is closed.
+func heldServer(t *testing.T) (*providertest.Server, func()) {
+	t.Helper()
+	release := make(chan struct{})
+	srv := providertest.NewFunc(func(n int, req providertest.Request) providertest.Response {
+		<-release
+		return providertest.Response{Text: "ok"}
+	})
+	t.Cleanup(srv.Close)
+	var once sync.Once
+	rel := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(rel)
+	return srv, rel
+}
+
+func lastBlockText(m Model) string {
+	if len(m.blocks) == 0 {
+		return ""
+	}
+	return ansi.Strip(m.renderBlock(m.blocks[len(m.blocks)-1], 80))
+}
+
+func markerLines(m Model) []string {
+	var out []string
+	for _, l := range strings.Split(plainView(m), "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "✻ Worked for") || strings.HasPrefix(l, "✻ Interrupted after") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// finishHeld runs one turn held open while the clock advances by d.
+func finishHeld(t *testing.T, m Model, sess *agent.Session, clock *fakeClock, release func(), d time.Duration) Model {
+	t.Helper()
+	m, _ = m.Command("hi")
+	waitBusy(t, sess)
+	clock.Advance(d)
+	release()
+	waitSession(t, sess)
+	return m.Drain()
+}
+
+func TestFinishedWorkedFor(t *testing.T) {
+	srv, release := heldServer(t)
+	m, sess, clock := newClockModel(t, srv)
+	m = finishHeld(t, m, sess, clock, release, 75*time.Second)
+	if got := lastBlockText(m); got != "✻ Worked for 1m 15s" {
+		t.Fatalf("last block = %q", got)
+	}
+	if v := plainView(m); strings.Contains(v, "Thinking…") {
+		t.Fatalf("view still has Thinking…:\n%s", v)
+	}
+	// The text is fixed: later clock movement does not change it.
+	clock.Advance(time.Hour)
+	if got := lastBlockText(m); got != "✻ Worked for 1m 15s" {
+		t.Fatalf("marker changed: %q", got)
+	}
+}
+
+func TestFinishedUnderOneSecond(t *testing.T) {
+	srv, release := heldServer(t)
+	m, sess, clock := newClockModel(t, srv)
+	m = finishHeld(t, m, sess, clock, release, 400*time.Millisecond)
+	if got := lastBlockText(m); got != "✻ Worked for 0s" {
+		t.Fatalf("last block = %q", got)
+	}
+}
+
+func TestFinishedInterrupted(t *testing.T) {
+	srv := providertest.New(slowResponse())
+	defer srv.Close()
+	m, sess, clock := newClockModel(t, srv)
+	m, _ = m.Command("hi")
+	waitBusy(t, sess)
+	clock.Advance(12 * time.Second)
+	m = cancelTurn(t, m, sess)
+	m = m.Drain()
+	if got := lastBlockText(m); got != "✻ Interrupted after 12s" {
+		t.Fatalf("last block = %q", got)
+	}
+	if n := len(markerLines(m)); n != 1 {
+		t.Fatalf("%d marker lines, want 1", n)
+	}
+}
+
+func TestFinishedOnePerTurn(t *testing.T) {
+	srv, release := heldServer(t)
+	release() // responses return at once; the clock still moves while busy
+	m, sess, clock := newClockModel(t, srv)
+	m = finishHeld(t, m, sess, clock, release, 5*time.Second)
+	m = finishHeld(t, m, sess, clock, release, 7*time.Second)
+	lines := markerLines(m)
+	if len(lines) != 2 || lines[0] != "✻ Worked for 5s" || lines[1] != "✻ Worked for 7s" {
+		t.Fatalf("marker lines = %q", lines)
+	}
+}
+
+func TestFinishedNotForSlash(t *testing.T) {
+	srv := providertest.New(slowResponse())
+	defer srv.Close()
+	m, _, _ := newClockModel(t, srv)
+	m, _ = m.Command("/mode auto")
+	m, _ = m.Command("/effort low")
+	for _, b := range m.blocks {
+		if b.kind == blockMarker {
+			t.Fatalf("unexpected marker %q", b.text)
+		}
+	}
+	// A turn-done event with no running turn adds nothing either.
+	m.apply(agent.Event{Kind: agent.EvTurnDone, AgentID: agent.MainAgentID})
+	if n := len(markerLines(m)); n != 0 {
+		t.Fatalf("%d marker lines, want 0", n)
+	}
+}
+
+func TestFinishedColors(t *testing.T) {
+	withColorProfile(t, termenv.TrueColor)
+	srv, release := heldServer(t)
+	m, sess, clock := newClockModel(t, srv)
+	m = finishHeld(t, m, sess, clock, release, 3*time.Second)
+	for _, l := range strings.Split(m.View(), "\n") {
+		if strings.Contains(ansi.Strip(l), "✻ Worked for") {
+			for _, want := range []string{"38;2;215;119;87", "38;5;244"} {
+				if !strings.Contains(l, want) {
+					t.Errorf("marker line lacks %q: %q", want, l)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("no marker line in view")
+}
+
+func TestFinishedClearedByNew(t *testing.T) {
+	srv, release := heldServer(t)
+	m, sess, clock := newClockModel(t, srv)
+	m = finishHeld(t, m, sess, clock, release, 3*time.Second)
+	if len(markerLines(m)) != 1 {
+		t.Fatal("no marker before /new")
+	}
+	m, _ = m.Command("/new")
+	if n := len(markerLines(m)); n != 0 {
+		t.Fatalf("%d marker lines after /new", n)
+	}
+	for _, b := range m.blocks {
+		if b.kind == blockMarker {
+			t.Fatal("marker block survived /new")
 		}
 	}
 }

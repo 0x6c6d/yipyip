@@ -141,6 +141,11 @@ func (m *Model) renderBlock(b block, width int) string {
 		return errorStyle.Render(text)
 	case blockInfo:
 		return infoStyle.Render(text)
+	case blockMarker:
+		if rest, ok := strings.CutPrefix(text, "✻"); ok {
+			return thinkingStyle.Render("✻") + thinkingDim.Render(rest)
+		}
+		return thinkingDim.Render(text)
 	}
 	if strings.HasPrefix(text, "> ") {
 		text = indentContinuation(strings.TrimRight(text, "\r\n"))

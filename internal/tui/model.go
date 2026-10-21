@@ -44,6 +44,7 @@ const (
 	blockError
 	blockInfo
 	blockTool
+	blockMarker // permanent "Worked for" / "Interrupted after" line
 )
 
 // block is one entry of the conversation. Text is kept raw and redacted when
@@ -87,10 +88,11 @@ type Model struct {
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
 	expanded  bool                     // Ctrl+O: tool results shown in full
 
-	turnActive bool      // a turn is running: the Thinking line is shown and ticks go on
-	turnStart  time.Time // when the running turn was submitted
-	turnOut0   int       // session output tokens at submit
-	openCalls  int       // main-agent tool calls without a result yet
+	turnActive  bool      // a turn is running: the Thinking line is shown and ticks go on
+	turnStart   time.Time // when the running turn was submitted
+	turnOut0    int       // session output tokens at submit
+	openCalls   int       // main-agent tool calls without a result yet
+	interrupted bool      // the user cancelled the running turn (Esc or first Ctrl+C)
 
 	turnStarts []int // block index where each undoable submitted turn starts (copy-on-write)
 }
@@ -191,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.ctrlC()
 		case "esc":
 			if sess := m.opts.Session; sess != nil && sess.Busy() {
+				m.interrupted = m.interrupted || m.turnActive
 				sess.Cancel()
 			}
 			return m, nil
@@ -228,6 +231,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) ctrlC() (tea.Model, tea.Cmd) {
 	m.denyPending()
 	if sess := m.opts.Session; sess != nil && sess.Busy() {
+		m.interrupted = m.interrupted || m.turnActive
 		sess.Cancel()
 	}
 	now := m.now()
@@ -324,7 +328,15 @@ func (m *Model) apply(ev agent.Event) {
 		// Subagents() live, so nothing is printed into the conversation.
 		m.refresh()
 	case agent.EvTurnDone:
+		if m.turnActive && isMainAgent(ev.AgentID) {
+			verb := "✻ Worked for "
+			if m.interrupted {
+				verb = "✻ Interrupted after "
+			}
+			m.add(blockMarker, verb+formatElapsed(m.now().Sub(m.turnStart)))
+		}
 		m.turnActive = false
+		m.interrupted = false
 		m.openCalls = 0
 		m.streaming = false
 		m.closeToolCalls()

@@ -56,6 +56,9 @@ func cmdNew(m Model, _ string) (Model, tea.Cmd) {
 	m.blocks = nil
 	m.turnStarts = nil
 	m.streaming = false
+	m.turnActive = false
+	m.interrupted = false
+	m.openCalls = 0
 	m.add(blockInfo, "new session")
 	return m, nil
 }

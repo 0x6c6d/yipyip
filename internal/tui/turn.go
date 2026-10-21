@@ -30,6 +30,7 @@ func isMainAgent(id string) bool { return id == "" || id == agent.MainAgentID }
 // startTurn marks a turn as started now and returns the first tick command.
 func (m *Model) startTurn() tea.Cmd {
 	m.turnActive = true
+	m.interrupted = false
 	m.turnStart = m.now()
 	m.openCalls = 0
 	m.turnOut0 = 0
