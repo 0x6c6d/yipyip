@@ -35,7 +35,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T402 | 4 | Tab bar and keys | T401, T103 | sonnet | done | bar, Ctrl+T/W/Tab/Shift+Tab, Alt+1..8, limit line, old keys unchanged ; tabbar.go, tabkeys.go, tabbar_test.go, model.go/mouse.go; NOTE ctrl+tab / ctrl+shift+tab are not producible by bubbletea 1.3 parsing on real terminals (tests use synthetic KeyRunes); Alt+1..8 and Ctrl+T/W work |
 | T501 | 5 | Question gate in agent | T000 | opus | done | question tool auto-approved, reply channel, never gated (A1, A2) ; agent/question.go (Cancelled, QuestionRequest, JoinAnswers), EvQuestion + Event.Question, offered to main agent only, loop.go cancel branch; worker's "interrupted-flag bug" note is stale (fixed in T103) |
 | T502 | 5 | Question overlay in TUI | T501 | sonnet | done | radio/checkbox/free text, Esc cancelled, approval-prompt style ; tui/question.go + question_test.go, per-tab question queue, shared overlayCentered; row fixed: redactor check was inverted (expect_fail on m.redact), now a positive count check |
-| T503 | 5 | e2e Question | T501, T502 | sonnet | todo | answer is the tool result in the follow-up request |
+| T503 | 5 | e2e Question | T501, T502 | sonnet | done | answer is the tool result in the follow-up request ; e2e/question_test.go (4 tests, auto+manual mode) |
 | T601 | 5 | Settings write in config | T000 | opus | todo | three keys atomic, key-preserving, {env:NAME} literal, SECRET123 negative |
 | T602 | 6 | Settings persist trigger in TUI | T601, T202, T402 | opus | todo | model/effort/mode changes write settings, failure line (A11) |
 | T603 | 6 | Shift+enter newline and help lines | T000 | haiku | todo | shift+enter key msg inserts newline, alt+enter unchanged, /help lines |
