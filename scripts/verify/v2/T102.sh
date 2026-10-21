@@ -11,7 +11,7 @@ expect_ok "mode colours defined in non-test tui code" <<'CMD'
 grep -rqi --include='*.go' --exclude='*_test.go' -e '#E8A33D' internal/tui && grep -rq --include='*.go' --exclude='*_test.go' -e '"250"' internal/tui
 CMD
 expect_fail "negative: the hint never mentions /mode" <<'CMD'
-no_match -n -e 'toggle.*/mode' -e '/mode.*toggle)' internal/tui/status.go
+no_match -nE -e 'toggle.*/mode([^l]|$)' -e '/mode([^l]|$).*toggle\)' internal/tui/status.go
 CMD
 expect_fail "negative: agent constructor default untouched" <<'CMD'
 out="$(git diff d3eeba4 -- internal/agent/session.go)" || exit 125
