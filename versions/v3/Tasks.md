@@ -21,7 +21,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify passes (7 checks) |
 | T101 | 1 | Session Store (Save/Load/List/Delete) | T000 | opus | todo | internal/session, atomic, symlink + SECRET123 negatives, .gitignore |
 | T102 | 1 | Agent export accessors + restore setters | T101 | opus | todo | agent/session.go only; interrupted-as-finished |
 | T103 | 1 | Save on exit (ExitSave wiring) | T101, T102 | sonnet | todo | tui commands.go + keycode path, ExitSave tests |
