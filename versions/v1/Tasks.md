@@ -41,7 +41,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T305 | 3 | glob with ** and grep | T303 | sonnet | done | internal/tools/search.go (+test), MatchGlob, registerSearchTools; symlinks not followed |
 | T401 | 4 | Approval gate | T101 | opus | done | internal/agent/approval.go (+test); fail-closed: nil Gate denies gated tools even in auto |
 | T402 | 4 | Agent session core: state, events, system prompt | T202, T205, T303, T401 | opus | done | internal/agent/session.go, events.go, prompt.go (+test); hooks: busy, cancelTurn, gen, beforeWrite stub, newClient() |
-| T403 | 4 | Agent loop, token accounting, cancellation | T206, T304, T305, T402 | opus | todo | |
+| T403 | 4 | Agent loop, token accounting, cancellation | T206, T304, T305, T402 | opus | done | internal/agent/loop.go (+test); runLoop(ctx, gen, agentID, hist, toolSet) with toolSet{defs, run}; CancelledMessage; Reset waits for turn |
 | T404 | 4 | Subagent manager | T101 | opus | todo | |
 | T405 | 4 | Subagent tools in the session | T403, T404 | opus | todo | |
 | T501 | 5 | TUI connected to the agent session | T104, T403 | sonnet | todo | |

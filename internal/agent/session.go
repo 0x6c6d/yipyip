@@ -55,8 +55,9 @@ type Session struct {
 	tokens           Tokens
 	lastPromptTokens int
 	busy             bool
-	cancelTurn       func() // cancels the running turn; nil when idle
-	gen              uint64 // incremented by Reset so a stale turn can detect it
+	cancelTurn       func()        // cancels the running turn; nil when idle
+	turnDone         chan struct{} // closed when the running turn ends; nil when idle
+	gen              uint64        // incremented by Reset so a stale turn can detect it
 }
 
 // NewSession returns a session for opts.StartDir with the defaults: the
@@ -258,6 +259,7 @@ func (s *Session) Reset() {
 	prompt := buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor)
 	s.mu.Lock()
 	cancel := s.cancelTurn
+	done := s.turnDone
 	s.cancelTurn = nil
 	s.gen++
 	s.systemPrompt = prompt
@@ -267,6 +269,11 @@ func (s *Session) Reset() {
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	// Wait for the cancelled turn without holding the mutex; its stale
+	// generation keeps it from writing into the new history.
+	if done != nil {
+		<-done
 	}
 	s.gate.Reset()
 	s.events.drain()
