@@ -40,6 +40,7 @@ const (
 	blockAssistant
 	blockError
 	blockInfo
+	blockTool
 )
 
 // block is one entry of the conversation. Text is kept raw and redacted when
@@ -47,6 +48,7 @@ const (
 type block struct {
 	kind blockKind
 	text string
+	call *toolCall // blockTool only
 }
 
 var (
@@ -80,6 +82,7 @@ type Model struct {
 	streaming bool                     // the last block is an assistant block still receiving deltas
 	picker    picker                   // /model picker state
 	pending   []*agent.ApprovalRequest // approval requests waiting for y/n/a, FIFO
+	expanded  bool                     // Ctrl+O: tool results shown in full
 }
 
 // New returns a Model with the input focused and a default 80x24 layout.
@@ -171,6 +174,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			return m.submit()
+		case "ctrl+o":
+			m.expanded = !m.expanded
+			m.refresh()
+			return m, nil
+		case "pgup", "pgdown":
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		case "shift+tab":
 			m.toggleMode()
 			return m, nil
@@ -181,13 +192,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var cmds []tea.Cmd
 	var cmd tea.Cmd
+	if _, isMouse := msg.(tea.MouseMsg); isMouse {
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+	}
+	// Only PgUp/PgDn (handled above) scroll the viewport: its other default
+	// keys (space, f, b, j, k, ...) are ordinary typing here.
 	m.input, cmd = m.input.Update(msg)
-	cmds = append(cmds, cmd)
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m Model) ctrlC() (tea.Model, tea.Cmd) {
@@ -264,9 +277,9 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(blockAssistant, ev.Text)
 		m.streaming = true
 	case agent.EvToolCall:
-		m.add(blockPlain, strings.TrimSpace("tool "+ev.Tool+" "+ev.Args))
+		m.addToolCall(ev)
 	case agent.EvToolResult:
-		m.add(blockPlain, ev.Text)
+		m.addToolResult(ev)
 	case agent.EvApproval:
 		if ev.Approval != nil {
 			m.enqueueApproval(ev.Approval)
@@ -281,6 +294,7 @@ func (m *Model) apply(ev agent.Event) {
 		}
 	case agent.EvTurnDone:
 		m.streaming = false
+		m.closeToolCalls()
 		m.pending = nil // stale: the turn is over, the gate no longer waits
 	}
 }
@@ -300,11 +314,21 @@ func (m *Model) redact(s string) string {
 }
 
 // refresh re-renders the blocks into the viewport and scrolls to the bottom.
-func (m *Model) refresh() {
+func (m *Model) refresh() { m.refreshTo(m.viewport.AtBottom()) }
+
+// refreshTo re-renders the blocks; with follow set the viewport ends at the
+// bottom, otherwise the scroll position is kept.
+func (m *Model) refreshTo(follow bool) {
 	parts := make([]string, len(m.blocks))
 	for i, b := range m.blocks {
+		if b.kind == blockTool {
+			parts[i] = m.renderTool(b.call, m.viewport.Width)
+			continue
+		}
 		text := m.redact(b.text)
 		switch b.kind {
+		case blockAssistant:
+			text = highlightFences(text)
 		case blockError:
 			text = errorStyle.Render(text)
 		case blockInfo:
@@ -314,7 +338,9 @@ func (m *Model) refresh() {
 	}
 	content := strings.Join(parts, "\n")
 	m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width).Render(content))
-	m.viewport.GotoBottom()
+	if follow {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m *Model) resize(w, h int) {
@@ -324,6 +350,7 @@ func (m *Model) resize(w, h int) {
 	if h < 1 {
 		h = 1
 	}
+	follow := m.viewport.AtBottom()
 	m.width, m.height = w, h
 	m.input.SetWidth(w - borderCols)
 	m.input.SetHeight(inputRows)
@@ -333,7 +360,7 @@ func (m *Model) resize(w, h int) {
 	}
 	m.viewport.Width = w
 	m.viewport.Height = vh
-	m.refresh()
+	m.refreshTo(follow)
 }
 
 // View implements tea.Model.
