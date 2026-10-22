@@ -70,6 +70,9 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 		if k == "FAKE_KEY" {
 			return "SECRET123"
 		}
+		if k == "TYPESAFE_API_KEY" {
+			return "JEVKEY-E2E"
+		}
 		return ""
 	})
 	if err != nil {
