@@ -50,7 +50,7 @@ func TestJevE2E(t *testing.T) {
 			switch qm["type"] {
 			case "score":
 				answers[name] = providertest.JevScoreAnswer(0, 0.9)
-			case "choice":
+			case "choice": // never asked: jev does not answer questions
 				answers[name] = providertest.JevChoiceAnswer("beta", 0.95)
 			case "noul":
 				if phase.Load() == jevPhaseB {
@@ -131,8 +131,14 @@ func TestJevE2E(t *testing.T) {
 		t.Errorf("status lacks jev: %q", status())
 	}
 
-	// Turn A: easy route, jev answers the question.
-	e.submit(t, "turn A please SECRET123")
+	// Turn A: easy route; the question reaches the user, who picks beta.
+	e.startQuestion(t, "turn A please SECRET123")
+	if v := viewText(e.Model); !strings.Contains(v, "Which one?") {
+		t.Errorf("turn A: question not shown:\n%s", v)
+	}
+	e.press(tea.KeyDown, tea.KeySpace, tea.KeyEnter)
+	waitSession(t, e.Session)
+	e.Model = e.Model.Drain()
 	reqs := srv.Requests()
 	if len(reqs) != 2 {
 		t.Fatalf("turn A: %d provider requests, want 2", len(reqs))
@@ -145,8 +151,8 @@ func TestJevE2E(t *testing.T) {
 	if !strings.Contains(status(), "route: fake/m2") {
 		t.Errorf("turn A: status lacks route: fake/m2: %q", status())
 	}
-	if v := viewText(e.Model); strings.Contains(v, questionRow) || !strings.Contains(v, "A done") {
-		t.Errorf("turn A: question prompt shown or no final reply:\n%s", v)
+	if v := viewText(e.Model); strings.Contains(v, questionRow) || strings.Contains(v, "jev answered") || !strings.Contains(v, "A done") {
+		t.Errorf("turn A: question prompt still shown, jev answered or no final reply:\n%s", v)
 	}
 	if got := toolResults(reqs[1]); len(got) != 1 || got[0] != "beta" {
 		t.Errorf("turn A: model got %q, want [beta]", got)
@@ -209,6 +215,11 @@ func TestJevE2E(t *testing.T) {
 	}
 
 	for i, r := range jev.Requests() {
+		for name, q := range r.Questions {
+			if qm, _ := q.(map[string]any); qm["type"] == "choice" || name == "answer" {
+				t.Errorf("jev request %d asks %q %v", i, name, qm)
+			}
+		}
 		if strings.Contains(string(r.Body), "SECRET123") || strings.Contains(r.State, "JEVKEY-E2E") {
 			t.Errorf("jev request %d leaks a secret: %s", i, r.Body)
 		}
@@ -227,6 +238,65 @@ func TestJevE2E(t *testing.T) {
 	e.submit(t, "one more turn")
 	if got := len(jev.Requests()); got != before {
 		t.Errorf("jev requests after off = %d, want %d", got, before)
+	}
+}
+
+// TestJevQuestionGoesToUser checks through the TUI that a question of the
+// model is shown to the user while jev is on with a route, that the user's
+// key answer becomes the tool result and that jev only gets routing (score)
+// questions, although it would answer every question confidently.
+func TestJevQuestionGoesToUser(t *testing.T) {
+	jev := providertest.NewJev(func(_ int, req providertest.JevRequest) providertest.JevResponse {
+		answers := map[string]any{}
+		for name, q := range req.Questions {
+			if qm, _ := q.(map[string]any); qm["type"] == "score" {
+				answers[name] = providertest.JevScoreAnswer(0, 0.99)
+			} else {
+				answers[name] = providertest.JevChoiceAnswer("alpha", 0.99)
+			}
+		}
+		return providertest.JevResponse{Answers: answers}
+	})
+	t.Cleanup(jev.Close)
+	srv := providertest.New(
+		questionResp("Which flavour?", []string{"alpha", "beta"}, false),
+		resp{Text: "beta it is"})
+	e := newEnvServer(t, srv, envOpts{
+		contextLimit: 8000,
+		projectJSON:  `{"jev":{"baseURL":"` + jev.URL + `","apiKey":"{env:TYPESAFE_API_KEY}","route":{"easy":"fake/m2","hard":"fake/m1"}}}`,
+	})
+
+	e.submit(t, "/jev")
+	if v := viewText(e.Model); !strings.Contains(v, "jev on") {
+		t.Fatalf("/jev: no 'jev on':\n%s", v)
+	}
+	e.startQuestion(t, "pick a flavour")
+	v := viewText(e.Model)
+	for _, want := range []string{"Which flavour?", "alpha", "beta"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("question view lacks %q:\n%s", want, v)
+		}
+	}
+	e.press(tea.KeyDown, tea.KeySpace, tea.KeyEnter)
+	if got := e.followupToolResult(t, 1); got != "beta" {
+		t.Errorf("tool result = %q, want beta (the user's answer)", got)
+	}
+	if v := viewText(e.Model); strings.Contains(v, "jev answered") || !strings.Contains(v, "beta it is") {
+		t.Errorf("jev answered or no final reply:\n%s", v)
+	}
+	reqs := jev.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("%d jev requests, want 1 (routing)", len(reqs))
+	}
+	for i, r := range reqs {
+		for name, q := range r.Questions {
+			if qm, _ := q.(map[string]any); qm["type"] != "score" || name == "answer" {
+				t.Errorf("jev request %d asks %q %v, want only the score question", i, name, qm)
+			}
+		}
+		if strings.Contains(r.State, "Which flavour") {
+			t.Errorf("jev request %d carries the question: %q", i, r.State)
+		}
 	}
 }
 

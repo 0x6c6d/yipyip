@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -117,19 +118,24 @@ func TestJevStats(t *testing.T) {
 	defer srv.Close()
 	jev := providertest.NewJev(func(_ int, req providertest.JevRequest) providertest.JevResponse {
 		answers := map[string]any{}
-		for name, q := range req.Questions {
-			if qm, _ := q.(map[string]any); qm["type"] == "choice" {
-				answers[name] = providertest.JevChoiceAnswer("beta", 0.9)
-			} else {
-				answers[name] = providertest.JevScoreAnswer(0.5, 0.9)
-			}
+		for name := range req.Questions {
+			answers[name] = providertest.JevScoreAnswer(0.5, 0.9)
 		}
 		return providertest.JevResponse{Answers: answers}
 	})
 	defer jev.Close()
-	m, sess := newJevModel(t, srv, jevJSON(jev.URL))
+	// The routing decision is the one jev answer; the question goes to the user.
+	m, sess := newJevModel(t, srv, `{"baseURL":"`+jev.URL+`","apiKey":"{env:TYPESAFE_API_KEY}","route":{"hard":"fake/m1"}}`)
 	m, _ = m.Command("/jev")
 	m, _ = m.Command("ask me")
+	deadline := time.Now().Add(5 * time.Second)
+	for m = m.Drain(); !strings.Contains(plain(m), questionFreeRow); m = m.Drain() {
+		if time.Now().After(deadline) {
+			t.Fatalf("question box never shown:\n%s", plain(m))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	m = press(m, tea.KeyDown, tea.KeySpace, tea.KeyEnter)
 	waitSession(t, sess)
 	m = m.Drain()
 	m, _ = m.Command("/jev stats")
