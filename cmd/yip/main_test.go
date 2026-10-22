@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -325,19 +328,20 @@ func TestHelpFlagListsNewFeatures(t *testing.T) {
 			t.Errorf("help output does not contain %q", want)
 		}
 	}
-	if !strings.Contains(strings.ToLower(out), "shift+enter") {
-		t.Errorf("help output does not contain shift+enter (case-insensitive)")
-	}
 }
 
-func TestHelpFlagMentionsShiftEnter(t *testing.T) {
+func TestHelpFlagNoShiftEnter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run(--help) = %d, want 0 (stderr: %q)", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Shift+Enter") {
-		t.Errorf("help output does not contain %q", "Shift+Enter")
+	out := stdout.String()
+	if !strings.Contains(out, "Alt+Enter") {
+		t.Errorf("help output does not contain %q", "Alt+Enter")
+	}
+	if strings.Contains(strings.ToLower(out), "shift+enter") {
+		t.Errorf("help output contains shift+enter (case-insensitive)")
 	}
 }
 
@@ -459,20 +463,23 @@ func TestStartupStoredSettingsDoNotWriteConfig(t *testing.T) {
 	}
 }
 
-func TestKeyReportingRequestedOnlyOnTTY(t *testing.T) {
-	var tty bytes.Buffer
-	restore := enableKeyReporting(&tty, true)
-	if want := "\x1b[>4;1m"; tty.String() != want {
-		t.Fatalf("enable wrote %q, want %q", tty.String(), want)
+func TestNoKeyReportingRequest(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	restore()
-	if want := "\x1b[>4;1m\x1b[>4;0m"; tty.String() != want {
-		t.Fatalf("after restore wrote %q, want %q", tty.String(), want)
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var pipe bytes.Buffer
-	restore = enableKeyReporting(&pipe, false)
-	restore()
-	if pipe.Len() != 0 {
-		t.Fatalf("non-tty writer got %q", pipe.String())
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "enableKeyReporting" {
+			t.Error("main.go still declares enableKeyReporting")
+		}
+	}
+	for _, esc := range []string{"\x1b[>4", "[>4;"} {
+		if strings.Contains(string(src), esc) {
+			t.Errorf("main.go contains the escape %q", esc)
+		}
 	}
 }

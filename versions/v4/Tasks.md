@@ -45,7 +45,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T503 | 5 | Tab bar layout with × / + and 1-row bounds | T000 | sonnet | done | tui/tabbar.go tabBarLayout()+tabZone (switch/close/plus), bounds rules 1-6, min title 8 cells; row fixed: brief missed that TestCtrlWSavesAndSwitchesLeftNeighbour also pins the old bar format, only expected strings changed; verify 8/8 |
 | T504 | 5 | Tab bar clicks: × closes, + opens, title switches | T503 | sonnet | done | tui/tabclick.go tabClick (+ → openTab, × → closeTab, title → switchTab; closing another tab keeps the current one), tabs.go openTab shared with Ctrl+T, mouse.go row-0 press, +TestTabButtonsLastTab; verify 7/7 |
 | T505 | 5 | Tab hotkeys trimmed to Ctrl+T / Ctrl+W | T504 | sonnet | done | model.go switch cases removed + early ignoredTabKey swallow, tabkeys.go ignoredTabKey, help.go click row, TestTabKeys; TestTabCycleKeys/TestAltDigitJumps deleted; verify 8/8 |
-| T601 | 6 | Shift+Enter removed (no modifyOtherKeys, no CSI map) | T000 | sonnet | todo | |
+| T601 | 6 | Shift+Enter removed (no modifyOtherKeys, no CSI map) | T000 | sonnet | done | main.go key-reporting removed, keyseq.go+test deleted, model.go keyFromCSI call + shift+enter binding removed, help row Alt+Enter only; v3 Shift+Enter tests replaced by TestNewline/TestHelp/TestHelpFlagNoShiftEnter/TestNoKeyReportingRequest; verify 11/11 |
 | T602 | 6 | Question rendered inline in the transcript | T000 | opus | todo | |
 | T603 | 6 | Docs: usage, CLAUDE.md architecture, /help | T204, T407, T502, T504, T505, T601, T602 | sonnet | todo | |
 | T799 | 6 | Global Definition of Done | all | supervisor | todo | |

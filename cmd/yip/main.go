@@ -166,40 +166,12 @@ func applyResume(opts *tui.Options, f flags) error {
 
 // launchUI runs the Bubble Tea program for opts.
 func launchUI(opts tui.Options, stderr io.Writer) int {
-	defer enableKeyReporting(os.Stdout, stdoutIsTTY())()
 	p := tea.NewProgram(tui.New(opts), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
 	}
 	return 0
-}
-
-// keyReportingLevel is the xterm modifyOtherKeys level yip requests. Level 1
-// reports only modified keys that have no distinct legacy encoding, which
-// includes Shift+Enter, and leaves Ctrl+<letter> and Alt+<key> as they are,
-// so the existing bindings keep working. Level 2 would also report those
-// (for example Alt+1 or Ctrl+C as CSI 27;...~) and bubbletea 1.3 would not
-// understand them. The kitty keyboard protocol is not requested at all:
-// bubbletea 1.3 cannot parse its CSI-u keys.
-const keyReportingLevel = 1
-
-// enableKeyReporting asks a terminal to report modified keys such as
-// Shift+Enter (ESC [ > 4 ; level m) and returns the function that restores
-// the default (ESC [ > 4 ; 0 m). If tty is false (stdout is a pipe or a
-// file) nothing is written and the returned function does nothing.
-func enableKeyReporting(w io.Writer, tty bool) (restore func()) {
-	if !tty {
-		return func() {}
-	}
-	fmt.Fprintf(w, "\x1b[>4;%dm", keyReportingLevel)
-	return func() { fmt.Fprint(w, "\x1b[>4;0m") }
-}
-
-// stdoutIsTTY reports whether stdout is a character device.
-func stdoutIsTTY() bool {
-	fi, err := os.Stdout.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // stdinIsTTY reports whether stdin is a character device.

@@ -45,18 +45,19 @@ func TestHelpTextListsNewKeys(t *testing.T) {
 	}
 }
 
-func TestHelpMentionsShiftEnter(t *testing.T) {
+func TestHelp(t *testing.T) {
 	text := HelpText()
-	for _, want := range []string{"Alt+Enter", "Shift+Enter"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("HelpText() does not contain %q", want)
-		}
+	if !strings.Contains(text, "Alt+Enter") {
+		t.Error("HelpText() does not contain Alt+Enter")
+	}
+	if strings.Contains(strings.ToLower(text), "shift+enter") {
+		t.Error("HelpText() mentions shift+enter")
 	}
 }
 
 func TestHelpListsNewCommands(t *testing.T) {
 	text := HelpText()
-	for _, want := range []string{"/sessions", "Ctrl+T", "Ctrl+W", "Shift+Enter"} {
+	for _, want := range []string{"/sessions", "Ctrl+T", "Ctrl+W"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("HelpText() does not contain %q", want)
 		}
@@ -70,17 +71,4 @@ func TestHelpStillListsOldEntries(t *testing.T) {
 			t.Errorf("HelpText() does not contain %q", want)
 		}
 	}
-}
-
-func TestHelpShiftEnterOneLine(t *testing.T) {
-	text := HelpText()
-	if !strings.Contains(text, "Alt+Enter") {
-		t.Fatal("HelpText() does not contain Alt+Enter")
-	}
-	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, "Alt+Enter") && strings.Contains(line, "Shift+Enter") {
-			return
-		}
-	}
-	t.Error("no help line contains both Alt+Enter and Shift+Enter")
 }

@@ -30,7 +30,7 @@ var commands = []CommandInfo{
 
 var keys = []struct{ Key, Help string }{
 	{"Enter", "send; while the agent is busy: queue the message"},
-	{"Alt+Enter / Shift+Enter", "new line (Alt+Enter always; Shift+Enter if the terminal reports it)"},
+	{"Alt+Enter", "new line"},
 	{"Esc", "cancel the running turn; queued messages return to the input"},
 	{"Shift+Tab", "toggle auto/manual mode (auto is the default)"},
 	{"Ctrl+C", "twice: quit"},

@@ -174,7 +174,7 @@ func New(opts Options) Model {
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("alt+enter", "shift+enter"),
+		key.WithKeys("alt+enter"),
 		key.WithHelp("alt+enter", "newline"),
 	)
 	ta.Focus()
@@ -250,9 +250,6 @@ func (m Model) quit() tea.Cmd {
 
 // Update implements tea.Model. It always returns a tui.Model value.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := keyFromCSI(msg); ok {
-		msg = k // a modified key bubbletea does not know (Shift+Enter)
-	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
