@@ -184,15 +184,3 @@ func TestGrepInvalidRegex(t *testing.T) {
 		t.Fatalf("invalid regex: %+v", res)
 	}
 }
-
-func TestSearchPathEscape(t *testing.T) {
-	e := searchEnv(t)
-	for _, tool := range []string{"glob", "grep"} {
-		for _, p := range []string{"../", e.outside, "out"} {
-			res := e.run(tool, map[string]any{"pattern": "x", "path": p})
-			if !res.IsError || !strings.Contains(res.Output, "outside the start directory") {
-				t.Errorf("%s path %q: %+v", tool, p, res)
-			}
-		}
-	}
-}

@@ -18,7 +18,7 @@ const (
 func (r *Registry) registerFileTools() {
 	r.register(Tool{
 		Name:        "read_file",
-		Description: "Read a text file inside the start directory and return its content (long output is truncated).",
+		Description: "Read a text file at any path (relative paths start at the start directory) and return its content (long output is truncated).",
 		Parameters:  json.RawMessage(readFileSchema),
 		Gated:       false,
 	}, r.runReadFile)
@@ -47,6 +47,15 @@ func (r *Registry) relPath(abs string) string {
 	return filepath.ToSlash(rel)
 }
 
+// displayPath is the start-directory-relative slash path of abs when the
+// guard accepts it as inside the start directory, else the absolute path.
+func (r *Registry) displayPath(abs string) string {
+	if _, err := r.guard.Resolve(abs); err != nil {
+		return filepath.ToSlash(abs)
+	}
+	return r.relPath(abs)
+}
+
 // stringArgs parses args and extracts the named required string arguments.
 func stringArgs(args json.RawMessage, keys ...string) ([]string, error) {
 	var obj map[string]json.RawMessage
@@ -69,20 +78,20 @@ func (r *Registry) runReadFile(_ context.Context, args json.RawMessage) Result {
 	if err != nil {
 		return errResult("invalid arguments: %v", err)
 	}
-	abs, err := r.guard.Resolve(a[0])
+	abs, err := r.guard.ResolveRead(a[0])
 	if err != nil {
 		return errResult("%v", err)
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return errResult("cannot read %s: %v", r.relPath(abs), err)
+		return errResult("cannot read %s: %v", r.displayPath(abs), err)
 	}
 	if fi.IsDir() {
-		return errResult("%s is a directory, not a file", r.relPath(abs))
+		return errResult("%s is a directory, not a file", r.displayPath(abs))
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return errResult("cannot read %s: %v", r.relPath(abs), err)
+		return errResult("cannot read %s: %v", r.displayPath(abs), err)
 	}
 	return Result{Output: Truncate(string(data))}
 }

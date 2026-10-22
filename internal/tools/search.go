@@ -30,17 +30,17 @@ const (
 func (r *Registry) registerSearchTools() {
 	r.register(Tool{
 		Name: "glob",
-		Description: "List files inside the start directory whose path (relative to the search path, default \".\") " +
+		Description: "List files at any path (relative paths start at the start directory) whose path (relative to the search path, default \".\") " +
 			"matches a glob pattern. Supports *, ?, [...] within one path segment and ** as a whole segment " +
-			"matching any number of directories, e.g. \"**/*.go\". Skips .git. Returns sorted paths relative to the start directory.",
+			"matching any number of directories, e.g. \"**/*.go\". Skips .git. Returns sorted paths, relative to the start directory for files inside it, else absolute.",
 		Parameters: json.RawMessage(globSchema),
 		Gated:      false,
 	}, r.runGlob)
 	r.register(Tool{
 		Name: "grep",
-		Description: "Search file contents with a Go (RE2) regular expression. Optional path (file or directory, " +
+		Description: "Search file contents with a Go (RE2) regular expression. Optional path (file or directory at any path, " +
 			"default the start directory) and glob filter (a pattern with / is matched against the path relative to the " +
-			"start directory, otherwise against the file name). Skips .git and binary files. " +
+			"start directory, or for files outside it to the searched directory; otherwise against the file name). Skips .git and binary files. " +
 			"Output lines are path:line:text.",
 		Parameters: json.RawMessage(grepSchema),
 		Gated:      false,
@@ -101,7 +101,7 @@ func (r *Registry) searchTarget(obj map[string]json.RawMessage) (abs string, isD
 			p = s
 		}
 	}
-	abs, err := r.guard.Resolve(p)
+	abs, err := r.guard.ResolveRead(p)
 	if err != nil {
 		e := errResult("%v", err)
 		return "", false, &e
@@ -167,7 +167,7 @@ func (r *Registry) runGlob(ctx context.Context, args json.RawMessage) Result {
 	var found []string
 	err = walkFiles(ctx, abs, func(p, rel string) {
 		if MatchGlob(pattern, rel) {
-			found = append(found, r.relPath(p))
+			found = append(found, r.displayPath(p))
 		}
 	})
 	if err != nil {
@@ -221,13 +221,24 @@ func (r *Registry) runGrep(ctx context.Context, args json.RawMessage) Result {
 
 	var hits []grepHit
 	visit := func(p string) {
-		rel := r.relPath(p)
+		rel := r.displayPath(p)
+		globRel := rel
+		if _, err := r.guard.Resolve(p); err != nil {
+			// outside the start directory: match relative to the searched directory
+			base := abs
+			if !isDir {
+				base = filepath.Dir(abs)
+			}
+			if x, rerr := filepath.Rel(base, p); rerr == nil {
+				globRel = filepath.ToSlash(x)
+			}
+		}
 		if globPat != "" {
 			if strings.Contains(globPat, "/") {
-				if !MatchGlob(globPat, rel) {
+				if !MatchGlob(globPat, globRel) {
 					return
 				}
-			} else if m, _ := pathpkg.Match(globPat, pathpkg.Base(rel)); !m {
+			} else if m, _ := pathpkg.Match(globPat, pathpkg.Base(globRel)); !m {
 				return
 			}
 		}

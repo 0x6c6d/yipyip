@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"yipyip/internal/config"
 )
 
 type fileEnv struct {
@@ -73,13 +75,132 @@ func TestReadFile(t *testing.T) {
 	}
 }
 
-func TestReadFileOutside(t *testing.T) {
-	e := newFileEnv(t)
-	for _, p := range []string{"../outside/secret.txt", "out/secret.txt", filepath.Join(e.outside, "secret.txt")} {
+func readEnv(t *testing.T) *fileEnv {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &fileEnv{root: filepath.Join(base, "start"), outside: filepath.Join(base, "outside")}
+	for _, d := range []string{e.root, e.outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(e.outside, "secret.txt"), []byte("TOPSECRET\nkey SECRET123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(e.outside, filepath.Join(e.root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	e.reg = newTestRegistry(t, Options{StartDir: e.root, Redactor: config.NewRedactor("SECRET123"),
+		BeforeWrite: func(p string) { e.hooked = append(e.hooked, p) }})
+	return e
+}
+
+func (e *fileEnv) outPaths() []string {
+	return []string{e.outside, "../outside", "link"}
+}
+
+func TestReadFileAnywhere(t *testing.T) {
+	e := readEnv(t)
+	e.put(t, "in.txt", "inside\n")
+	for _, p := range []string{filepath.Join(e.outside, "secret.txt"), "../outside/secret.txt", "link/secret.txt"} {
 		res := e.run("read_file", map[string]any{"path": p})
-		if !res.IsError || strings.Contains(res.Output, "TOPSECRET") || !strings.Contains(res.Output, "outside the start directory") {
+		if res.IsError || !strings.Contains(res.Output, "TOPSECRET") {
 			t.Errorf("read %q: %+v", p, res)
 		}
+	}
+	if res := e.run("read_file", map[string]any{"path": "in.txt"}); res.IsError || res.Output != "inside\n" {
+		t.Errorf("inside read: %+v", res)
+	}
+}
+
+func TestReadGlobOutside(t *testing.T) {
+	e := readEnv(t)
+	e.put(t, "in.txt", "inside\n")
+	abs := filepath.Join(e.outside, "secret.txt")
+	for _, p := range e.outPaths() {
+		res := e.run("glob", map[string]any{"pattern": "*.txt", "path": p})
+		if res.IsError || strings.TrimSpace(res.Output) != abs {
+			t.Errorf("glob %q: %+v", p, res)
+		}
+	}
+	res := e.run("glob", map[string]any{"pattern": "*.txt"})
+	if res.IsError || !strings.Contains(res.Output, "in.txt") || strings.Contains(res.Output, e.root) {
+		t.Errorf("inside glob: %+v", res)
+	}
+}
+
+func TestReadGrepOutside(t *testing.T) {
+	e := readEnv(t)
+	abs := filepath.Join(e.outside, "secret.txt")
+	for _, p := range e.outPaths() {
+		res := e.run("grep", map[string]any{"pattern": "TOPSECRET", "path": p})
+		if res.IsError || strings.TrimSpace(res.Output) != abs+":1:TOPSECRET" {
+			t.Errorf("grep %q: %+v", p, res)
+		}
+		res = e.run("grep", map[string]any{"pattern": "TOPSECRET", "path": p, "glob": "*.txt"})
+		if res.IsError || !strings.Contains(res.Output, abs+":1:TOPSECRET") {
+			t.Errorf("grep glob %q: %+v", p, res)
+		}
+	}
+}
+
+func TestReadEtcStyle(t *testing.T) {
+	if _, err := os.Stat("/etc/passwd"); err != nil {
+		t.Skip("no /etc/passwd")
+	}
+	e := readEnv(t)
+	if res := e.run("read_file", map[string]any{"path": "/etc/passwd"}); res.IsError {
+		t.Fatalf("read /etc/passwd: %+v", res)
+	}
+}
+
+func TestReadRedactedOutside(t *testing.T) {
+	e := readEnv(t)
+	res := e.run("read_file", map[string]any{"path": "link/secret.txt"})
+	if res.IsError || strings.Contains(res.Output, "SECRET123") || !strings.Contains(res.Output, "[redacted]") {
+		t.Errorf("read_file: %+v", res)
+	}
+	res = e.run("grep", map[string]any{"pattern": "key", "path": e.outside})
+	if res.IsError || strings.Contains(res.Output, "SECRET123") || !strings.Contains(res.Output, "[redacted]") {
+		t.Errorf("grep: %+v", res)
+	}
+}
+
+func TestReadDanglingSymlink(t *testing.T) {
+	e := readEnv(t)
+	if err := os.Symlink(filepath.Join(e.outside, "nowhere"), filepath.Join(e.root, "dang")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"read_file", "glob", "grep"} {
+		args := map[string]any{"path": "dang", "pattern": "x"}
+		if res := e.run(tool, args); !res.IsError {
+			t.Errorf("%s dangling accepted: %+v", tool, res)
+		}
+	}
+}
+
+func TestWriteConfined(t *testing.T) {
+	e := readEnv(t)
+	secret := filepath.Join(e.outside, "secret.txt")
+	for _, p := range []string{filepath.Join(e.outside, "x.txt"), "../outside/x.txt", "link/x.txt", secret, "link/secret.txt", "link/sub/new.txt"} {
+		res := e.run("write_file", map[string]any{"path": p, "content": "PWNED"})
+		if !res.IsError || !strings.Contains(res.Output, "outside the start directory") {
+			t.Errorf("write_file %q: %+v", p, res)
+		}
+	}
+	for _, p := range []string{secret, "../outside/secret.txt", "link/secret.txt", "link/x.txt"} {
+		res := e.run("edit_file", map[string]any{"path": p, "old_string": "TOPSECRET", "new_string": "PWNED"})
+		if !res.IsError || !strings.Contains(res.Output, "outside the start directory") {
+			t.Errorf("edit_file %q: %+v", p, res)
+		}
+	}
+	entries, _ := os.ReadDir(e.outside)
+	data, _ := os.ReadFile(secret)
+	if len(entries) != 1 || !strings.HasPrefix(string(data), "TOPSECRET") || len(e.hooked) != 0 {
+		t.Errorf("outside changed: entries=%d data=%q hooked=%v", len(entries), data, e.hooked)
 	}
 }
 
