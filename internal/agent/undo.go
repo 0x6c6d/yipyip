@@ -70,6 +70,9 @@ func (s *Session) currentRecord() *turnRecord {
 // s.jmu is held across lookup, read and insert so that a concurrent writer of
 // the same file cannot modify it before its first snapshot is taken.
 func (s *Session) beforeWrite(path string) {
+	if _, ok := s.undoTarget(path); !ok {
+		return
+	}
 	s.jmu.Lock()
 	defer s.jmu.Unlock()
 	rec := s.currentRecord()
