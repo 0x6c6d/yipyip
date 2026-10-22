@@ -36,7 +36,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | done | agent/jev.go (SetJev, askJev: redact→truncate 2000→Ask under 10s timeout, JevStats, token split in account via accountJev), session.go fields, loop.go hook; split counts subagent requests too; verify 9/9 |
 | T402 | 4 | Jev answers single-choice questions | T401 | opus | done | agent/question.go jevAnswer (single-choice, >=2 options, conf>=min, choice in options else fallback to user), loop.go passes history via ctx, jev_question_test.go; verify 7/7 |
 | T403 | 4 | Jev turn routing (easy/hard per turn) | T401 | opus | done | agent/jev.go routeTurn + TurnModel, loop.go (routing inside turn goroutine after autoCompact, ts.model for whole turn), session.go turnModel field, jev_route_test.go; verify 8/8 |
-| T404 | 4 | Risk-screen hook in the approval gate | T000 | opus | todo | |
+| T404 | 4 | Risk-screen hook in the approval gate | T000 | opus | done | approval.go Gate.SetRiskScreen (auto only, bash/write_file/edit_file, only adds a prompt, AllowAlways not stored, panic=false, prompt() helper extracted, supervisor read the diff), approval_test.go 7 tests; verify 10/10 |
 | T405 | 4 | Jev risk screen wired into the session | T401, T404 | opus | todo | |
 | T406 | 4 | /jev command, /jev stats and status line | T402, T403 | sonnet | todo | |
 | T407 | 4 | e2e TestJevE2E | T402, T403, T405, T406 | sonnet | todo | |

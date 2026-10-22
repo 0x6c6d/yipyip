@@ -69,6 +69,14 @@ func IsGated(tool string) bool {
 	return gatedTools[tool]
 }
 
+// riskScreened are the tools whose auto-mode calls the risk screen may turn
+// into a prompt.
+var riskScreened = map[string]bool{
+	"bash":       true,
+	"write_file": true,
+	"edit_file":  true,
+}
+
 // Gate decides whether a tool call may run. It is the only place where
 // approvals are decided and is shared by the main agent and all subagents.
 type Gate struct {
@@ -76,6 +84,7 @@ type Gate struct {
 
 	mu     sync.Mutex
 	always map[string]bool
+	risk   func(ctx context.Context, tool, args string) bool
 }
 
 // NewGate returns a Gate that reports each prompt to notify. notify must not
@@ -85,9 +94,25 @@ func NewGate(notify func(*ApprovalRequest)) *Gate {
 	return &Gate{notify: notify, always: map[string]bool{}}
 }
 
+// SetRiskScreen installs fn (nil removes it). fn is consulted only in auto mode,
+// only for bash, write_file and edit_file, and only to ADD a prompt.
+// When fn reports true the call is prompted like in manual mode, except that
+// AllowAlways counts as Allow and is never remembered. A false result or a
+// panic in fn leaves the auto-mode approval unchanged.
+func (g *Gate) SetRiskScreen(fn func(ctx context.Context, tool, args string) bool) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.risk = fn
+	g.mu.Unlock()
+}
+
 // Check reports whether the call of tool by agentID with args may run.
 // It fails closed: anything other than an explicit Allow or AllowAlways for a
-// gated tool in a non-auto mode yields false.
+// gated tool in a non-auto mode yields false. In auto mode a gated call runs
+// unless the risk screen (see SetRiskScreen) flags it; a flagged call then
+// needs an explicit Allow or AllowAlways, and its AllowAlways is not stored.
 func (g *Gate) Check(ctx context.Context, mode Mode, agentID, tool, args string) (bool, error) {
 	if !IsGated(tool) {
 		return true, nil
@@ -96,11 +121,41 @@ func (g *Gate) Check(ctx context.Context, mode Mode, agentID, tool, args string)
 		return false, nil
 	}
 	if mode == ModeAuto {
-		return true, nil
+		if !g.risky(ctx, tool, args) {
+			return true, nil
+		}
+		return g.prompt(ctx, agentID, tool, args, false)
 	}
 	if g.isAlways(tool) {
 		return true, nil
 	}
+	return g.prompt(ctx, agentID, tool, args, true)
+}
+
+// risky reports whether the risk screen flags an auto-mode call of tool. It
+// is false for tools outside riskScreened, without a screen, and when the
+// screen panics. The mutex is not held while the screen runs.
+func (g *Gate) risky(ctx context.Context, tool, args string) (flagged bool) {
+	if !riskScreened[tool] {
+		return false
+	}
+	g.mu.Lock()
+	fn := g.risk
+	g.mu.Unlock()
+	if fn == nil {
+		return false
+	}
+	defer func() {
+		if recover() != nil {
+			flagged = false
+		}
+	}()
+	return fn(ctx, tool, args)
+}
+
+// prompt asks notify about the call and waits for the answer or ctx. It fails
+// closed. AllowAlways is remembered for tool only when storeAlways is set.
+func (g *Gate) prompt(ctx context.Context, agentID, tool, args string, storeAlways bool) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -129,6 +184,9 @@ func (g *Gate) Check(ctx context.Context, mode Mode, agentID, tool, args string)
 	case Allow:
 		return true, nil
 	case AllowAlways:
+		if !storeAlways {
+			return true, nil
+		}
 		g.mu.Lock()
 		if g.always == nil {
 			g.always = map[string]bool{}

@@ -238,3 +238,136 @@ func TestGateLabel(t *testing.T) {
 	var nr *ApprovalRequest
 	nr.Respond(Allow)
 }
+
+// screened returns a gate answering every prompt with d, with a risk screen
+// that reports risky and counts its calls.
+func screened(d Decision, risky bool) (*Gate, *atomic.Int64, *atomic.Int64) {
+	g, n := answering(d)
+	var calls atomic.Int64
+	g.SetRiskScreen(func(context.Context, string, string) bool {
+		calls.Add(1)
+		return risky
+	})
+	return g, n, &calls
+}
+
+func TestRiskScreenPrompts(t *testing.T) {
+	for _, tool := range []string{"bash", "write_file", "edit_file"} {
+		var got *ApprovalRequest
+		g := NewGate(func(r *ApprovalRequest) {
+			got = r
+			r.Respond(Allow)
+		})
+		g.SetRiskScreen(func(context.Context, string, string) bool { return true })
+		ok, err := g.Check(context.Background(), ModeAuto, MainAgentID, tool, `{"x":1}`)
+		if err != nil || !ok {
+			t.Fatalf("%s: Allow on risk prompt = %v, %v", tool, ok, err)
+		}
+		if got == nil || got.Tool != tool || got.Args != `{"x":1}` || got.AgentID != MainAgentID {
+			t.Fatalf("%s: prompt = %+v", tool, got)
+		}
+		g2, n, _ := screened(Deny, true)
+		if mustCheck(t, g2, ModeAuto, tool) || n.Load() != 1 {
+			t.Fatalf("%s: Deny on risk prompt approved or not prompted (%d)", tool, n.Load())
+		}
+	}
+	g := NewGate(nil)
+	g.SetRiskScreen(func(context.Context, string, string) bool { return true })
+	if mustCheck(t, g, ModeAuto, "bash") {
+		t.Fatal("nil notify approved a risky call")
+	}
+}
+
+func TestRiskScreenSafe(t *testing.T) {
+	for _, tool := range []string{"bash", "write_file", "edit_file"} {
+		g, n, calls := screened(Deny, false)
+		if !mustCheck(t, g, ModeAuto, tool) || n.Load() != 0 || calls.Load() != 1 {
+			t.Fatalf("%s: safe call: prompts %d calls %d", tool, n.Load(), calls.Load())
+		}
+	}
+}
+
+func TestRiskScreenManual(t *testing.T) {
+	for _, risky := range []bool{true, false} {
+		for _, d := range []Decision{Allow, Deny} {
+			g, n, calls := screened(d, risky)
+			plain, pn := answering(d)
+			for _, tool := range []string{"bash", "write_file", "edit_file", "spawn_agent", "read_file"} {
+				got, want := mustCheck(t, g, ModeManual, tool), mustCheck(t, plain, ModeManual, tool)
+				if got != want {
+					t.Fatalf("risky=%v d=%v %s: got %v want %v", risky, d, tool, got, want)
+				}
+			}
+			if calls.Load() != 0 || n.Load() != pn.Load() {
+				t.Fatalf("manual: calls %d prompts %d want %d", calls.Load(), n.Load(), pn.Load())
+			}
+		}
+	}
+}
+
+func TestRiskScreenScope(t *testing.T) {
+	g, n, calls := screened(Deny, true)
+	for _, tool := range []string{"spawn_agent", "read_file"} {
+		if !mustCheck(t, g, ModeAuto, tool) {
+			t.Fatalf("%s denied in auto mode", tool)
+		}
+	}
+	if calls.Load() != 0 || n.Load() != 0 {
+		t.Fatalf("out of scope: calls %d prompts %d", calls.Load(), n.Load())
+	}
+}
+
+func TestRiskScreenNoAlways(t *testing.T) {
+	var d atomic.Int64
+	d.Store(int64(AllowAlways))
+	var n atomic.Int64
+	g := NewGate(func(r *ApprovalRequest) {
+		n.Add(1)
+		r.Respond(Decision(d.Load()))
+	})
+	g.SetRiskScreen(func(context.Context, string, string) bool { return true })
+	if !mustCheck(t, g, ModeAuto, "bash") {
+		t.Fatal("AllowAlways on risk prompt refused")
+	}
+	d.Store(int64(Deny))
+	if mustCheck(t, g, ModeAuto, "bash") || n.Load() != 2 {
+		t.Fatalf("risk always stored: prompts %d", n.Load())
+	}
+	if mustCheck(t, g, ModeManual, "bash") || n.Load() != 3 {
+		t.Fatalf("manual after risk always: prompts %d", n.Load())
+	}
+}
+
+func TestRiskScreenPanic(t *testing.T) {
+	g, n := answering(Deny)
+	g.SetRiskScreen(func(context.Context, string, string) bool { panic("boom") })
+	if !mustCheck(t, g, ModeAuto, "bash") || n.Load() != 0 {
+		t.Fatalf("panic: prompts %d", n.Load())
+	}
+}
+
+func TestRiskScreenCancel(t *testing.T) {
+	asked := make(chan struct{})
+	g := NewGate(func(*ApprovalRequest) { close(asked) }) // never answers
+	g.SetRiskScreen(func(context.Context, string, string) bool { return true })
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-asked
+		cancel()
+	}()
+	done := make(chan struct{})
+	var ok bool
+	var err error
+	go func() {
+		ok, err = g.Check(ctx, ModeAuto, MainAgentID, "bash", "{}")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Check did not return after cancel")
+	}
+	if ok || err == nil {
+		t.Fatalf("cancelled risk prompt = %v, %v", ok, err)
+	}
+}
