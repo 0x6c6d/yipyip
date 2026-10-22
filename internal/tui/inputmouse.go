@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
+	"unsafe"
 
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
@@ -55,6 +59,9 @@ func (m Model) inputTop(rows []inputRow, cur int) int {
 	if len(rows) <= inputRows {
 		return 0
 	}
+	if y, ok := textareaYOffset(&m.input); ok {
+		return min(max(y, 0), len(rows)-inputRows)
+	}
 	shown := strings.Split(ansi.Strip(m.input.View()), "\n")
 	lo, hi := max(0, cur-inputRows+1), min(cur, len(rows)-inputRows)
 	for top := lo; top <= hi; top++ {
@@ -70,6 +77,21 @@ func (m Model) inputTop(rows []inputRow, cur int) int {
 		}
 	}
 	return hi
+}
+
+// textareaYOffset reads the scroll offset of the textarea's own viewport. The
+// text rows can repeat (blank or equal lines), so the offset cannot always be
+// told from the rendered rows; the textarea keeps it in an unexported field.
+func textareaYOffset(ta *textarea.Model) (offset int, ok bool) {
+	f := reflect.ValueOf(ta).Elem().FieldByName("viewport")
+	if !f.IsValid() || f.Type() != reflect.TypeOf((*viewport.Model)(nil)) {
+		return 0, false
+	}
+	vp := *(**viewport.Model)(unsafe.Pointer(f.UnsafeAddr()))
+	if vp == nil {
+		return 0, false
+	}
+	return vp.YOffset, true
 }
 
 // inputCellAt maps a screen position to an input position: the visual row

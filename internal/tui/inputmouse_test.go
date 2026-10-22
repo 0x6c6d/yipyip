@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 
 	"yipyip/internal/provider/providertest"
@@ -141,5 +144,136 @@ func TestInputSelectSecretNeverCopied(t *testing.T) {
 	}
 	if !strings.Contains(plainView(m), "18 characters copied") {
 		t.Fatalf("notice does not count the redacted text:\n%s", plainView(m))
+	}
+}
+
+// rUpd is Update followed by View, as the Bubble Tea runtime renders after
+// every message.
+func rUpd(m Model, msg tea.Msg) Model {
+	next, _ := m.Update(msg)
+	m = next.(Model)
+	_ = m.View()
+	return m
+}
+
+// rModel builds a model with a session at w×h and types value into it
+// (alt+enter for newlines), rendering after every message.
+func rModel(t *testing.T, w, h int, value string) Model {
+	t.Helper()
+	srv := providertest.New()
+	t.Cleanup(srv.Close)
+	m, _ := newSessionModel(t, srv)
+	m = rUpd(m, tea.WindowSizeMsg{Width: w, Height: h})
+	for _, r := range value {
+		if r == '\n' {
+			m = rUpd(m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+			continue
+		}
+		m = rUpd(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.input.Value() != value {
+		t.Fatalf("typed %q, input holds %q", value, m.input.Value())
+	}
+	return m
+}
+
+// rAt returns the screen cell of the first rune of tok in the rendered view.
+func rAt(t *testing.T, m Model, tok string) (int, int) {
+	t.Helper()
+	for y, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+		if i := strings.Index(l, tok); i >= 0 {
+			return runewidth.StringWidth(l[:i]), y
+		}
+	}
+	t.Fatalf("token %q not on screen:\n%s", tok, ansi.Strip(m.View()))
+	return 0, 0
+}
+
+// rClick presses and releases at (x, y), then delivers a cursor blink and a
+// same-size resize like the runtime does between clicks.
+func rClick(m Model, x, y int) Model {
+	m = rUpd(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = rUpd(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m = rUpd(m, textarea.Blink())
+	return rUpd(m, tea.WindowSizeMsg{Width: m.width, Height: m.height})
+}
+
+func rCur(m Model) (int, int) {
+	li := m.input.LineInfo()
+	return m.input.Line(), li.StartColumn + li.ColumnOffset
+}
+
+// rWant checks the cursor and that a typed '#' lands right there.
+func rWant(t *testing.T, m Model, line, col int) {
+	t.Helper()
+	if l, c := rCur(m); l != line || c != col {
+		t.Fatalf("cursor line %d col %d, want line %d col %d\n%s", l, c, line, col, ansi.Strip(m.View()))
+	}
+	before := strings.Split(m.input.Value(), "\n")
+	m = rUpd(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'#'}})
+	after := strings.Split(m.input.Value(), "\n")
+	r := []rune(before[line])
+	want := string(r[:col]) + "#" + string(r[col:])
+	if len(after) != len(before) || after[line] != want {
+		t.Fatalf("typed '#' gave %q, want line %d = %q", after, line, want)
+	}
+}
+
+func TestInputClickMultiLine(t *testing.T) {
+	m := rModel(t, 80, 24, "alpha\nbeQta\ngamma")
+	x, y := rAt(t, m, "Qta")
+	rWant(t, rClick(m, x, y), 1, 2)
+	x, y = rAt(t, m, "alpha")
+	rWant(t, rClick(m, x+1, y), 0, 1)
+	x, y = rAt(t, m, "gamma")
+	rWant(t, rClick(m, x+30, y), 2, 5)
+}
+
+func TestInputClickWrapped(t *testing.T) {
+	m := rModel(t, 40, 24, strings.Repeat("a", 50)+"Qbc")
+	x, y := rAt(t, m, "Qbc")
+	rWant(t, rClick(m, x, y), 0, 50)
+}
+
+func TestInputClickScrolled(t *testing.T) {
+	m := rModel(t, 80, 24, "r0\nr1\nr2\nr3\nr4 Q4\nr5\nr6")
+	x, y := rAt(t, m, "Q4")
+	rWant(t, rClick(m, x, y), 4, 3)
+	x, y = rAt(t, m, "r5")
+	rWant(t, rClick(m, x+1, y), 5, 1)
+}
+
+func TestInputClickWideRunes(t *testing.T) {
+	m := rModel(t, 80, 24, "x\n日本語Qz")
+	x, y := rAt(t, m, "Qz")
+	rWant(t, rClick(m, x, y), 1, 3)
+	x, y = rAt(t, m, "本")
+	rWant(t, rClick(m, x+1, y), 1, 1)
+	rWant(t, rClick(m, x, y), 1, 1)
+}
+
+func TestInputClickOutside(t *testing.T) {
+	m := rModel(t, 80, 24, "alpha\nbeQta\ngamma")
+	m.add(blockInfo, "some conversation text")
+	m = rUpd(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	x, y := rAt(t, m, "Qta")
+	m = rClick(m, x, y)
+	for _, yy := range []int{0, 1, 2, y - 4, 22, 23} {
+		for _, xx := range []int{0, 3, 10} {
+			m = rClick(m, xx, yy)
+			if l, c := rCur(m); l != 1 || c != 2 {
+				t.Fatalf("click at %d,%d moved the cursor to %d,%d", xx, yy, l, c)
+			}
+		}
+	}
+}
+
+// TestInputClickScrolledEqualRows: with repeated rows the scroll offset cannot
+// be told from the rendered text; each click must still hit its own row.
+func TestInputClickScrolledEqualRows(t *testing.T) {
+	m := rModel(t, 80, 24, "a\na\na\na\na\na\na")
+	top := tabBarRows + m.viewport.Height + 1
+	for _, line := range []int{4, 5, 6, 4, 6} {
+		rWant(t, rClick(m, 1, top+line-4), line, 0)
 	}
 }
