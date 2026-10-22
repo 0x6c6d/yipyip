@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify T000.sh 10/10 |
 | T101 | 1 | Config: three-tier jev.route, only hard required | T000 | opus | done | internal/config/jev.go + test: Medium tier, only hard required |
-| T102 | 1 | Three-tier turn routing (round, clamp, effective tier) | T101 | opus | todo | |
+| T102 | 1 | Three-tier turn routing (round, clamp, effective tier) | T101 | opus | done | agent/jev.go: Tier, round+clamp, TurnTier, JevRoute; tests |
 | T201 | 2 | Remove jev question answering | T000 | opus | todo | |
 | T202 | 2 | Remove jev risk screen, approval.go back to pre-v4 | T000 | opus | todo | |
 | T301 | 3 | Routing-only jev stats and /jev stats lines | T102, T201, T202 | sonnet | todo | |

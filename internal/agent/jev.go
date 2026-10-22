@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
+	"yipyip/internal/config"
 	"yipyip/internal/provider"
 )
 
@@ -115,11 +117,81 @@ var difficultyQuestion = provider.JevQuestion{
 	},
 }
 
+// Tier is the difficulty tier jev routed a turn to.
+type Tier int
+
+// The tiers of a turn; TierNone means the turn was not routed.
+const (
+	TierNone Tier = iota
+	TierEasy
+	TierMedium
+	TierHard
+)
+
+// String returns the tier's name.
+func (t Tier) String() string {
+	switch t {
+	case TierEasy:
+		return "easy"
+	case TierMedium:
+		return "medium"
+	case TierHard:
+		return "hard"
+	}
+	return "not routed"
+}
+
+// scoreTier maps a difficulty score to a tier: rounded, then clamped to
+// 0..2 (easy, medium, hard). A NaN or infinite score reports false.
+func scoreTier(score float64) (Tier, bool) {
+	if math.IsNaN(score) || math.IsInf(score, 0) {
+		return TierNone, false
+	}
+	switch r := math.Round(score); {
+	case r <= 0:
+		return TierEasy, true
+	case r == 1:
+		return TierMedium, true
+	default:
+		return TierHard, true
+	}
+}
+
+// tierModel returns the model id of tier t on route r and the effective
+// tier: an absent easy or medium model uses hard, which is then effective.
+func tierModel(r *config.JevRoute, t Tier) (string, Tier) {
+	switch t {
+	case TierEasy:
+		if r.Easy != "" {
+			return r.Easy, TierEasy
+		}
+	case TierMedium:
+		if r.Medium != "" {
+			return r.Medium, TierMedium
+		}
+	}
+	return r.Hard, TierHard
+}
+
+// JevRoute returns the effective model id of each tier (an absent tier uses
+// the hard id); all "" when jev or its route is not configured.
+func (s *Session) JevRoute() (easy, medium, hard string) {
+	if s.cfg.Jev == nil || s.cfg.Jev.Route == nil {
+		return "", "", ""
+	}
+	r := s.cfg.Jev.Route
+	easy, _ = tierModel(r, TierEasy)
+	medium, _ = tierModel(r, TierMedium)
+	return easy, medium, r.Hard
+}
+
 // routeTurn picks the model of a main-agent turn with jev when jev is on and
-// "jev.route" is configured: score < 1 is Route.Easy, else Route.Hard. It
-// returns "" (the session's model) when not routed: jev off, no route, or a
-// failed, timed out or unconfident answer (counted as a fallback). It never
-// changes the session's model.
+// "jev.route" is configured: the difficulty score is rounded and clamped to
+// 0..2 (easy, medium, hard) and the tier's model runs the whole turn (an
+// absent easy or medium model uses hard). It returns "" (the session's
+// model) when not routed: jev off, no route, or a failed, timed out,
+// malformed or unconfident answer (counted as a fallback). It never changes
+// the session's model.
 func (s *Session) routeTurn(ctx context.Context, user string) string {
 	if !s.JevOn() || s.cfg.Jev == nil || s.cfg.Jev.Route == nil {
 		return ""
@@ -132,13 +204,15 @@ func (s *Session) routeTurn(ctx context.Context, user string) string {
 		s.noteJev(false)
 		return ""
 	}
-	id := s.cfg.Jev.Route.Hard
-	if ans[0].Score < 1 {
-		id = s.cfg.Jev.Route.Easy
+	tier, ok := scoreTier(ans[0].Score)
+	if !ok {
+		s.noteJev(false)
+		return ""
 	}
+	id, tier := tierModel(s.cfg.Jev.Route, tier)
 	s.noteJev(true)
 	s.mu.Lock()
-	s.turnRouted, s.turnModel = true, id
+	s.turnRouted, s.turnModel, s.turnTier = true, id, tier
 	s.mu.Unlock()
 	s.emit(Event{Kind: EvInfo, AgentID: MainAgentID, Text: "jev route: " + id})
 	return id
@@ -184,6 +258,14 @@ func (s *Session) TurnModel() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.turnModel
+}
+
+// TurnTier returns the effective tier of the running or last turn, TierNone
+// when that turn was not routed.
+func (s *Session) TurnTier() Tier {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnTier
 }
 
 // truncateRunes keeps at most n runes of the start of text.

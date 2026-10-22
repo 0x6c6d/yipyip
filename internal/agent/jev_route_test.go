@@ -11,6 +11,10 @@ import (
 
 const jevRouteJSON = `,"route":{"easy":"fake/m2","hard":"fake/m1"}`
 
+// routeModels adds the models m3 and m4 to the fake provider; it follows the
+// jev object in the project file, which is deep-merged with the global one.
+const routeModels = `,"provider":{"fake":{"models":{"m3":{},"m4":{}}}}`
+
 // routeRig is a session with a tool-calling fake provider and a jev fake.
 type routeRig struct {
 	srv *providertest.Server
@@ -42,7 +46,7 @@ func newRouteRig(t *testing.T, resp providertest.JevResponse, extra string, on b
 	}
 	t.Cleanup(r.srv.Close)
 	t.Cleanup(r.j.Close)
-	r.s = newJevSession(t, r.srv, `{"baseURL":"`+r.j.URL+`","apiKey":"{env:TYPESAFE_API_KEY}"`+extra+`}`)
+	r.s = newJevSession(t, r.srv, `{"baseURL":"`+r.j.URL+`","apiKey":"{env:TYPESAFE_API_KEY}"`+extra+`}`+routeModels)
 	if err := os.WriteFile(filepath.Join(r.s.StartDir(), "notes.txt"), []byte("n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -103,10 +107,10 @@ func routeScore(score, conf float64) providertest.JevResponse {
 }
 
 func TestJevRoute(t *testing.T) {
-	for _, sc := range []float64{0, 0.99} {
+	for _, sc := range []float64{0, 0.49} {
 		r := newRouteRig(t, routeScore(sc, 0.9), jevRouteJSON, true)
 		models, infos := r.turn(t, "small fix please")
-		if !allModel(models, "m2") || r.s.TurnModel() != "fake/m2" || r.s.ModelID() != "fake/m1" {
+		if !allModel(models, "m2") || r.s.TurnModel() != "fake/m2" || r.s.TurnTier() != TierEasy || r.s.ModelID() != "fake/m1" {
 			t.Fatalf("score %v: models %q, turn model %q, session %q", sc, models, r.s.TurnModel(), r.s.ModelID())
 		}
 		if !contains(infos, "jev route: fake/m2") {
@@ -120,18 +124,91 @@ func TestJevRoute(t *testing.T) {
 			t.Fatalf("score %v: stats %+v", sc, st)
 		}
 	}
-	for _, sc := range []float64{1, 2} {
+	// 0.99 rounds to 1 (medium); the two-key route maps medium to hard.
+	for _, sc := range []float64{0.99, 1, 2} {
 		r := newRouteRig(t, routeScore(sc, 0.9), jevRouteJSON, true)
 		if err := r.s.SetModel("fake/m2"); err != nil {
 			t.Fatal(err)
 		}
-		if models, _ := r.turn(t, "big refactor"); !allModel(models, "m1") || r.s.TurnModel() != "fake/m1" || r.s.ModelID() != "fake/m2" {
+		if models, _ := r.turn(t, "big refactor"); !allModel(models, "m1") || r.s.TurnModel() != "fake/m1" || r.s.TurnTier() != TierHard || r.s.ModelID() != "fake/m2" {
 			t.Fatalf("score %v: models %q, turn model %q, session %q", sc, models, r.s.TurnModel(), r.s.ModelID())
 		}
 		if models, _ := r.turn(t, "again"); !allModel(models, "m1") || len(r.j.Requests()) != 2 {
 			t.Fatalf("score %v: second turn models %q, %d jev requests", sc, models, len(r.j.Requests()))
 		}
 	}
+}
+
+const route3JSON = `,"route":{"easy":"fake/m2","medium":"fake/m3","hard":"fake/m4"}`
+
+func TestRouteTiers(t *testing.T) {
+	for _, c := range []struct {
+		score float64
+		model string
+		tier  Tier
+	}{
+		{0, "m2", TierEasy}, {0.4, "m2", TierEasy},
+		{1, "m3", TierMedium},
+		{1.6, "m4", TierHard}, {2, "m4", TierHard},
+	} {
+		r := newRouteRig(t, routeScore(c.score, 0.9), route3JSON, true)
+		models, infos := r.turn(t, "do it")
+		if !allModel(models, c.model) || r.s.TurnModel() != "fake/"+c.model || r.s.TurnTier() != c.tier || r.s.ModelID() != "fake/m1" {
+			t.Fatalf("score %v: models %q, turn model %q, tier %v, session %q", c.score, models, r.s.TurnModel(), r.s.TurnTier(), r.s.ModelID())
+		}
+		if !contains(infos, "jev route: fake/"+c.model) {
+			t.Fatalf("score %v: infos %q", c.score, infos)
+		}
+		if e, m, h := r.s.JevRoute(); e != "fake/m2" || m != "fake/m3" || h != "fake/m4" {
+			t.Fatalf("JevRoute %q %q %q", e, m, h)
+		}
+	}
+}
+
+func TestRouteMediumMissing(t *testing.T) {
+	r := newRouteRig(t, routeScore(1, 0.9), `,"route":{"easy":"fake/m2","hard":"fake/m4"}`, true)
+	if models, _ := r.turn(t, "x"); !allModel(models, "m4") || r.s.TurnModel() != "fake/m4" || r.s.TurnTier() != TierHard || r.s.ModelID() != "fake/m1" {
+		t.Fatalf("models %q, turn model %q, tier %v", models, r.s.TurnModel(), r.s.TurnTier())
+	}
+	if e, m, h := r.s.JevRoute(); e != "fake/m2" || m != "fake/m4" || h != "fake/m4" {
+		t.Fatalf("JevRoute %q %q %q", e, m, h)
+	}
+}
+
+// checkRouteFallback runs one turn on a failing jev answer and checks that
+// the session model ran it unrouted, counted as one fallback.
+func checkRouteFallback(t *testing.T, resp providertest.JevResponse) time.Duration {
+	t.Helper()
+	r := newRouteRig(t, resp, route3JSON, true)
+	start := time.Now()
+	models, infos := r.turn(t, "x")
+	took := time.Since(start)
+	if !allModel(models, "m1") || r.s.TurnModel() != "" || r.s.TurnTier() != TierNone || r.s.ModelID() != "fake/m1" {
+		t.Fatalf("models %q, turn model %q, tier %v", models, r.s.TurnModel(), r.s.TurnTier())
+	}
+	if st := r.s.JevStats(); st.Fallbacks != 1 || st.Answered != 0 {
+		t.Fatalf("stats %+v", st)
+	}
+	for _, in := range infos {
+		if len(in) >= 10 && in[:10] == "jev route:" {
+			t.Fatalf("route info %q", in)
+		}
+	}
+	return took
+}
+
+func TestRouteFallbackError(t *testing.T) {
+	checkRouteFallback(t, providertest.JevResponse{Status: 500})
+}
+
+func TestRouteFallbackTimeout(t *testing.T) {
+	if took := checkRouteFallback(t, providertest.JevResponse{Delay: 5 * time.Second}); took > 2*time.Second {
+		t.Fatalf("turn took %v", took)
+	}
+}
+
+func TestRouteFallbackLowConfidence(t *testing.T) {
+	checkRouteFallback(t, routeScore(2, 0.2))
 }
 
 func TestJevRouteFallback(t *testing.T) {

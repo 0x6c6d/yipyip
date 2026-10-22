@@ -76,7 +76,7 @@ func (s *Session) Submit(text string) error {
 	s.busy = true
 	s.turnStarted = time.Now().UTC().Format(time.RFC3339)
 	s.turnInterrupted = false
-	s.turnRouted, s.turnModel = false, ""
+	s.turnRouted, s.turnModel, s.turnTier = false, "", TierNone
 	s.cancelTurn = cancel
 	s.turnDone = done
 	gen := s.gen

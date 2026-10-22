@@ -74,6 +74,7 @@ type Session struct {
 	jevTimeout       time.Duration // test seam, see SetJevTimeout; 0 = JevTimeout
 	turnRouted       bool          // the current turn was routed by jev
 	turnModel        string        // model id jev routed the running/last turn to; "" = not routed
+	turnTier         Tier          // effective tier of the running/last turn; TierNone = not routed
 
 	jmu sync.Mutex // guards the snapshots and bash lists of the journal records
 }
