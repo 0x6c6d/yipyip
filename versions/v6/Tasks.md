@@ -26,7 +26,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T000 | 0 | Preflight | — | supervisor | done | verify T000.sh 13/13 |
 | T101 | 1 | Config: optional search block | T000 | opus | done | config/search.go: Search block, https/loopback rule; 8 tests |
 | T102 | 1 | Search transport: search-only HTTP client (transport.go) | T101 | opus | done | transport.go: NewSearchHTTPClient (search host only, 20s, redirect check shared); 6 tests |
-| T103 | 1 | Brave search client and fake Brave endpoint | T102 | sonnet | todo | |
+| T103 | 1 | Brave search client and fake Brave endpoint | T102 | sonnet | done | provider/search.go SearchClient, providertest/brave.go fake; 6 tests |
 | T104 | 1 | web_search tool and registry name rule | T103 | opus | todo | |
 | T201 | 2 | Approval: web_search in the gated set (approval.go) | T000 | opus | todo | |
 | T202 | 2 | Session wiring of web_search, agent gate and Secret tests | T104, T201 | opus | todo | |
