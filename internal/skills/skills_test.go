@@ -158,3 +158,140 @@ func TestSkillTooLarge(t *testing.T) {
 		t.Fatalf("warnings: %q", warns)
 	}
 }
+
+// homeStart returns a temp home and start directory (both exist, no skills yet).
+func homeStart(t *testing.T) (string, string) {
+	t.Helper()
+	base, start := startDir(t)
+	home := filepath.Join(base, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home, start
+}
+
+// find returns the skill called name, or nil.
+func find(list []Skill, name string) *Skill {
+	for i := range list {
+		if list[i].Name == name {
+			return &list[i]
+		}
+	}
+	return nil
+}
+
+func TestSkillGlobalOnly(t *testing.T) {
+	home, start := homeStart(t)
+	g := GlobalDir(home)
+	writeFile(t, filepath.Join(g, "lint", "SKILL.md"), "---\ndescription: Lint it\n---\nRun lint.\n")
+	writeFile(t, filepath.Join(g, "a-first", "SKILL.md"), "---\n---\nA\n")
+
+	list, warns := Load(home, start)
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %q", warns)
+	}
+	want := []Skill{
+		{Name: "a-first", Body: "A", Source: Global},
+		{Name: "lint", Description: "Lint it", Body: "Run lint.", Source: Global},
+	}
+	if len(list) != len(want) || list[0] != want[0] || list[1] != want[1] {
+		t.Fatalf("got %+v, want %+v", list, want)
+	}
+}
+
+func TestSkillProjectOnly(t *testing.T) {
+	home, start := homeStart(t)
+	writeFile(t, filepath.Join(ProjectDir(start), "deploy", "SKILL.md"), "---\ndescription: Ship\n---\nDeploy.\n")
+
+	list, warns := Load(home, start)
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %q", warns)
+	}
+	if len(list) != 1 || list[0] != (Skill{Name: "deploy", Description: "Ship", Body: "Deploy.", Source: Project}) {
+		t.Fatalf("got %+v", list)
+	}
+}
+
+func TestSkillProjectOverrides(t *testing.T) {
+	home, start := homeStart(t)
+	g, p := GlobalDir(home), ProjectDir(start)
+	writeFile(t, filepath.Join(g, "review", "SKILL.md"), "---\ndescription: global review\n---\nGLOBAL BODY\n")
+	writeFile(t, filepath.Join(g, "only-global", "SKILL.md"), "---\n---\nG\n")
+	// The project folder name differs; the frontmatter name decides the override.
+	writeFile(t, filepath.Join(p, "rev", "SKILL.md"), "---\nname: review\ndescription: project review\n---\nPROJECT BODY\n")
+	writeFile(t, filepath.Join(p, "only-project", "SKILL.md"), "---\n---\nP\n")
+
+	list, warns := Load(home, start)
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %q", warns)
+	}
+	names := []string{}
+	for _, s := range list {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, ",") != "only-global,only-project,review" {
+		t.Fatalf("names: %v", names)
+	}
+	r := find(list, "review")
+	if r.Body != "PROJECT BODY" || r.Description != "project review" || r.Source != Project {
+		t.Errorf("review: %+v", r)
+	}
+	if s := find(list, "only-global"); s.Source != Global {
+		t.Errorf("only-global: %+v", s)
+	}
+	if s := find(list, "only-project"); s.Source != Project {
+		t.Errorf("only-project: %+v", s)
+	}
+}
+
+func TestSkillBadSkipped(t *testing.T) {
+	home, start := homeStart(t)
+	g, p := GlobalDir(home), ProjectDir(start)
+	writeFile(t, filepath.Join(g, "Bad_Global", "SKILL.md"), "---\n---\nx\n")
+	writeFile(t, filepath.Join(g, "gnofm", "SKILL.md"), "just text\n")
+	writeFile(t, filepath.Join(g, "gunclosed", "SKILL.md"), "---\nname: gunclosed\n")
+	writeFile(t, filepath.Join(g, "gdup-a", "SKILL.md"), "---\nname: gdup\n---\nfirst\n")
+	writeFile(t, filepath.Join(g, "gdup-b", "SKILL.md"), "---\nname: gdup\n---\nsecond\n")
+	writeFile(t, filepath.Join(g, "gfine", "SKILL.md"), "---\n---\nok\n")
+	writeFile(t, filepath.Join(p, "badname", "SKILL.md"), "---\nname: Has Space\n---\nx\n")
+	writeFile(t, filepath.Join(p, "pnofm", "SKILL.md"), "no frontmatter\n")
+	writeFile(t, filepath.Join(p, "punclosed", "SKILL.md"), "---\nname: punclosed\n")
+	writeFile(t, filepath.Join(p, "pfine", "SKILL.md"), "---\n---\nok\n")
+
+	list, warns := Load(home, start)
+	names := []string{}
+	for _, s := range list {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, ",") != "gdup,gfine,pfine" || find(list, "gdup").Body != "first" {
+		t.Fatalf("list: %+v", list)
+	}
+	global := []string{"Bad_Global", "gnofm", "gunclosed", "gdup-b"}
+	project := []string{"badname", "pnofm", "punclosed"}
+	if len(warns) != len(global)+len(project) {
+		t.Fatalf("want %d warnings, got %q", len(global)+len(project), warns)
+	}
+	for _, f := range global {
+		if !warned(warns, "global/"+f) {
+			t.Errorf("no global warning for %s in %q", f, warns)
+		}
+	}
+	for _, f := range project {
+		if !warned(warns, f) {
+			t.Errorf("no warning for %s in %q", f, warns)
+		}
+	}
+}
+
+func TestSkillMissingDirs(t *testing.T) {
+	home, start := homeStart(t)
+	if list, warns := Load(home, start); len(list) != 0 || len(warns) != 0 {
+		t.Fatalf("missing dirs: %+v %q", list, warns)
+	}
+	if list, warns := Load("", start); len(list) != 0 || len(warns) != 0 {
+		t.Fatalf("empty home: %+v %q", list, warns)
+	}
+	if list, warns := Load(filepath.Join(home, "nope"), filepath.Join(start, "nope")); len(list) != 0 || len(warns) != 0 {
+		t.Fatalf("nonexistent home and start: %+v %q", list, warns)
+	}
+}
