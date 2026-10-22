@@ -120,6 +120,7 @@ type Model struct {
 	opts          Options
 	skills        []skills.Skill // loaded by New and re-read by /skills, global for all tabs
 	skillWarnings []string
+	jevOn         bool // /jev switch, global for all tabs (never saved)
 	viewport      viewport.Model
 	input         textarea.Model
 	width         int
