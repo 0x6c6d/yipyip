@@ -12,6 +12,8 @@ import (
 
 func TestHelpCommand(t *testing.T) {
 	m, _ := newSessionModel(t, nil)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 60})
+	m = next.(Model)
 	m, _ = m.Command("/help")
 	v := m.View()
 	for _, c := range Commands() {

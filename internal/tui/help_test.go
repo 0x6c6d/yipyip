@@ -90,3 +90,17 @@ func TestHelpMouseAndTabs(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpWebSearch(t *testing.T) {
+	h := HelpText()
+	for _, w := range []string{"web_search", `"search"`, "BRAVE_API_KEY"} {
+		if !strings.Contains(h, w) {
+			t.Errorf("help lacks %q", w)
+		}
+	}
+	for _, bad := range []string{"cost", "$", "price"} {
+		if strings.Contains(strings.ToLower(h), bad) {
+			t.Errorf("help contains %q", bad)
+		}
+	}
+}

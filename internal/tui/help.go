@@ -80,5 +80,7 @@ func HelpText() string {
 	for _, k := range keys {
 		fmt.Fprintf(&b, "  %-*s  %s\n", keyWidth, k.Key, k.Help)
 	}
+	b.WriteString("\nWeb search:\n")
+	b.WriteString("  web_search  search the web (Brave) when a \"search\" block is configured, key from BRAVE_API_KEY; asks for approval in manual mode\n")
 	return b.String()
 }

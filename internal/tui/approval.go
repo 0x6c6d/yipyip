@@ -96,6 +96,8 @@ func argsSummary(tool, args string) string {
 			key = "command"
 		case "write_file", "edit_file", "read_file":
 			key = "path"
+		case "web_search":
+			key = "query"
 		}
 		if s, ok := fields[key].(string); ok && key != "" {
 			return s
