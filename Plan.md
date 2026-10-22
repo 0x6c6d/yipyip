@@ -34,7 +34,8 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   (resolved secrets → `[redacted]`); v3 settings write: only `model`/`effort`/`mode`, atomic, other
   keys preserved (`{env:NAME}` literal), never a resolved secret; v4 `jev` block (`baseURL`
   `https://api.typesafe.ai`, `apiKey`, `model` `jev-latest`, `min_confidence` 0.7, `route.easy/
-  hard` checked against configured models at load); talks to: nothing. (v1; v3; v4)
+  hard` checked against configured models at load; v5 `route.medium`, only `hard` required, error
+  names the key); talks to: nothing. (v1; v3; v4; v5)
 - **internal/provider**: `Client.Stream(ctx, req) <-chan Event` → `POST <baseURL>/chat/completions`
   (Bearer if set, `stream:true`, `include_usage:true`, `tools`, `reasoning_effort` unless
   `reasoning:false`); own SSE parser; 4xx/5xx/dropped streams → redacted `ErrorEvent`s; v3 retry
@@ -56,19 +57,22 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   (only `os/exec` site, env without `{env:}` vars), undo pre-write hook, no web/fetch/search;
   talks to: config (redactor). (v1)
 - **internal/agent**: `Session` (history, model/effort/mode, counters, turns, v3 export/restore);
-  loop (≤50 iterations per turn, per-turn ctx, Esc cancels); **Approval gate** (`y/n/a`, "always"
-  per tool per session); v3 **Question gate**: `question` (never gated) blocks on a TUI reply
+  loop (≤50 model calls per main turn, v5 ≤500 per subagent run, per-turn ctx, Esc cancels);
+  **Approval gate** (`y/n/a`, "always" per tool per session; v5 no jev hook); v3 **Question
+  gate**: `question` (never gated, v5 always to the user) blocks on a TUI reply
   channel → labels joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**,
-  compaction, `/init`, system prompt (+`AGENTS.md`); v4 `jev.go` **Jev decider** (question
-  auto-answer, per-turn easy/hard routing, auto-mode risk screen via one `RiskScreen` hook in the
-  gate that can only add a prompt, 10 s timeout → old behaviour, in-memory stats); talks to:
-  provider, tools. (v1; v3: question, restore; v4: jev)
+  compaction, `/init`, system prompt (+`AGENTS.md`); v4 `jev.go` **Jev decider** (v5: per-turn
+  routing only, score 0/1/2 → easy/medium/hard, 10 s timeout/error/low confidence → session
+  model, in-memory per-tier stats; v4 question auto-answer and risk screen removed); talks to:
+  provider, tools. (v1; v3: question, restore; v4: jev; v5: routing only)
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** (≤8, per-tab conversation/
   counters/history/pastes/queue/turn, global model/effort/mode); v4 bar exactly 1 row (`…`,
   current tab always visible), clickable `×`/`+`, tab keys only `Ctrl+T`/`Ctrl+W`; viewport
-  (chroma, subagent blocks), textarea (suggest, history, pastes, queue; v4 click-to-cursor,
-  select-to-copy), status rows (v4 `jev`, routed model), scroll, copy-on-select; slash commands +
-  v3 `/sessions` + v4 `/skills`, `/jev`, `/<skill>` (built-ins win); save of every tab on exit;
+  (chroma, subagent blocks), textarea (suggest, history, pastes, queue; v4 click-to-cursor, v5
+  fixed: geometry from the rendered layout, textarea's own cursor; select-to-copy), status rows
+  (v4 `jev`, routed model), scroll, copy-on-select; slash commands + v3 `/sessions` + v4
+  `/skills`, `/jev` (v5 prints the route; `/jev stats` per tier), `/<skill>` (built-ins win);
+  save of every tab on exit;
   overlays: model picker, approval prompt, resume picker; v4 question block inline in the
   transcript; settings persist on change; only alt+enter newline (v4); text passes the redactor;
   talks to: agent, session, config, skills. (v1; reworked v2; extended v3, v4)
@@ -115,9 +119,9 @@ deferrals "session persistence"/"config writes"; v4 skills supersede "custom sla
   (v4: jev `state`, skill text/descriptions), stripped from the `bash` env, in no written file
   (`SECRET123` negatives). No logs (jev stats memory-only); writes: tools, `.yipyip/`, settings.
 - C: Approvals: "always" per tool per session, reset by `/new`; the gate is the only path to
-  `Registry.Run` for gated tools; `question` never gated; skills grant nothing. v4 risk screen:
-  one `RiskScreen` hook in `approval.go`, auto mode only, may only turn auto-approve into a prompt,
-  never approves or sets "always"; error/timeout → auto as is. Undo in memory; `bash` unsandboxed,
+  `Registry.Run` for gated tools; `question` never gated; skills grant nothing. v5: the v4 jev
+  risk screen is removed, `approval.go` decides exactly as before v4, jev never answers a
+  `question` and never touches the gate. Undo in memory; `bash` unsandboxed,
   process group killed on timeout/Esc. Public interface: config schema (v4 `jev`), tool names/args, slash commands (v4 `/skills`,
   `/jev`, `/<skill>`), `<name>/SKILL.md`, session `version` 1, `<id>` = 12 hex of SHA-256.
 - C (v3): session files keep tool results un-redacted; interrupted turns stored as finished; queue
@@ -125,6 +129,8 @@ deferrals "session persistence"/"config writes"; v4 skills supersede "custom sla
 - C (v3/v4): tabs: one global model/effort/mode; `Ctrl+W`/`×` save then move left (else right);
   last-tab close = `/exit`; 8-tab limit; v4 drops `Ctrl+Tab`/`Alt+N`/Shift+Enter (breaking).
 - C (v4): jev `state` minimal (≤2000 chars) + redacted; 10 s timeout + fallback; off at start.
+  C (v5): jev only routes (state = redacted request); `jev.route` needs only `hard`, absent tiers →
+  `hard`, v4 two-key routes still load; subagent runs up to 500 model calls (× `max_subagents`).
   C (v2): start mode `auto`; `atotto/clipboard` (clipboard.go) is the sole exec besides `bash.go`;
   history/pastes/queue memory-only except the v3 session file.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/`api.typesafe.ai` only when
