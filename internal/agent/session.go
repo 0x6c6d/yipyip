@@ -109,11 +109,23 @@ func NewSession(opts Options) (*Session, error) {
 	if j := cfg.Jev; j != nil && j.APIKey != "" {
 		s.jev = provider.NewJevClient(hc, j.BaseURL, j.APIKey, j.Model)
 	}
+	// The web search client gets its own search-only HTTP client: never
+	// opts.HTTPClient or the provider/jev client, which never learn the
+	// search URL.
+	var search *provider.SearchClient
+	if sc := cfg.Search; sc != nil {
+		shc, err := provider.NewSearchHTTPClient(sc.BaseURL)
+		if err != nil {
+			return nil, &redactedError{msg: "agent: " + cfg.Redactor.Redact(err.Error()), err: err}
+		}
+		search = provider.NewSearchClient(shc, sc.BaseURL, sc.APIKey)
+	}
 	reg, err := tools.NewRegistry(tools.Options{
 		StartDir:    opts.StartDir,
 		Redactor:    cfg.Redactor,
 		StripEnv:    cfg.EnvNames,
 		BeforeWrite: func(path string) { s.beforeWrite(path) },
+		Search:      search,
 	})
 	if err != nil {
 		return nil, &redactedError{msg: "agent: " + cfg.Redactor.Redact(err.Error()), err: err}
