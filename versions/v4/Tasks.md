@@ -24,7 +24,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify passes (9 checks) |
 | T101 | 1 | Skills loader, project dir (internal/skills) | T000 | opus | done | internal/skills/skills.go+skills_test.go; PathGuard, 256 KiB cap, hand-parsed frontmatter; skills dir escaping startdir → one warning; verify 10/10 |
-| T102 | 1 | /<skill> args dispatch in the TUI | T101 | sonnet | todo | |
+| T102 | 1 | /<skill> args dispatch in the TUI | T101 | sonnet | done | tui/model.go (Options.Home, skills field, sendUser helper), commands.go, skill_test.go, cmd/yip/main.go; built-ins looked up first; verify 9/9 |
 | T201 | 2 | Skills loader: global dir, override, skips | T101 | opus | todo | |
 | T202 | 2 | Skill run: built-in wins, redaction, warnings | T102, T201 | opus | todo | |
 | T203 | 2 | /skills command and / suggestions | T202 | opus | todo | |

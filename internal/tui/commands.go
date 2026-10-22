@@ -40,6 +40,15 @@ func (m Model) runSlash(text string) (Model, tea.Cmd) {
 	if fn, ok := slashCommands[name]; ok {
 		return fn(m, args)
 	}
+	for _, sk := range m.skills {
+		if "/"+sk.Name == name {
+			msg := sk.Body
+			if args != "" {
+				msg += "\n\n" + args
+			}
+			return m.sendUser(text, msg)
+		}
+	}
 	m.add(blockInfo, "unknown command: "+name)
 	return m, nil
 }

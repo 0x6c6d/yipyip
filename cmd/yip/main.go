@@ -118,6 +118,7 @@ func runUI(f flags, d deps, stderr io.Writer) int {
 	opts := newOptions(startDir, sess)
 	applyStoredSettings(&opts, cfg, sess)
 	opts.StdinTTY = d.stdinTTY
+	opts.Home = home
 	// Model, effort and mode changes are saved to the user config file.
 	opts.SettingsPath = config.GlobalPath(home)
 	// New tabs get sessions with the same config and start directory; the

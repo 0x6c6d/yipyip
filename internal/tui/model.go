@@ -14,6 +14,7 @@ import (
 
 	"yipyip/internal/agent"
 	"yipyip/internal/session"
+	"yipyip/internal/skills"
 )
 
 // Options configures the initial state of the UI.
@@ -63,6 +64,10 @@ type Options struct {
 	// SaveSettings writes the selection to the settings file; nil =
 	// config.SaveSettings. A test seam.
 	SaveSettings func(path, model, effort, mode string) error
+
+	// Home is the user's home directory for the global skills folder;
+	// "" = global skills are not read.
+	Home string
 }
 
 // EventMsg carries one agent session event into Update. sess is the session
@@ -112,11 +117,13 @@ const (
 
 // Model is the Bubble Tea model of the yipyip UI.
 type Model struct {
-	opts     Options
-	viewport viewport.Model
-	input    textarea.Model
-	width    int
-	height   int
+	opts          Options
+	skills        []skills.Skill // loaded once by New, global for all tabs
+	skillWarnings []string
+	viewport      viewport.Model
+	input         textarea.Model
+	width         int
+	height        int
 
 	ctx    context.Context // cancelled on quit: stops the blocking event command
 	cancel context.CancelFunc
@@ -190,6 +197,9 @@ func New(opts Options) Model {
 		clip:     clip,
 	}
 	m.tabs = []tab{m.tab}
+	if opts.StartDir != "" {
+		m.skills, m.skillWarnings = skills.Load(opts.Home, opts.StartDir)
+	}
 	m.resize(defaultWidth, defaultHeight)
 	switch {
 	case opts.ResumeData != nil:
@@ -446,14 +456,21 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		return m.runSlash(text)
 	}
+	return m.sendUser(text, m.pastes.expand(text))
+}
+
+// sendUser shows shown as the typed line and sends msg to the session as a
+// user message, starting a turn; a missing model, a busy session and errors
+// become one transcript line.
+func (m Model) sendUser(shown, msg string) (Model, tea.Cmd) {
 	start := len(m.blocks)
-	m.add(blockPlain, "> "+text)
+	m.add(blockPlain, "> "+shown)
 	sess := m.sess
 	if sess == nil {
 		m.add(blockInfo, "no model configured")
 		return m, nil
 	}
-	switch err := sess.Submit(m.pastes.expand(text)); {
+	switch err := sess.Submit(msg); {
 	case err == nil:
 		m.pushTurnStart(start)
 		return m, m.startTurn()
