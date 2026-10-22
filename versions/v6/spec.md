@@ -29,7 +29,7 @@ none
 ## 5. Constraints & environment changes
 
 - New secret env var name: `BRAVE_API_KEY` (never written to a file, shown or sent anywhere but the Brave host). Tests use an `httptest` fake of the Brave endpoint (`providertest`), never the real service; the real host is contacted only by the user's own runs.
-- `README.md` sections 1-9 are updated by the supervisor to R3, R4 and R7 above (the Security line is already edited in the working tree); `pathguard.go` gets a read-mode and a write-mode resolution, `transport.go` a second allowlist for the search client, `approval.go` the new gated name: these security-critical files are changed only by the tasks that name them, each with negative tests.
+- `README.md` sections 1-9 are updated by the supervisor to R3, R4 and R7 above; `pathguard.go` gets a read-mode and a write-mode resolution, `transport.go` a second allowlist for the search client, `approval.go` the new gated name: these security-critical files are changed only by the tasks that name them, each with negative tests.
 - No new modules (standard library only).
 
 ## 6. Acceptance criteria
