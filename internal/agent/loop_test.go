@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,6 +175,57 @@ func TestIterationLimit(t *testing.T) {
 	// The history stays valid: every tool call has a result.
 	h := s.History()
 	if last := h[len(h)-1]; last.Role != "tool" {
+		t.Errorf("last message %+v", last)
+	}
+}
+
+func TestMainIterationLimit(t *testing.T) {
+	srv := providertest.NewFunc(func(n int, _ providertest.Request) fakeResp {
+		return fakeResp{ToolCalls: []fakeCall{{ID: fmt.Sprintf("g%d", n), Name: "glob", Arguments: `{"pattern":"*.none"}`}}}
+	})
+	defer srv.Close()
+	s, _ := newLoopSession(t, srv)
+	evs := submitAndWait(t, s, "loop forever")
+	if n := len(srv.Requests()); n != 50 {
+		t.Fatalf("requests = %d, want 50", n)
+	}
+	if !findEvent(evs, EvError, "iteration limit (50) reached") {
+		t.Error("no iteration limit (50) error")
+	}
+}
+
+func TestSubagentIterationLimit(t *testing.T) {
+	const task = "SUBTASK-LOOP"
+	var subReqs atomic.Int64
+	srv := providertest.NewFunc(func(n int, req providertest.Request) fakeResp {
+		if firstUser(req) == task {
+			subReqs.Add(1)
+			return fakeResp{ToolCalls: []fakeCall{{ID: fmt.Sprintf("g%d", n), Name: "glob", Arguments: `{"pattern":"*.none"}`}}}
+		}
+		return spawnWaitMain(task, req)
+	})
+	defer srv.Close()
+	s := newSubSession(t, srv, "")
+	s.SetMode(ModeAuto)
+	evs := submitAndWait(t, s, mainPrompt)
+	if n := subReqs.Load(); n != MaxSubagentIterations || MaxSubagentIterations != 500 {
+		t.Fatalf("subagent requests = %d, want 500", n)
+	}
+	subs := s.Subagents()
+	if len(subs) != 1 || subs[0].Err != "iteration limit (500) reached" {
+		t.Fatalf("subagents = %+v", subs)
+	}
+	waits := toolResults(evs, "wait_agent")
+	if len(waits) != 1 || !strings.Contains(waits[0].Text, "iteration limit (500) reached") {
+		t.Errorf("wait_agent results = %+v", waits)
+	}
+	for _, ev := range evs {
+		if ev.Kind == EvError && ev.AgentID == MainAgentID {
+			t.Errorf("main turn failed: %s", ev.Text)
+		}
+	}
+	h := s.History()
+	if last := h[len(h)-1]; last.Role != "assistant" || last.Content != "main done" {
 		t.Errorf("last message %+v", last)
 	}
 }

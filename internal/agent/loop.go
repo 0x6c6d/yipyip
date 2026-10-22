@@ -12,15 +12,31 @@ import (
 	"yipyip/internal/tools"
 )
 
-// MaxIterations bounds the model calls of one turn.
+// MaxIterations bounds the model calls of one main-agent turn.
 const MaxIterations = 50
+
+// MaxSubagentIterations bounds the model calls of one subagent run (one
+// spawn_agent task).
+const MaxSubagentIterations = 500
 
 // CancelledMessage is the tool result recorded for a tool call that was
 // interrupted by a cancel, and the info message of a cancelled turn.
 const CancelledMessage = "cancelled"
 
-// errIterationLimit ends a turn whose model keeps requesting tools.
-var errIterationLimit = fmt.Errorf("iteration limit (%d) reached", MaxIterations)
+// iterationLimit returns the number of model calls one run of agentID may
+// make: MaxIterations for the main agent, MaxSubagentIterations for subagents.
+func iterationLimit(agentID string) int {
+	if agentID == MainAgentID {
+		return MaxIterations
+	}
+	return MaxSubagentIterations
+}
+
+// errIterationLimit ends a run whose model keeps requesting tools; it names
+// the limit used.
+func errIterationLimit(limit int) error {
+	return fmt.Errorf("iteration limit (%d) reached", limit)
+}
 
 // toolSet is the set of tools offered to one agent loop: the definitions sent
 // to the model and the function that runs a call. Subagents get a restricted
@@ -180,7 +196,8 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 }
 
 // runLoop runs the agent loop for agentID on hist with the tools of ts: up to
-// MaxIterations model calls, executing the requested tools in between. It
+// iterationLimit(agentID) model calls (MaxIterations for the main agent,
+// MaxSubagentIterations for a subagent), executing the requested tools in between. It
 // returns the extended history (always valid for a next request: every tool
 // call has a result), the final answer text and an error (ctx.Err() when
 // cancelled). gen is the session generation the token counts belong to.
@@ -195,7 +212,8 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 	if err != nil {
 		return out, "", err
 	}
-	for i := 0; i < MaxIterations; i++ {
+	limit := iterationLimit(agentID)
+	for i := 0; i < limit; i++ {
 		if err := ctx.Err(); err != nil {
 			return out, "", err
 		}
@@ -269,7 +287,7 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 			}
 		}
 	}
-	return out, "", errIterationLimit
+	return out, "", errIterationLimit(limit)
 }
 
 // streamReply sends req and collects the reply, emitting text deltas. It
