@@ -1,5 +1,7 @@
 // Package provider talks to OpenAI-compatible chat APIs. All of yipyip's
-// outgoing HTTP goes through the host-allowlist Transport defined here.
+// outgoing HTTP goes through the host-allowlist Transport defined here: the
+// provider/jev client (NewHTTPClient) and the separate search-only client
+// (NewSearchHTTPClient), whose allowlists never share the search host.
 package provider
 
 import (
@@ -162,6 +164,10 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.inner.RoundTrip(req)
 }
 
+// SearchTimeout is the overall timeout of the search client: search
+// responses are small and never stream.
+const SearchTimeout = 20 * time.Second
+
 // NewHTTPClient returns a client that uses a Transport for baseURLs and
 // checks every redirect target against the same allowlist (at most 10
 // redirects). It has no overall timeout because responses stream.
@@ -170,6 +176,32 @@ func NewHTTPClient(baseURLs []string) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newAllowlistClient(t), nil
+}
+
+// NewSearchHTTPClient returns a client for the web search service only: its
+// Transport allows exactly the canonical host:port of baseURL, redirects are
+// checked against that single host (at most 10), and every request is bounded
+// by SearchTimeout. The search host is never added to the provider/jev
+// client. An empty or invalid baseURL yields an error that does not contain
+// the URL.
+func NewSearchHTTPClient(baseURL string) (*http.Client, error) {
+	if baseURL == "" {
+		return nil, errors.New("search: missing base URL")
+	}
+	t, err := NewTransport([]string{baseURL})
+	if err != nil {
+		// NewTransport's error may quote the URL; never pass it on.
+		return nil, errors.New("search: invalid base URL")
+	}
+	c := newAllowlistClient(t)
+	c.Timeout = SearchTimeout
+	return c, nil
+}
+
+// newAllowlistClient wraps t in a client whose CheckRedirect refuses
+// redirects to hosts outside t's allowlist and stops after maxRedirects.
+func newAllowlistClient(t *Transport) *http.Client {
 	return &http.Client{
 		Transport: t,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -181,5 +213,5 @@ func NewHTTPClient(baseURLs []string) (*http.Client, error) {
 			}
 			return nil
 		},
-	}, nil
+	}
 }
