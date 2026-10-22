@@ -56,7 +56,7 @@ func TestHelpMentionsShiftEnter(t *testing.T) {
 
 func TestHelpListsNewCommands(t *testing.T) {
 	text := HelpText()
-	for _, want := range []string{"/sessions", "Ctrl+T", "Ctrl+W", "Alt+1", "Shift+Enter"} {
+	for _, want := range []string{"/sessions", "Ctrl+T", "Ctrl+W", "Shift+Enter"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("HelpText() does not contain %q", want)
 		}

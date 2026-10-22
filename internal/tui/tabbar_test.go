@@ -36,11 +36,6 @@ func namedKey(name string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)}
 }
 
-// altDigit is Alt+<n>.
-func altDigit(n int) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune('0' + n)}, Alt: true}
-}
-
 func countInfo(m Model, text string) int {
 	n := 0
 	for _, b := range m.blocks {
@@ -157,46 +152,47 @@ func TestCtrlWLastTabExitsLikeExit(t *testing.T) {
 	}
 }
 
-func TestTabCycleKeys(t *testing.T) {
+func TestTabKeys(t *testing.T) {
 	m, _ := newSessionModel(t, nil)
 	mustAddTab(t, &m)
 	mustAddTab(t, &m)
-	steps := []struct {
-		key  string
-		want int
-	}{
-		{"ctrl+tab", 0}, {"ctrl+tab", 1}, {"ctrl+tab", 2},
-		{keyCycleBack, 1}, {keyCycleBack, 0}, {keyCycleBack, 2},
-	}
-	for _, s := range steps {
-		m, _ = sendKey(m, namedKey(s.key))
-		if m.cur != s.want {
-			t.Fatalf("%s: cur = %d, want %d", s.key, m.cur, s.want)
+	m.switchTab(1)
+	m.input.SetValue("abc")
+	blocks := len(m.blocks)
+	for _, k := range []tea.KeyMsg{
+		namedKey("ctrl+tab"), namedKey("ctrl+shift+tab"),
+		{Type: tea.KeyRunes, Runes: []rune{'1'}, Alt: true},
+		{Type: tea.KeyRunes, Runes: []rune{'3'}, Alt: true},
+	} {
+		m, _ = sendKey(m, k)
+		if m.cur != 1 || len(m.tabs) != 3 || m.input.Value() != "abc" || len(m.blocks) != blocks {
+			t.Fatalf("%q: cur = %d, tabs = %d, input = %q, blocks = %d (was %d)",
+				k.String(), m.cur, len(m.tabs), m.input.Value(), len(m.blocks), blocks)
 		}
 	}
+	m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if len(m.tabs) != 4 || m.cur != 3 {
+		t.Fatalf("Ctrl+T: tabs = %d, cur = %d, want 4 and 3", len(m.tabs), m.cur)
+	}
+	m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})
 	if len(m.tabs) != 3 {
-		t.Errorf("tabs = %d, want 3", len(m.tabs))
+		t.Fatalf("Ctrl+W: tabs = %d, want 3", len(m.tabs))
 	}
-}
-
-func TestAltDigitJumps(t *testing.T) {
-	m, _ := newSessionModel(t, nil)
-	mustAddTab(t, &m)
-	before := len(m.blocks)
-	m, _ = sendKey(m, altDigit(3))
-	if m.cur != 1 || len(m.blocks) != before || len(m.tabs) != 2 {
-		t.Fatalf("Alt+3 on 2 tabs: cur = %d, blocks %d (was %d), tabs %d", m.cur, len(m.blocks), before, len(m.tabs))
+	before := m.sess.Mode()
+	m, _ = sendKey(m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.sess.Mode() == before {
+		t.Errorf("Shift+Tab left the mode at %s", before)
 	}
-	m, _ = sendKey(m, altDigit(1))
-	if m.cur != 0 {
-		t.Fatalf("Alt+1: cur = %d, want 0", m.cur)
+	help := HelpText()
+	for _, want := range []string{"Ctrl+T", "Ctrl+W"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help lacks %q", want)
+		}
 	}
-	m, _ = sendKey(m, altDigit(2))
-	if m.cur != 1 {
-		t.Fatalf("Alt+2: cur = %d, want 1", m.cur)
-	}
-	if v := plainView(m); strings.Contains(v, "error") {
-		t.Errorf("view shows an error:\n%s", v)
+	for _, bad := range []string{"Ctrl+Tab", "Alt+1"} {
+		if strings.Contains(help, bad) {
+			t.Errorf("help still lists %q", bad)
+		}
 	}
 }
 

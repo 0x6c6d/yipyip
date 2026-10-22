@@ -42,8 +42,7 @@ var keys = []struct{ Key, Help string }{
 	{"Mouse drag", "select text; releasing copies it to the clipboard"},
 	{"Ctrl+T", "new tab (up to 8)"},
 	{"Ctrl+W", "close the tab (saves it first)"},
-	{"Ctrl+Tab/Ctrl+Shift+Tab", "next/previous tab"},
-	{"Alt+1..Alt+8", "switch to tab 1..8"},
+	{"Click tab / × / +", "switch tab / close it / new tab"},
 }
 
 // Commands returns the slash commands in display order.

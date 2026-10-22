@@ -306,6 +306,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return nm, nil
 		}
 		ks := msg.(tea.KeyMsg).String()
+		if ignoredTabKey(ks) {
+			return m, nil
+		}
 		switch ks {
 		case "ctrl+c":
 			return m.ctrlC()
@@ -353,15 +356,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openTab()
 		case "ctrl+w":
 			return m.closeTab()
-		case "ctrl+tab":
-			m.switchTab((m.cur + 1) % len(m.tabs))
-			return m, nil
-		case keyCycleBack:
-			m.switchTab((m.cur - 1 + len(m.tabs)) % len(m.tabs))
-			return m, nil
-		case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5", "alt+6", "alt+7", "alt+8":
-			m.switchTab(int(ks[len("alt+")] - '1'))
-			return m, nil
 		case "tab":
 			// On a command name the v1 completion (longest common prefix)
 			// wins; arguments are completed from the ghost text.
