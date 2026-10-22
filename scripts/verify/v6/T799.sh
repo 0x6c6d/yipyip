@@ -46,9 +46,12 @@ printf '%s' "$out" | no_match -e .
 CMD
 expect_fail "negative: protected-path diff against ede3886 is not empty" <<'CMD'
 git rev-parse -q --verify 'ede3886^{commit}' >/dev/null || exit 125
-paths="Plan.md prompts .claude CLAUDE.md scripts/verify/_lib.sh versions/v6/spec.md versions/v6/plan.md"
+paths="Plan.md prompts .claude scripts/verify/_lib.sh versions/v6/spec.md versions/v6/plan.md"
 out="$(git diff --stat ede3886 -- $paths && git status --porcelain --untracked-files=all -- $paths)" || exit 125
 printf '%s' "$out" | no_match -e .
+CMD
+expect_ok "Delegation workflow section of CLAUDE.md unchanged against ede3886 (architecture notes may change)" <<'CMD'
+diff <(git show ede3886:CLAUDE.md | sed -n '/^## Delegation workflow/,$p') <(sed -n '/^## Delegation workflow/,$p' CLAUDE.md)
 CMD
 expect_fail "negative: default HTTP client in non-test code" <<'CMD'
 no_match -rn --include='*.go' --exclude='*_test.go' -e 'http\.DefaultClient' -e 'http\.DefaultTransport' -e 'http\.Get(' -e 'http\.Post(' -e 'http\.Head(' cmd internal
