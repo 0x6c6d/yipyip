@@ -37,7 +37,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T303 | 3 | System prompt read/write rule and web_search; undo stays inside | T202, T301 | sonnet | done | prompt.go read/write rule + web_search line, undo journal inside only; 3 tests |
 | T401 | 4 | Docs: docs/usage.md for search and reads | T104, T202, T204, T302, T303 | haiku | done | docs/usage.md: search block, Web search section, Security read/write rules (+ supervisor fix: API key line) |
 | T402 | 4 | README sections 1-9: R3, R4, R7 and related lines (supervisor edit) | T102, T202, T302, T401 | supervisor | done | README: 7 lines (overview, R3, R4, R7, Network, Security, §8 R3), T402.sh 12/12 |
-| T799 | 4 | Global Definition of Done | all | supervisor | todo | |
+| T799 | 4 | Global Definition of Done | all | supervisor | done | DoD T799.sh 18/18; CLAUDE.md architecture notes updated by supervisor |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
