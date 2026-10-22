@@ -207,6 +207,7 @@ func New(opts Options) Model {
 	case opts.ResumePick:
 		m.openResumePicker()
 	}
+	m.addSkillWarnings()
 	return m
 }
 
