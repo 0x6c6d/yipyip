@@ -251,3 +251,17 @@ func (m Model) closeTab() (Model, tea.Cmd) {
 	m.load(max(i-1, 0))
 	return m, nil
 }
+
+// openTab adds a tab for Ctrl+T and the "+" click; at the limit it adds the
+// limit line instead.
+func (m Model) openTab() (Model, tea.Cmd) {
+	if err := m.addTab(); err != nil {
+		if errors.Is(err, errTabLimit) {
+			m.add(blockInfo, tabLimitMsg)
+		} else {
+			m.add(blockError, "error: "+err.Error())
+		}
+		return m, nil
+	}
+	return m, m.waitEvent()
+}

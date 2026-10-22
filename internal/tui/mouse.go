@@ -63,6 +63,13 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if msg.Y == 0 { // the tab bar: only a left press does anything
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			return m.tabClick(msg.X)
+		}
+		return m, nil
+	}
+
 	if msg.Action == tea.MouseActionPress {
 		m.inSel = selection{}
 		if msg.Button == tea.MouseButtonLeft {

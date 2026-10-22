@@ -350,15 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveSettingsIfChanged(prev)
 			return m, nil
 		case "ctrl+t":
-			if err := m.addTab(); err != nil {
-				if errors.Is(err, errTabLimit) {
-					m.add(blockInfo, tabLimitMsg)
-				} else {
-					m.add(blockError, "error: "+err.Error())
-				}
-				return m, nil
-			}
-			return m, m.waitEvent()
+			return m.openTab()
 		case "ctrl+w":
 			return m.closeTab()
 		case "ctrl+tab":
