@@ -144,6 +144,40 @@ func (s *Session) routeTurn(ctx context.Context, user string) string {
 	return id
 }
 
+// riskQuestion is the jev noul question of the auto-mode risk screen.
+var riskQuestion = provider.JevQuestion{
+	Name:         "risk",
+	Type:         provider.JevNoul,
+	Instructions: "Is this tool call risky: destructive, irreversible, leaking secrets or acting outside the project?",
+}
+
+// jevRisk is the session's risk screen (see Gate.SetRiskScreen): it asks jev
+// whether an auto-mode call of tool with args is risky and reports true for a
+// probability >= 0.5, which only routes the call into the approval prompt.
+// It is false at once while jev is off and on a failed or timed out answer
+// (counted as a fallback). When ctx is done it reports true without counting,
+// so the call meets the prompt, which fails closed. It never approves a call
+// and never touches mode, "always" or the gate.
+func (s *Session) jevRisk(ctx context.Context, tool, args string) bool {
+	if !s.JevOn() {
+		return false
+	}
+	ans, err := s.askJev(ctx, "tool: "+tool+"\nargs: "+args, []provider.JevQuestion{riskQuestion})
+	if ctx.Err() != nil {
+		return true
+	}
+	if err != nil || len(ans) != 1 {
+		s.noteJev(false)
+		return false
+	}
+	s.noteJev(true)
+	if ans[0].Noul < 0.5 {
+		return false
+	}
+	s.emit(Event{Kind: EvInfo, AgentID: MainAgentID, Text: "jev: risky " + tool + " call, asking for approval"})
+	return true
+}
+
 // TurnModel returns the model id jev routed the running or last turn to, ""
 // when that turn was not routed.
 func (s *Session) TurnModel() string {
