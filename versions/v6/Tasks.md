@@ -30,7 +30,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T104 | 1 | web_search tool and registry name rule | T103 | opus | done | tools/websearch.go + Options.Search, name rule exact web_search; 12 tests |
 | T201 | 2 | Approval: web_search in the gated set (approval.go) | T000 | opus | done | approval.go: web_search in gatedTools (+2 lines); 6 gate tests |
 | T202 | 2 | Session wiring of web_search, agent gate and Secret tests | T104, T201 | opus | done | session.go: search client wired to tools.Options.Search; 7 tests |
-| T203 | 2 | e2e: web_search Secret tests | T202 | opus | todo | |
+| T203 | 2 | e2e: web_search Secret tests | T202 | opus | done | e2e/websearch_secret_test.go: 2 Secret tests, BRAVE_API_KEY in getenv stub |
 | T204 | 2 | TUI: approval summary shows the query, /help line | T000 | sonnet | todo | |
 | T301 | 3 | PathGuard read mode ResolveRead (pathguard.go) | T000 | opus | todo | |
 | T302 | 3 | read_file, glob, grep read anywhere; writes stay confined | T301 | sonnet | todo | |

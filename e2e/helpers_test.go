@@ -73,6 +73,9 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 		if k == "TYPESAFE_API_KEY" {
 			return "JEVKEY-E2E"
 		}
+		if k == "BRAVE_API_KEY" {
+			return "BRAVEKEY-E2E"
+		}
 		return ""
 	})
 	if err != nil {
