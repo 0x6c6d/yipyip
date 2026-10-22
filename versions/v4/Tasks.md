@@ -30,7 +30,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T203 | 2 | /skills command and / suggestions | T202 | opus | done | tui/skills.go (cmdSkills, skillCompletions, completionLine), skills_cmd_test.go, help.go, input.go, commands.go; /skills registered in init() to avoid a Go init cycle; descriptions via m.redact; verify 10/10 |
 | T204 | 2 | e2e TestSkillE2E | T203 | sonnet | done | e2e/skills_test.go TestSkillE2E, helpers_test.go passes Home; no production change needed; verify 8/8 |
 | T301 | 3 | Jev config block (defaults, route validation) | T000 | opus | done | config/jev.go (Jev, JevRoute, defaults, fillJev), config.go (Jev field + fill hook), jev_test.go; errors name JSON paths only; verify 9/9 |
-| T302 | 3 | Fake System One endpoint in providertest | T000 | sonnet | todo | |
+| T302 | 3 | Fake System One endpoint in providertest | T000 | sonnet | done | providertest/jev.go (NewJev, JevRequest/Response, answer helpers), jev_test.go; stdlib only; verify 8/8 |
 | T303 | 3 | Jev client (internal/provider/jev.go) | T302 | opus | todo | |
 | T304 | 3 | Jev host in the allowlist; session jev client | T301, T303 | opus | todo | |
 | T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | todo | |
