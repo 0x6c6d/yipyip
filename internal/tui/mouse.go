@@ -63,12 +63,20 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		if row, col, ok := m.inputCellAt(msg.X, msg.Y, false); ok {
-			m.sel = selection{}
-			m.inputClick(row, col)
-			return m, nil
+	if msg.Action == tea.MouseActionPress {
+		m.inSel = selection{}
+		if msg.Button == tea.MouseButtonLeft {
+			if row, col, ok := m.inputCellAt(msg.X, msg.Y, false); ok {
+				m.sel = selection{}
+				m.inputClick(row, col)
+				c := cell{line: row, col: col}
+				m.inSel = selection{active: true, start: c, end: c}
+				return m, nil
+			}
 		}
+	}
+	if m.inSel.active {
+		return m.inputMouse(msg)
 	}
 
 	msg.Y -= tabBarRows // the tab bar is the top screen row
@@ -102,16 +110,23 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if c, ok := m.cellAt(msg.X, msg.Y, true); ok {
 			sel.end = c
 		}
-		text := m.selectedText(sel)
-		if text == "" {
-			return m, nil
-		}
-		_ = m.clip(text)
-		m.notice = fmt.Sprintf("%d characters copied", utf8.RuneCountInString(text))
-		m.noticeUntil = m.now().Add(noticeDuration)
-		return m, tea.Tick(noticeDuration, func(time.Time) tea.Msg { return noticeMsg{} })
+		return m.copyText(m.selectedText(sel))
 	}
 	return m, nil
+}
+
+// copyText redacts text, writes it to the clipboard and shows the copy
+// notice. Both selections copy through it, so only redacted text ever
+// reaches m.clip. Empty text copies nothing.
+func (m Model) copyText(text string) (tea.Model, tea.Cmd) {
+	text = m.redact(text)
+	if text == "" {
+		return m, nil
+	}
+	_ = m.clip(text)
+	m.notice = fmt.Sprintf("%d characters copied", utf8.RuneCountInString(text))
+	m.noticeUntil = m.now().Add(noticeDuration)
+	return m, tea.Tick(noticeDuration, func(time.Time) tea.Msg { return noticeMsg{} })
 }
 
 // viewRows maps each row of the viewport area, as View() shows it after the

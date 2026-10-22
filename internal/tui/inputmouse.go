@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
@@ -112,4 +113,91 @@ func (m *Model) inputClick(row, col int) {
 		m.input.CursorUp()
 	}
 	m.input.SetCursor(rows[row].start + col)
+}
+
+// inputMouse handles motion and release while a drag over the input is in
+// progress: motion extends the selection (clamped to the input rows), the
+// release copies the selected text like the conversation copy-on-select.
+func (m Model) inputMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Action {
+	case tea.MouseActionMotion:
+		if msg.Button != tea.MouseButtonLeft {
+			return m, nil
+		}
+		if row, col, ok := m.inputCellAt(msg.X, msg.Y, true); ok {
+			m.inSel.end = cell{line: row, col: col}
+			m.inSel.moved = true
+		}
+	case tea.MouseActionRelease:
+		sel := m.inSel
+		m.inSel = selection{}
+		if !sel.moved {
+			return m, nil // a click only moves the cursor
+		}
+		if row, col, ok := m.inputCellAt(msg.X, msg.Y, true); ok {
+			sel.end = cell{line: row, col: col}
+		}
+		return m.copyText(m.inputSelectedText(sel))
+	}
+	return m, nil
+}
+
+// inputSpanOf returns the rune columns [a, b) of visual row i (of rows) that
+// the input selection from s to e covers.
+func inputSpanOf(rows []inputRow, i int, s, e cell) (int, int) {
+	a, b := 0, len(rows[i].text)
+	if i == s.line {
+		a = min(s.col, b)
+	}
+	if i == e.line {
+		b = min(b, e.col+1)
+	}
+	return a, max(a, b)
+}
+
+// inputSelectedText returns the plain text of an input selection: the
+// selected visual rows as the input shows them, trailing spaces trimmed per
+// row. It is not redacted yet; copyText does that.
+func (m Model) inputSelectedText(sel selection) string {
+	rows, _ := m.inputVisualRows()
+	s, e := sel.ordered()
+	if s.line >= len(rows) {
+		return ""
+	}
+	e.line = min(e.line, len(rows)-1)
+	out := make([]string, 0, e.line-s.line+1)
+	for i := s.line; i <= e.line; i++ {
+		a, b := inputSpanOf(rows, i, s, e)
+		out = append(out, strings.TrimRight(ansi.Strip(string(rows[i].text[a:b])), " "))
+	}
+	return strings.Join(out, "\n")
+}
+
+// inputView renders the input, with the selected cells in reverse video
+// while a drag over it is in progress. The input text is not changed.
+func (m Model) inputView() string {
+	view := m.input.View()
+	if !m.inSel.active || !m.inSel.moved {
+		return view
+	}
+	rows, cur := m.inputVisualRows()
+	top := m.inputTop(rows, cur)
+	s, e := m.inSel.ordered()
+	lines := strings.Split(view, "\n")
+	for y := range lines {
+		i := top + y
+		if i < s.line || i > e.line || i >= len(rows) {
+			continue
+		}
+		a, b := inputSpanOf(rows, i, s, e)
+		if b <= a {
+			continue
+		}
+		text := rows[i].text
+		wa, wb := runewidth.StringWidth(string(text[:a])), runewidth.StringWidth(string(text[:b]))
+		l := lines[y]
+		lines[y] = ansi.Cut(l, 0, wa) + "\x1b[0m\x1b[7m" + ansi.Strip(ansi.Cut(l, wa, wb)) +
+			"\x1b[0m" + ansi.Cut(l, wb, ansi.StringWidth(l))
+	}
+	return strings.Join(lines, "\n")
 }

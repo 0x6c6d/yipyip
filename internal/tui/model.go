@@ -154,6 +154,7 @@ type Model struct {
 
 	lines       []string  // rendered (redacted) conversation lines, as given to the viewport
 	sel         selection // left-button drag over the conversation
+	inSel       selection // left-button drag over the input (cells: visual row, rune column)
 	notice      string    // copy notice, shown until noticeUntil
 	noticeUntil time.Time
 }
@@ -659,7 +660,7 @@ func (m *Model) resize(w, h int) {
 func (m Model) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Render(m.withGhost(m.input.View()))
+		Render(m.withGhost(m.inputView()))
 	vp := m.overlays(m.viewportView())
 	row1, row2 := m.StatusRows()
 	return lipgloss.JoinVertical(lipgloss.Left, m.tabBar(), vp, box, row1, row2)

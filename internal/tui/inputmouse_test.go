@@ -1,9 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/termenv"
+
+	"yipyip/internal/provider/providertest"
 )
 
 func TestInputClick(t *testing.T) {
@@ -50,4 +54,92 @@ func TestInputClick(t *testing.T) {
 			t.Fatalf("clipboard written: %q", clip.texts)
 		}
 	})
+}
+
+func TestInputSelect(t *testing.T) {
+	m, clip, _ := newCopyModel(t, "alpha beta")
+	m.input.SetValue("hello world")
+	x, y := findCell(t, m, "hello world")
+	m, cmd := drag(m, x, y, x+len("hello world")-1, y)
+	if len(clip.texts) != 1 || clip.texts[0] != "hello world" {
+		t.Fatalf("clipboard got %q, want [\"hello world\"]", clip.texts)
+	}
+	if cmd == nil {
+		t.Fatal("release returned no notice tick command")
+	}
+	if !strings.Contains(plainView(m), "11 characters copied") {
+		t.Fatalf("no notice in view:\n%s", plainView(m))
+	}
+	if m.input.Value() != "hello world" {
+		t.Fatalf("drag changed the input to %q", m.input.Value())
+	}
+
+	// The second row of a 2-line input only, dragged past its end.
+	m.input.SetValue("first row\nsecond row")
+	top := tabBarRows + m.viewport.Height + 1
+	m, _ = drag(m, 1, top+1, 1+40, top+1)
+	if len(clip.texts) != 2 || clip.texts[1] != "second row" {
+		t.Fatalf("second row drag got %q", clip.texts)
+	}
+
+	// A press and release at the same cell copies nothing.
+	m = upd(m, leftMouse(3, top, tea.MouseActionPress))
+	nm, cmd := m.Update(leftMouse(3, top, tea.MouseActionRelease))
+	m = nm.(Model)
+	if len(clip.texts) != 2 || cmd != nil {
+		t.Fatalf("a click copied %q", clip.texts)
+	}
+	if m.inSel.active {
+		t.Fatal("input selection not cleared after release")
+	}
+}
+
+func TestInputSelectHighlight(t *testing.T) {
+	withColorProfile(t, termenv.TrueColor)
+	m, clip, _ := newCopyModel(t)
+	m.input.SetValue("hello world")
+	x, y := findCell(t, m, "hello world")
+	m = upd(m, leftMouse(x, y, tea.MouseActionPress))
+	m = upd(m, leftMouse(x+4, y, tea.MouseActionMotion))
+	rows := strings.Split(m.View(), "\n")
+	if !strings.Contains(rows[y], "\x1b[7mhello") {
+		t.Fatalf("no reverse video on the input row while dragging:\n%q", rows[y])
+	}
+	if !strings.Contains(plainView(m), "hello world") {
+		t.Fatalf("highlight changed the text:\n%s", plainView(m))
+	}
+	m = upd(m, leftMouse(x+4, y, tea.MouseActionRelease))
+	// The textarea cursor is reverse video too; the selection is not.
+	if rows := strings.Split(m.View(), "\n"); strings.Contains(rows[y], "\x1b[7mhello") {
+		t.Fatalf("reverse video still shown after release:\n%q", rows[y])
+	}
+	if len(clip.texts) != 1 || clip.texts[0] != "hello" {
+		t.Fatalf("clipboard got %q", clip.texts)
+	}
+}
+
+func TestInputSelectSecretNeverCopied(t *testing.T) {
+	srv := providertest.New(providertest.Response{Text: "ok"})
+	defer srv.Close()
+	m, _ := newSessionModel(t, srv)
+	m = upd(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	clip := &fakeClip{}
+	m.clip = clip.write
+	m.input.SetValue("key SECRET123 end")
+
+	x, y := findCell(t, m, "key ")
+	m, _ = drag(m, x, y, 1000, y)
+	if len(clip.texts) != 1 {
+		t.Fatalf("clipboard got %q", clip.texts)
+	}
+	got := clip.texts[0]
+	if strings.Contains(got, "SECRET123") {
+		t.Fatalf("the secret reached the clipboard: %q", got)
+	}
+	if got != "key [redacted] end" {
+		t.Fatalf("unexpected copied text %q", got)
+	}
+	if !strings.Contains(plainView(m), "18 characters copied") {
+		t.Fatalf("notice does not count the redacted text:\n%s", plainView(m))
+	}
 }
