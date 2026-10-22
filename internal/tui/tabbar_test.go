@@ -52,14 +52,14 @@ func TestTabBarRendersSegments(t *testing.T) {
 	m = tabTurn(t, m, "first question")
 	mustAddTab(t, &m)
 
-	if got, want := tabBarLine(m), "1:first question × 2:new session × +"; got != want {
+	if got, want := tabBarLine(m), "1:first question   × 2:new session      × +"; got != want {
 		t.Fatalf("tab bar = %q, want %q", got, want)
 	}
 	first, _, _ := strings.Cut(m.View(), "\n")
-	if want := "\x1b[38;5;244m1:first question ×\x1b[0m"; !strings.Contains(first, want) {
+	if want := "\x1b[38;5;244m1:first question   ×\x1b[0m"; !strings.Contains(first, want) {
 		t.Errorf("first segment not dim: %q", first)
 	}
-	if want := "\x1b[1m2:new session ×\x1b[0m"; !strings.Contains(first, want) {
+	if want := "\x1b[1m2:new session      ×\x1b[0m"; !strings.Contains(first, want) {
 		t.Errorf("current segment not bold: %q", first)
 	}
 	if strings.Contains(first, "\x1b[1m1:") || strings.Contains(first, "244m2:") {
@@ -102,7 +102,7 @@ func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
 	mustAddTab(t, &m)
 	mustAddTab(t, &m)
 	m = tabTurn(t, m, "closing question")
-	if got, want := tabBarLine(m), "1:new session × 2:new session × 3:closing question × +"; got != want {
+	if got, want := tabBarLine(m), "1:new session      × 2:new session      × 3:closing question × +"; got != want {
 		t.Fatalf("tab bar = %q, want %q", got, want)
 	}
 	if n := len(sessionFiles(t, sess.StartDir())); n != 0 {
@@ -120,7 +120,7 @@ func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
 		t.Fatalf("tabs = %d, cur = %d, want 2 and 1 (left neighbour)", len(m.tabs), m.cur)
 	}
 	got := tabBarLine(m)
-	if got != "1:new session × 2:new session × +" || strings.Contains(got, "closing question") {
+	if got != "1:new session      × 2:new session      × +" || strings.Contains(got, "closing question") {
 		t.Fatalf("tab bar after close = %q", got)
 	}
 
@@ -220,7 +220,7 @@ func TestTabKeyStillCompletes(t *testing.T) {
 // the window's lines.
 func TestTabBarNotShownWithOneFreshTab(t *testing.T) {
 	m, _ := newSessionModel(t, nil)
-	if got, want := tabBarLine(m), "1:new session × +"; got != want {
+	if got, want := tabBarLine(m), "1:new session      × +"; got != want {
 		t.Fatalf("tab bar = %q, want %q", got, want)
 	}
 	if h := lipgloss.Height(m.View()); h != 40 {

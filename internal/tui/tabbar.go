@@ -45,6 +45,19 @@ func (m *Model) tabTitle(i int) string {
 // fit the bar.
 const minTabTitleCells = 8
 
+// fixedTabTitleCells is the title width of every tab: titles are cut to it or
+// padded with spaces up to it, so all tabs have the same length.
+const fixedTabTitleCells = 16
+
+// fitCells cuts s to n display cells or right-pads it with spaces to n.
+func fitCells(s string, n int) string {
+	s = cutCells(s, n)
+	if w := ansi.StringWidth(s); w < n {
+		s += strings.Repeat(" ", n-w)
+	}
+	return s
+}
+
 // tabZoneKind says what a click on a tabZone does.
 type tabZoneKind int
 
@@ -110,7 +123,7 @@ func (m Model) tabBar() string {
 }
 
 // tabBarLayout is the only place the tab bar is laid out: one
-// "<N>:<title> ×" segment per tab (the current one bold, the others dim),
+// "<N>:<title> ×" segment per tab (title cut or padded to fixedTabTitleCells) (the current one bold, the others dim),
 // separated by one space, then " +" below maxTabs tabs. The line never
 // exceeds the window width: titles are shortened to a common budget, then
 // segments left and right of the current tab collapse to "…", then the "+"
@@ -118,22 +131,20 @@ func (m Model) tabBar() string {
 // columns of the line, in order.
 func (m Model) tabBarLayout() (line string, zones []tabZone) {
 	titles := make([]string, len(m.tabs))
-	maxTitle := 0
 	for i := range m.tabs {
 		titles[i] = m.tabTitle(i)
-		maxTitle = max(maxTitle, ansi.StringWidth(titles[i]))
 	}
 	segs := func(budget int) []barSeg {
 		out := make([]barSeg, len(titles))
 		for i, t := range titles {
-			out[i] = barSeg{label: strconv.Itoa(i+1) + ":" + cutCells(t, budget), close: true}
+			out[i] = barSeg{label: strconv.Itoa(i+1) + ":" + fitCells(t, budget), close: true}
 		}
 		return out
 	}
 	plus := len(m.tabs) < maxTabs
-	cur := segs(maxTitle)
+	cur := segs(fixedTabTitleCells)
 	if m.width > 0 && barWidth(cur, plus) > m.width {
-		for b := maxTitle - 1; b >= minTabTitleCells; b-- {
+		for b := fixedTabTitleCells - 1; b >= minTabTitleCells; b-- {
 			cur = segs(b)
 			if barWidth(cur, plus) <= m.width {
 				break

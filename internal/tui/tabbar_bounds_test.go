@@ -106,3 +106,58 @@ func TestTabBarZones(t *testing.T) {
 		}
 	}
 }
+
+func TestTabBarFixedWidth(t *testing.T) {
+	m, _ := newSessionModel(t, answerServer(t, "ok"))
+	m = tabTurn(t, m, "hi")
+	mustAddTab(t, &m)
+	m = tabTurn(t, m, strings.Repeat("long ", 20))
+	mustAddTab(t, &m)
+	m = tabTurn(t, m, "日本語のとても長いタイトルです日本語")
+	mustAddTab(t, &m) // empty: new session
+	check := func(width int, allowCollapsed bool) {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+		mm := next.(Model)
+		line, zones := mm.tabBarLayout()
+		plain := ansi.Strip(line)
+		if w := ansi.StringWidth(plain); mm.width > 0 && w > mm.width {
+			t.Errorf("width %d: bar is %d cells", width, w)
+		}
+		sw := -1
+		for _, z := range zones {
+			if z.kind != tabZoneSwitch {
+				continue
+			}
+			if allowCollapsed && z.end-z.start == 1 {
+				continue
+			}
+			w := z.end - z.start
+			if sw >= 0 && w != sw {
+				t.Errorf("width %d: label widths differ: %d vs %d in %q", width, w, sw, plain)
+			}
+			sw = w
+		}
+		for _, z := range zones {
+			if z.kind == tabZoneClose {
+				if got := ansi.Cut(plain, z.start, z.end); got != "×" {
+					t.Errorf("width %d: close zone of tab %d is %q", width, z.tab, got)
+				}
+				if z.end-z.start != 1 {
+					t.Errorf("close zone width %d", z.end-z.start)
+				}
+			}
+			if z.kind == tabZonePlus {
+				if got := ansi.Cut(plain, z.start, z.end); got != "+" {
+					t.Errorf("plus zone is %q", got)
+				}
+			}
+		}
+		if !allowCollapsed {
+			if sw != fixedTabTitleCells+2 {
+				t.Errorf("label width %d, want %d", sw, fixedTabTitleCells+2)
+			}
+		}
+	}
+	check(200, false)
+	check(50, true)
+}
