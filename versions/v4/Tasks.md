@@ -33,7 +33,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T302 | 3 | Fake System One endpoint in providertest | T000 | sonnet | done | providertest/jev.go (NewJev, JevRequest/Response, answer helpers), jev_test.go; stdlib only; verify 8/8 |
 | T303 | 3 | Jev client (internal/provider/jev.go) | T302 | opus | done | provider/jev.go (JevClient.Ask, ErrJev, questions/answers, usage estimate), jev_test.go; uses given http.Client only; errors via redactedError; verify 10/10 |
 | T304 | 3 | Jev host in the allowlist; session jev client | T301, T303 | opus | done | config.AllowedBaseURLs, agent NewSession uses it + Session.JevClient() (nil without jev/key); transport.go untouched; verify 10/10 |
-| T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | todo | |
+| T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | done | agent/jev.go (SetJev, askJev: redact→truncate 2000→Ask under 10s timeout, JevStats, token split in account via accountJev), session.go fields, loop.go hook; split counts subagent requests too; verify 9/9 |
 | T402 | 4 | Jev answers single-choice questions | T401 | opus | todo | |
 | T403 | 4 | Jev turn routing (easy/hard per turn) | T401 | opus | todo | |
 | T404 | 4 | Risk-screen hook in the approval gate | T000 | opus | todo | |

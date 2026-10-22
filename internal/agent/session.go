@@ -69,6 +69,10 @@ type Session struct {
 	gen              uint64        // incremented by Reset so a stale turn can detect it
 	subs             *Manager      // subagents of the current generation
 	journal          []*turnRecord // undo journal, one record per turn (memory only)
+	jevOn            bool          // jev decides for the user; off at start, never persisted, kept by Reset
+	jevStats         JevStats      // memory only, kept by Reset
+	jevTimeout       time.Duration // test seam, see SetJevTimeout; 0 = JevTimeout
+	turnRouted       bool          // the current turn was routed by jev (set by the routing task)
 
 	jmu sync.Mutex // guards the snapshots and bash lists of the journal records
 }

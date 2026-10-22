@@ -363,6 +363,7 @@ func (s *Session) account(gen uint64, agentID string, msgs []provider.Message, t
 	if agentID == MainAgentID {
 		s.lastPromptTokens = in
 	}
+	s.accountJev(calls, total)
 	return total
 }
 
