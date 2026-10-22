@@ -19,6 +19,7 @@ var commands = []CommandInfo{
 	{Name: "/compact", Help: "summarize the conversation"},
 	{Name: "/undo", Help: "undo the last turn's file changes"},
 	{Name: "/sessions", Args: "[id | rm id]", Help: "list, load or remove saved sessions"},
+	{Name: "/skills", Help: "list the loaded skills"},
 	{Name: "/new", Help: "open a fresh session in a new tab"},
 	{Name: "/clear", Help: "alias of /new"},
 	{Name: "/exit", Help: "quit"},

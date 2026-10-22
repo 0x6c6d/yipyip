@@ -144,7 +144,8 @@ func (m *Model) toggleMode() {
 }
 
 // completions returns the command names matching the input while it starts
-// with "/" and has no whitespace; nil otherwise.
+// with "/" and has no whitespace, then the matching non-shadowed skills; nil
+// otherwise.
 func (m Model) completions() []string {
 	v := m.input.Value()
 	if !strings.HasPrefix(v, "/") || strings.IndexFunc(v, unicode.IsSpace) >= 0 {
@@ -156,7 +157,7 @@ func (m Model) completions() []string {
 			out = append(out, c.Name)
 		}
 	}
-	return out
+	return append(out, m.skillCompletions(v)...)
 }
 
 // completeInput applies Tab: the single match, or the longest common prefix.

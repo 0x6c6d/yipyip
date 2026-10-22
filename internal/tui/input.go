@@ -41,6 +41,11 @@ func (m Model) suggestion() (ghost string, accept string) {
 				return c.Name[len(v):], c.Name
 			}
 		}
+		for _, s := range m.skillCompletions(v) {
+			if s != v {
+				return s[len(v):], s
+			}
+		}
 		return "", ""
 	}
 

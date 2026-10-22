@@ -118,7 +118,7 @@ const (
 // Model is the Bubble Tea model of the yipyip UI.
 type Model struct {
 	opts          Options
-	skills        []skills.Skill // loaded once by New, global for all tabs
+	skills        []skills.Skill // loaded by New and re-read by /skills, global for all tabs
 	skillWarnings []string
 	viewport      viewport.Model
 	input         textarea.Model
@@ -681,7 +681,7 @@ func (m Model) overlays(vp string) string {
 		if _, rest, ok := strings.Cut(vp, "\n"); ok {
 			vp = rest
 		}
-		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(strings.Join(matches, " ")))
+		vp = lipgloss.JoinVertical(lipgloss.Left, vp, infoStyle.Render(m.completionLine(matches)))
 	}
 	vp = m.withPanel(vp)
 	vp = m.withThinking(vp)
