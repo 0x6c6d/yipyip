@@ -31,7 +31,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T204 | 2 | e2e TestSkillE2E | T203 | sonnet | done | e2e/skills_test.go TestSkillE2E, helpers_test.go passes Home; no production change needed; verify 8/8 |
 | T301 | 3 | Jev config block (defaults, route validation) | T000 | opus | done | config/jev.go (Jev, JevRoute, defaults, fillJev), config.go (Jev field + fill hook), jev_test.go; errors name JSON paths only; verify 9/9 |
 | T302 | 3 | Fake System One endpoint in providertest | T000 | sonnet | done | providertest/jev.go (NewJev, JevRequest/Response, answer helpers), jev_test.go; stdlib only; verify 8/8 |
-| T303 | 3 | Jev client (internal/provider/jev.go) | T302 | opus | todo | |
+| T303 | 3 | Jev client (internal/provider/jev.go) | T302 | opus | done | provider/jev.go (JevClient.Ask, ErrJev, questions/answers, usage estimate), jev_test.go; uses given http.Client only; errors via redactedError; verify 10/10 |
 | T304 | 3 | Jev host in the allowlist; session jev client | T301, T303 | opus | todo | |
 | T401 | 4 | Jev decider core (toggle, ask, timeout, stats) | T304 | opus | todo | |
 | T402 | 4 | Jev answers single-choice questions | T401 | opus | todo | |
