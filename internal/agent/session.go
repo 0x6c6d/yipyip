@@ -34,7 +34,7 @@ const (
 type Options struct {
 	Config     *config.Config
 	StartDir   string
-	HTTPClient *http.Client // nil -> provider.NewHTTPClient(Config.BaseURLs())
+	HTTPClient *http.Client // nil -> provider.NewHTTPClient(Config.AllowedBaseURLs())
 }
 
 // Tokens are the accumulated token counts of a session.
@@ -46,6 +46,7 @@ type Session struct {
 	cfg      *config.Config
 	startDir string // absolute, symlink-resolved
 	hc       *http.Client
+	jev      *provider.JevClient // nil unless "jev" is configured with an apiKey
 	registry *tools.Registry
 	gate     *Gate
 	events   *eventQueue
@@ -83,7 +84,7 @@ func NewSession(opts Options) (*Session, error) {
 	hc := opts.HTTPClient
 	if hc == nil {
 		var err error
-		hc, err = provider.NewHTTPClient(cfg.BaseURLs())
+		hc, err = provider.NewHTTPClient(cfg.AllowedBaseURLs())
 		if err != nil {
 			// A base URL may contain an {env:} value and URL parse errors
 			// quote the URL.
@@ -98,6 +99,9 @@ func NewSession(opts Options) (*Session, error) {
 		effort:  EffortMedium,
 		mode:    ModeManual,
 		sessID:  newSessionID(),
+	}
+	if j := cfg.Jev; j != nil && j.APIKey != "" {
+		s.jev = provider.NewJevClient(hc, j.BaseURL, j.APIKey, j.Model)
 	}
 	reg, err := tools.NewRegistry(tools.Options{
 		StartDir:    opts.StartDir,
@@ -118,6 +122,10 @@ func NewSession(opts Options) (*Session, error) {
 	s.subs = s.newManager(0)
 	return s, nil
 }
+
+// JevClient returns the session's jev client on the session's HTTP client,
+// or nil when "jev" is not configured or has no apiKey.
+func (s *Session) JevClient() *provider.JevClient { return s.jev }
 
 // ModelID returns the current model id ("" when none is configured).
 func (s *Session) ModelID() string {

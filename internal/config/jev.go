@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -71,6 +73,21 @@ func (c *Config) fillJev(v any) error {
 	}
 	c.Jev = j
 	return nil
+}
+
+// AllowedBaseURLs returns the base URLs the HTTP transport may reach: the
+// provider base URLs plus Jev.BaseURL while "jev" is configured, sorted and
+// unique. Without "jev" it equals BaseURLs.
+func (c *Config) AllowedBaseURLs() []string {
+	out := c.BaseURLs()
+	if c.Jev == nil || c.Jev.BaseURL == "" {
+		return out
+	}
+	i := sort.SearchStrings(out, c.Jev.BaseURL)
+	if i < len(out) && out[i] == c.Jev.BaseURL {
+		return out
+	}
+	return slices.Insert(out, i, c.Jev.BaseURL)
 }
 
 // validJevURL reports whether s is an absolute http(s) URL with a host.

@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -129,4 +130,34 @@ func TestJevConfigInvalid(t *testing.T) {
 	jevReject(t, `{"min_confidence":1.5}`, "jev.min_confidence")
 	jevReject(t, `{"min_confidence":-0.1}`, "jev.min_confidence")
 	jevReject(t, `{"min_confidence":"high"}`, "jev.min_confidence", "high")
+}
+
+func TestJevAllowedBaseURLs(t *testing.T) {
+	cfg, err := loadJev(t, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cfg.AllowedBaseURLs(), cfg.BaseURLs(); !slices.Equal(got, want) || len(got) != 1 {
+		t.Fatalf("without jev: %q, want %q", got, want)
+	}
+
+	cfg, err = loadJev(t, `{"baseURL":"http://127.0.0.1:7"}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.AllowedBaseURLs(); !slices.Equal(got, []string{"http://127.0.0.1:7", "http://127.0.0.1:9/v1"}) {
+		t.Fatalf("with jev: %q", got)
+	}
+	if got := cfg.BaseURLs(); !slices.Equal(got, []string{"http://127.0.0.1:9/v1"}) {
+		t.Fatalf("BaseURLs changed: %q", got)
+	}
+
+	// A jev baseURL equal to a provider base URL is listed once.
+	cfg, err = loadJev(t, `{"baseURL":"http://127.0.0.1:9/v1"}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.AllowedBaseURLs(); !slices.Equal(got, []string{"http://127.0.0.1:9/v1"}) {
+		t.Fatalf("dedup: %q", got)
+	}
 }
