@@ -184,8 +184,8 @@ func TestJevE2E(t *testing.T) {
 
 	e.submit(t, "/jev stats")
 	v := viewText(e.Model)
-	if a := statNum(t, v, "jev answered:"); a < 2 {
-		t.Errorf("jev answered = %d, want >= 2:\n%s", a, v)
+	if a := statNum(t, v, "turns routed easy:") + statNum(t, v, "turns routed medium:") + statNum(t, v, "turns routed hard:"); a < 1 {
+		t.Errorf("turns routed = %d, want >= 1:\n%s", a, v)
 	}
 	if f := statNum(t, v, "jev fallbacks:"); f < 1 {
 		t.Errorf("jev fallbacks = %d, want >= 1:\n%s", f, v)

@@ -30,17 +30,30 @@ func cmdJev(m Model, args string) (Model, tea.Cmd) {
 			m.add(blockInfo, "jev off")
 		}
 	case "stats":
-		var st agent.JevStats
-		if m.sess != nil {
-			st = m.sess.JevStats()
+		if m.sess == nil || !m.sess.JevConfigured() {
+			m.add(blockInfo, "jev is not configured")
+			return m, nil
+		}
+		st := m.sess.JevStats()
+		avg := func(t agent.Tier) string {
+			if st.Turns[t] == 0 {
+				return "-"
+			}
+			return fmt.Sprint(st.MainTokens[t] / st.Turns[t])
 		}
 		m.add(blockInfo, strings.Join([]string{
-			fmt.Sprintf("jev answered: %d", st.Answered),
+			fmt.Sprintf("turns routed easy: %d", st.Turns[agent.TierEasy]),
+			fmt.Sprintf("turns routed medium: %d", st.Turns[agent.TierMedium]),
+			fmt.Sprintf("turns routed hard: %d", st.Turns[agent.TierHard]),
+			fmt.Sprintf("turns not routed: %d", st.Turns[agent.TierNone]),
 			fmt.Sprintf("jev fallbacks: %d", st.Fallbacks),
 			fmt.Sprintf("jev input tokens: %d", st.InputTokens),
-			fmt.Sprintf("main tokens question: %d", st.QuestionTokens),
-			fmt.Sprintf("main tokens routing: %d", st.RoutingTokens),
-			fmt.Sprintf("main tokens other: %d", st.OtherTokens),
+			fmt.Sprintf("main tokens easy: %d", st.MainTokens[agent.TierEasy]),
+			fmt.Sprintf("main tokens medium: %d", st.MainTokens[agent.TierMedium]),
+			fmt.Sprintf("main tokens hard: %d", st.MainTokens[agent.TierHard]),
+			fmt.Sprintf("main tokens not routed: %d", st.MainTokens[agent.TierNone]),
+			fmt.Sprintf("avg main tokens per turn: easy %s, medium %s, hard %s, not routed %s",
+				avg(agent.TierEasy), avg(agent.TierMedium), avg(agent.TierHard), avg(agent.TierNone)),
 		}, "\n"))
 	default:
 		m.add(blockError, "error: usage: /jev [stats]")

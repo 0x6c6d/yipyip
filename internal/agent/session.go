@@ -72,7 +72,7 @@ type Session struct {
 	jevOn            bool          // jev decides for the user; off at start, never persisted, kept by Reset
 	jevStats         JevStats      // memory only, kept by Reset
 	jevTimeout       time.Duration // test seam, see SetJevTimeout; 0 = JevTimeout
-	turnRouted       bool          // the current turn was routed by jev
+	turnActive       bool          // a main-agent turn (Submit) is running
 	turnModel        string        // model id jev routed the running/last turn to; "" = not routed
 	turnTier         Tier          // effective tier of the running/last turn; TierNone = not routed
 

@@ -24,9 +24,12 @@ const (
 )
 
 // JevStats are the in-memory jev counters of a session.
+// Both arrays are indexed by Tier (TierNone = not routed).
 type JevStats struct {
-	Answered, Fallbacks, InputTokens           int // jev decisions used / fallbacks / jev input tokens
-	QuestionTokens, RoutingTokens, OtherTokens int // main-model tokens by category
+	Turns       [4]int // main-agent turns by effective tier
+	MainTokens  [4]int // main-model tokens (main agent and subagents) by tier of the turn
+	Fallbacks   int    // routing fallbacks
+	InputTokens int    // jev input tokens
 }
 
 // JevConfigured reports whether "jev" is configured with an apiKey.
@@ -94,15 +97,11 @@ func (s *Session) askJev(ctx context.Context, state string, qs []provider.JevQue
 	return ans, err
 }
 
-// noteJev counts one jev decision: used when answered, else a fallback.
-func (s *Session) noteJev(answered bool) {
+// noteJevFallback counts one routing fallback.
+func (s *Session) noteJevFallback() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if answered {
-		s.jevStats.Answered++
-	} else {
-		s.jevStats.Fallbacks++
-	}
+	s.jevStats.Fallbacks++
+	s.mu.Unlock()
 }
 
 // difficultyQuestion is the jev score question that routes a turn.
@@ -201,18 +200,17 @@ func (s *Session) routeTurn(ctx context.Context, user string) string {
 		return ""
 	}
 	if err != nil || len(ans) != 1 || ans[0].Confidence < s.cfg.Jev.MinConfidence {
-		s.noteJev(false)
+		s.noteJevFallback()
 		return ""
 	}
 	tier, ok := scoreTier(ans[0].Score)
 	if !ok {
-		s.noteJev(false)
+		s.noteJevFallback()
 		return ""
 	}
 	id, tier := tierModel(s.cfg.Jev.Route, tier)
-	s.noteJev(true)
 	s.mu.Lock()
-	s.turnRouted, s.turnModel, s.turnTier = true, id, tier
+	s.turnModel, s.turnTier = id, tier
 	s.mu.Unlock()
 	s.emit(Event{Kind: EvInfo, AgentID: MainAgentID, Text: "jev route: " + id})
 	return id
@@ -246,20 +244,12 @@ func truncateRunes(text string, n int) string {
 	return text
 }
 
-// accountJev adds the total of one main-model response to its category:
-// question when the reply calls the question tool, else routing while the
-// turn is routed, else other.
-// The caller holds s.mu.
-func (s *Session) accountJev(calls []provider.ToolCall, total int) {
-	for _, tc := range calls {
-		if tc.Name == toolQuestion {
-			s.jevStats.QuestionTokens += total
-			return
-		}
+// accountJev adds the total of one model response to the tokens of the
+// running turn's tier (TierNone outside a turn). The caller holds s.mu.
+func (s *Session) accountJev(total int) {
+	tier := TierNone
+	if s.turnActive {
+		tier = s.turnTier
 	}
-	if s.turnRouted {
-		s.jevStats.RoutingTokens += total
-	} else {
-		s.jevStats.OtherTokens += total
-	}
+	s.jevStats.MainTokens[tier] += total
 }

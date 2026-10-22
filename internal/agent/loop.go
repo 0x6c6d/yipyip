@@ -76,7 +76,8 @@ func (s *Session) Submit(text string) error {
 	s.busy = true
 	s.turnStarted = time.Now().UTC().Format(time.RFC3339)
 	s.turnInterrupted = false
-	s.turnRouted, s.turnModel, s.turnTier = false, "", TierNone
+	s.turnModel, s.turnTier = "", TierNone
+	s.turnActive = true
 	s.cancelTurn = cancel
 	s.turnDone = done
 	gen := s.gen
@@ -130,6 +131,7 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 		cancel()
 		s.mu.Lock()
 		s.busy = false
+		s.turnActive = false
 		if cut {
 			s.turnInterrupted = true
 		}
@@ -153,6 +155,9 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 		hist = s.autoCompact(ctx, gen, hist)
 		ts := s.turnTools(mgr, spawned)
 		ts.model = s.routeTurn(ctx, user)
+		s.mu.Lock()
+		s.jevStats.Turns[s.turnTier]++
+		s.mu.Unlock()
 		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, ts)
 	}()
 	if newHist != nil {
@@ -369,7 +374,7 @@ func (s *Session) account(gen uint64, agentID string, msgs []provider.Message, t
 	if agentID == MainAgentID {
 		s.lastPromptTokens = in
 	}
-	s.accountJev(calls, total)
+	s.accountJev(total)
 	return total
 }
 

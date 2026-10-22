@@ -3,9 +3,9 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -114,7 +114,7 @@ func TestJevUnconfigured(t *testing.T) {
 }
 
 func TestJevStats(t *testing.T) {
-	srv := providertest.New(questionCall("Which color?", []string{"alpha", "beta"}, false), providertest.Response{Text: "thanks"})
+	srv := providertest.New(providertest.Response{Text: "thanks"})
 	defer srv.Close()
 	jev := providertest.NewJev(func(_ int, req providertest.JevRequest) providertest.JevResponse {
 		answers := map[string]any{}
@@ -124,24 +124,15 @@ func TestJevStats(t *testing.T) {
 		return providertest.JevResponse{Answers: answers}
 	})
 	defer jev.Close()
-	// The routing decision is the one jev answer; the question goes to the user.
 	m, sess := newJevModel(t, srv, `{"baseURL":"`+jev.URL+`","apiKey":"{env:TYPESAFE_API_KEY}","route":{"hard":"fake/m1"}}`)
 	m, _ = m.Command("/jev")
-	m, _ = m.Command("ask me")
-	deadline := time.Now().Add(5 * time.Second)
-	for m = m.Drain(); !strings.Contains(plain(m), questionFreeRow); m = m.Drain() {
-		if time.Now().After(deadline) {
-			t.Fatalf("question box never shown:\n%s", plain(m))
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	m = press(m, tea.KeyDown, tea.KeySpace, tea.KeyEnter)
+	m, _ = m.Command("hello")
 	waitSession(t, sess)
 	m = m.Drain()
 	m, _ = m.Command("/jev stats")
 	v := plain(m)
-	for _, want := range []string{"jev answered: 1", "jev fallbacks: 0", "jev input tokens: ",
-		"main tokens question: ", "main tokens routing: ", "main tokens other: "} {
+	for _, want := range []string{"turns routed easy: 0", "turns routed hard: 1", "jev fallbacks: 0", "jev input tokens: ",
+		"main tokens hard: ", "avg main tokens per turn: "} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q in:\n%s", want, v)
 		}
@@ -149,6 +140,82 @@ func TestJevStats(t *testing.T) {
 	m, _ = m.Command("/jev bogus")
 	if !strings.Contains(plain(m), "error: usage: /jev [stats]") {
 		t.Errorf("no usage error:\n%s", plain(m))
+	}
+}
+
+// TestJevStatsLines checks the 11 /jev stats lines after scripted turns.
+func TestJevStatsLines(t *testing.T) {
+	srv := providertest.NewFunc(func(_ int, req providertest.Request) providertest.Response {
+		user := ""
+		for _, msg := range req.Messages {
+			if msg.Role == "user" {
+				user = msg.Content
+			}
+		}
+		n, _ := strconv.Atoi(strings.TrimPrefix(user, "t"))
+		return providertest.Response{Text: "ok", Usage: &providertest.Usage{Prompt: n - 10, Completion: 10}}
+	})
+	defer srv.Close()
+	jev := providertest.NewJev(func(_ int, req providertest.JevRequest) providertest.JevResponse {
+		score := 0.0
+		switch {
+		case strings.Contains(req.State, "t2"):
+			score = 1
+		case strings.Contains(req.State, "t3"):
+			score = 2
+		case strings.Contains(req.State, "t4"):
+			return providertest.JevResponse{Status: 500}
+		}
+		answers := map[string]any{}
+		for name := range req.Questions {
+			answers[name] = providertest.JevScoreAnswer(score, 0.9)
+		}
+		return providertest.JevResponse{Answers: answers}
+	})
+	defer jev.Close()
+	m, sess := newJevModel(t, srv, `{"baseURL":"`+jev.URL+`","apiKey":"{env:TYPESAFE_API_KEY}","route":{"easy":"fake/m1","medium":"fake/m1","hard":"fake/m1"}}`)
+	m, _ = m.Command("/jev")
+	for _, u := range []string{"t100", "t200", "t300", "t400"} {
+		m, _ = m.Command(u)
+		waitSession(t, sess)
+		m = m.Drain()
+	}
+	m, _ = m.Command("/jev stats")
+	lines := strings.Split(plain(m), "\n")
+	want := []string{
+		"turns routed easy: 1", "turns routed medium: 1", "turns routed hard: 1", "turns not routed: 1",
+		"jev fallbacks: 1", "jev input tokens: ", "main tokens easy: 100", "main tokens medium: 200",
+		"main tokens hard: 300", "main tokens not routed: 400",
+		"avg main tokens per turn: easy 100, medium 200, hard 300, not routed 400",
+	}
+	for i := range lines {
+		if !strings.Contains(lines[i], want[0]) {
+			continue
+		}
+		if i+len(want) > len(lines) {
+			break
+		}
+		for k, w := range want {
+			if !strings.Contains(lines[i+k], w) {
+				t.Fatalf("line %d: want %q, got %q", k, w, lines[i+k])
+			}
+			if strings.Contains(lines[i+k], "question") {
+				t.Fatalf("question line: %q", lines[i+k])
+			}
+		}
+		return
+	}
+	t.Fatalf("stats lines not found:\n%s", plain(m))
+}
+
+func TestJevStatsNotConfigured(t *testing.T) {
+	srv := providertest.New()
+	defer srv.Close()
+	m, _ := newJevModel(t, srv, "")
+	m, _ = m.Command("/jev stats")
+	v := plain(m)
+	if !strings.Contains(v, "jev is not configured") || strings.Contains(v, "turns routed") || strings.Contains(v, "main tokens") {
+		t.Fatalf("not configured:\n%s", v)
 	}
 }
 

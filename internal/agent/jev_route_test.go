@@ -120,7 +120,7 @@ func TestJevRoute(t *testing.T) {
 		if len(reqs) != 1 || reqs[0].State != "request: small fix please" || reqs[0].Questions["difficulty"] == nil {
 			t.Fatalf("score %v: jev requests %+v", sc, reqs)
 		}
-		if st := r.s.JevStats(); st.Answered != 1 || st.Fallbacks != 0 || st.RoutingTokens == 0 {
+		if st := r.s.JevStats(); st.Turns[TierEasy] != 1 || st.Fallbacks != 0 || st.MainTokens[TierEasy] == 0 {
 			t.Fatalf("score %v: stats %+v", sc, st)
 		}
 	}
@@ -186,7 +186,7 @@ func checkRouteFallback(t *testing.T, resp providertest.JevResponse) time.Durati
 	if !allModel(models, "m1") || r.s.TurnModel() != "" || r.s.TurnTier() != TierNone || r.s.ModelID() != "fake/m1" {
 		t.Fatalf("models %q, turn model %q, tier %v", models, r.s.TurnModel(), r.s.TurnTier())
 	}
-	if st := r.s.JevStats(); st.Fallbacks != 1 || st.Answered != 0 {
+	if st := r.s.JevStats(); st.Fallbacks != 1 || st.Turns[TierNone] != 1 {
 		t.Fatalf("stats %+v", st)
 	}
 	for _, in := range infos {
@@ -222,7 +222,7 @@ func TestJevRouteFallback(t *testing.T) {
 		if !allModel(models, "m1") || r.s.TurnModel() != "" || r.s.ModelID() != "fake/m1" {
 			t.Fatalf("%s: models %q, turn model %q", name, models, r.s.TurnModel())
 		}
-		if st := r.s.JevStats(); st.Fallbacks != 1 || st.Answered != 0 || st.RoutingTokens != 0 {
+		if st := r.s.JevStats(); st.Fallbacks != 1 || st.Turns[TierNone] != 1 || st.MainTokens[TierEasy] != 0 {
 			t.Fatalf("%s: stats %+v", name, st)
 		}
 		for _, in := range infos {
@@ -242,7 +242,7 @@ func TestJevRouteOff(t *testing.T) {
 		if models, _ := r.turn(t, "x"); !allModel(models, "m1") || len(r.j.Requests()) != 0 || r.s.TurnModel() != "" {
 			t.Fatalf("%s: models %q, %d jev requests", name, models, len(r.j.Requests()))
 		}
-		if st := r.s.JevStats(); st.Answered != 0 || st.Fallbacks != 0 {
+		if st := r.s.JevStats(); st.Turns[TierNone] != 1 || st.Fallbacks != 0 {
 			t.Fatalf("%s: stats %+v", name, st)
 		}
 	}

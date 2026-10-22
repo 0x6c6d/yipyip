@@ -106,10 +106,9 @@ func TestJevAskRedacts(t *testing.T) {
 		t.Fatalf("partial secret sent: %d requests", len(r))
 	}
 
-	s.noteJev(true)
-	s.noteJev(false)
-	s.noteJev(false)
-	if st := s.JevStats(); st.Answered != 1 || st.Fallbacks != 2 || st.InputTokens != 42 {
+	s.noteJevFallback()
+	s.noteJevFallback()
+	if st := s.JevStats(); st.Fallbacks != 2 || st.InputTokens != 42 {
 		t.Fatalf("stats: %+v", st)
 	}
 }
@@ -171,11 +170,74 @@ func TestJevStatsTokens(t *testing.T) {
 		t.Fatalf("turn did not finish: %+v", evs)
 	}
 	st := s.JevStats()
-	if st.OtherTokens != 17 || st.QuestionTokens != 0 || st.RoutingTokens != 0 {
+	if st.MainTokens != [4]int{17, 0, 0, 0} || st.Turns != [4]int{1, 0, 0, 0} {
 		t.Fatalf("stats: %+v", st)
 	}
 	s.Reset()
 	if got := s.JevStats(); got != st {
 		t.Fatalf("Reset changed stats: %+v", got)
+	}
+}
+
+func TestJevStatsCounters(t *testing.T) {
+	srv := providertest.NewFunc(func(_ int, req providertest.Request) providertest.Response {
+		user, steps := "", 0
+		for _, m := range req.Messages {
+			switch m.Role {
+			case "user":
+				user, steps = m.Content, 0
+			case "tool":
+				steps++
+			}
+		}
+		if user == "SUBTASK" {
+			return providertest.Response{Text: "sub done", Usage: &providertest.Usage{Prompt: 90, Completion: 10}}
+		}
+		if strings.Contains(user, "spawn") {
+			switch steps {
+			case 0:
+				return providertest.Response{ToolCalls: []providertest.ToolCall{{ID: "s1", Name: "spawn_agent", Arguments: `{"task":"SUBTASK"}`}}, Usage: &providertest.Usage{Prompt: 1}}
+			case 1:
+				return providertest.Response{ToolCalls: []providertest.ToolCall{{ID: "w1", Name: "wait_agent", Arguments: `{"id":"a1"}`}}, Usage: &providertest.Usage{Prompt: 1}}
+			}
+		}
+		return providertest.Response{Text: "ok", Usage: &providertest.Usage{Prompt: 40, Completion: 10}}
+	})
+	defer srv.Close()
+	j := providertest.NewJev(func(_ int, req providertest.JevRequest) providertest.JevResponse {
+		score := 0.0
+		switch {
+		case strings.Contains(req.State, "medium"):
+			score = 1
+		case strings.Contains(req.State, "hard"):
+			score = 2
+		case strings.Contains(req.State, "fail"):
+			return providertest.JevResponse{Status: 500}
+		}
+		ans := map[string]any{}
+		for name := range req.Questions {
+			ans[name] = providertest.JevScoreAnswer(score, 0.9)
+		}
+		return providertest.JevResponse{Answers: ans}
+	})
+	defer j.Close()
+	s := newJevSession(t, srv, `{"baseURL":"`+j.URL+`","apiKey":"{env:TYPESAFE_API_KEY}","route":{"easy":"fake/m2","medium":"fake/m3","hard":"fake/m4"}}`+routeModels)
+	s.SetJevTimeout(500 * time.Millisecond)
+	s.SetMode(ModeAuto)
+	if err := s.SetJev(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"easy spawn", "medium", "hard", "fail"} {
+		if evs := submitAndWait(t, s, u); !findEvent(evs, EvTurnDone, "") {
+			t.Fatalf("turn %q did not finish", u)
+		}
+	}
+	if err := s.SetJev(false); err != nil {
+		t.Fatal(err)
+	}
+	submitAndWait(t, s, "off")
+	st := s.JevStats()
+	if st.Turns != [4]int{2, 1, 1, 1} || st.MainTokens != [4]int{100, 152, 50, 50} || st.Fallbacks != 1 || st.InputTokens <= 0 {
+		t.Fatalf("stats %+v", st)
 	}
 }
