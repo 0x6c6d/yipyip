@@ -48,7 +48,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T601 | 6 | Shift+Enter removed (no modifyOtherKeys, no CSI map) | T000 | sonnet | done | main.go key-reporting removed, keyseq.go+test deleted, model.go keyFromCSI call + shift+enter binding removed, help row Alt+Enter only; v3 Shift+Enter tests replaced by TestNewline/TestHelp/TestHelpFlagNoShiftEnter/TestNoKeyReportingRequest; verify 11/11 |
 | T602 | 6 | Question rendered inline in the transcript | T000 | opus | done | question.go inline box (redacted question/options/free text, Q→A block on answer or cancel), model.go refreshTo appends box + overlay branch removed, question_inline_test.go; existing tests: comments/messages only; verify 9/9 |
 | T603 | 6 | Docs: usage, CLAUDE.md architecture, /help | T204, T407, T502, T504, T505, T601, T602 | sonnet | done | docs/usage.md (jev block, ## Skills, ## Jev decisions, keys/tabs/input/questions/security), CLAUDE.md architecture lines (Delegation workflow section byte-identical, supervisor cmp), help.go (merged Ctrl+T/W row for the 40-row view), TestHelpMouseAndTabs; verify 12/12 |
-| T799 | 6 | Global Definition of Done | all | supervisor | todo | |
+| T799 | 6 | Global Definition of Done | all | supervisor | done | verify 15/15; supervisor re-checked: protected diff empty, approval.go only via T404, Delegation section identical, 44 TestJev pass, full suite green |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
