@@ -27,7 +27,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T101 | 1 | Config: three-tier jev.route, only hard required | T000 | opus | done | internal/config/jev.go + test: Medium tier, only hard required |
 | T102 | 1 | Three-tier turn routing (round, clamp, effective tier) | T101 | opus | done | agent/jev.go: Tier, round+clamp, TurnTier, JevRoute; tests |
 | T201 | 2 | Remove jev question answering | T000 | opus | done | question.go: jev answering removed; tests; tui TestJevStats adapted (v4 test relied on removed behaviour) |
-| T202 | 2 | Remove jev risk screen, approval.go back to pre-v4 | T000 | opus | todo | |
+| T202 | 2 | Remove jev risk screen, approval.go back to pre-v4 | T000 | opus | done | approval.go == ba7d939^; risk screen removed; TestJevNoRiskQuestion, TestJevNoRiskScreen |
 | T301 | 3 | Routing-only jev stats and /jev stats lines | T102, T201, T202 | sonnet | todo | |
 | T302 | 3 | /jev prints the active route | T102 | sonnet | todo | |
 | T401 | 4 | Subagent iteration limit 500, main 50 | T000 | opus | todo | |

@@ -6,12 +6,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"yipyip/internal/provider/providertest"
-	"yipyip/internal/tui"
 )
 
 const (
@@ -19,22 +17,6 @@ const (
 	jevPhaseB
 	jevPhaseC
 )
-
-// waitView drains the model until its view contains want.
-func (e *env) waitView(t *testing.T, want string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		e.Model = e.Model.Drain()
-		if strings.Contains(viewText(e.Model), want) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("view never showed %q:\n%s", want, viewText(e.Model))
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
 
 func TestJevE2E(t *testing.T) {
 	var phase atomic.Int32
@@ -158,25 +140,20 @@ func TestJevE2E(t *testing.T) {
 		t.Errorf("turn A: model got %q, want [beta]", got)
 	}
 
-	// Turn B: risky bash in auto mode turns into the approval prompt.
+	// Turn B: bash in auto mode runs without a prompt, although the fake jev
+	// would call it risky (no risk screen).
 	phase.Store(jevPhaseB)
 	n := len(srv.Requests())
-	m, _ := e.Model.Command("turn B run it")
-	e.Model = m
-	e.waitView(t, "y / n / a (always")
-	next, _ := e.Model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	e.Model = next.(tui.Model)
-	waitSession(t, e.Session)
-	e.Model = e.Model.Drain()
+	e.submit(t, "turn B run it")
 	reqsB := srv.Requests()[n:]
 	if len(reqsB) != 2 {
 		t.Fatalf("turn B: %d provider requests, want 2", len(reqsB))
 	}
-	if got := toolResults(reqsB[1]); len(got) != 1 || !strings.Contains(got[0], "denied by user") {
-		t.Errorf("turn B: bash result = %q, want denied by user", got)
+	if got := toolResults(reqsB[1]); len(got) != 1 || strings.Contains(got[0], "denied by user") || !strings.Contains(got[0], "e2e") {
+		t.Errorf("turn B: bash result = %q, want a run without denial", got)
 	}
-	if v := viewText(e.Model); !strings.Contains(v, "B done") {
-		t.Errorf("turn B: no final reply:\n%s", v)
+	if v := viewText(e.Model); strings.Contains(v, "y / n / a (always") || !strings.Contains(v, "B done") {
+		t.Errorf("turn B: approval prompt shown or no final reply:\n%s", v)
 	}
 
 	// Turn C: jev fails with 500; fallback = session model, real question, bash as is.

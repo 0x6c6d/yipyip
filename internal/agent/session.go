@@ -123,7 +123,6 @@ func NewSession(opts Options) (*Session, error) {
 	s.gate = NewGate(func(r *ApprovalRequest) {
 		s.emit(Event{Kind: EvApproval, AgentID: r.AgentID, Tool: r.Tool, Args: r.Args, Approval: r})
 	})
-	s.gate.SetRiskScreen(s.jevRisk)
 	s.systemPrompt = buildSystemPrompt(s.startDir, reg.Guard(), cfg.Redactor)
 	s.history = []provider.Message{{Role: "system", Content: s.systemPrompt}}
 	s.subs = s.newManager(0)
