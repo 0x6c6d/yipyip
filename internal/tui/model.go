@@ -599,8 +599,9 @@ func (m *Model) redact(s string) string {
 // refresh re-renders the blocks into the viewport and scrolls to the bottom.
 func (m *Model) refresh() { m.refreshTo(m.viewport.AtBottom()) }
 
-// refreshTo re-renders the blocks; with follow set the viewport ends at the
-// bottom, otherwise the scroll position is kept.
+// refreshTo re-renders the blocks and, below them, the box of the pending
+// question; with follow set the viewport ends at the bottom, otherwise the
+// scroll position is kept.
 func (m *Model) refreshTo(follow bool) {
 	if m.background {
 		return // a non-current tab: rendered when it becomes current
@@ -610,6 +611,9 @@ func (m *Model) refreshTo(follow bool) {
 		if r := m.renderBlock(b, m.viewport.Width); r != "" {
 			parts = append(parts, r)
 		}
+	}
+	if len(m.questions) > 0 {
+		parts = append(parts, m.questionBox())
 	}
 	content := lipgloss.NewStyle().Width(m.viewport.Width).Render(strings.Join(parts, "\n\n"))
 	m.lines = strings.Split(content, "\n")
@@ -655,8 +659,6 @@ func (m Model) View() string {
 func (m Model) overlays(vp string) string {
 	if len(m.pending) > 0 {
 		vp = m.overlayApproval(vp)
-	} else if len(m.questions) > 0 {
-		vp = m.overlayQuestion(vp)
 	} else if m.resume.open {
 		vp = m.overlayResume(vp)
 	} else if m.picker.open {

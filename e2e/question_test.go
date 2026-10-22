@@ -14,7 +14,7 @@ import (
 	"yipyip/internal/tui"
 )
 
-const questionRow = "type your own answer" // last row of the overlay
+const questionRow = "type your own answer" // free-text row of the inline question box
 
 func questionResp(q string, options []string, multiple bool) resp {
 	args, _ := json.Marshal(map[string]any{"question": q, "options": options, "multiple": multiple})
@@ -23,7 +23,7 @@ func questionResp(q string, options []string, multiple bool) resp {
 
 func viewText(m tui.Model) string { return ansi.Strip(m.View()) }
 
-// startQuestion submits text and returns once the overlay is shown, with the
+// startQuestion submits text and returns once the question box is shown, with the
 // turn still running.
 func (e *env) startQuestion(t *testing.T, text string) {
 	t.Helper()
@@ -36,7 +36,7 @@ func (e *env) startQuestion(t *testing.T, text string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("question overlay never shown:\n%s", viewText(e.Model))
+			t.Fatalf("question box never shown:\n%s", viewText(e.Model))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -83,7 +83,7 @@ func TestQuestionSingleChoiceEndsInFollowupRequest(t *testing.T) {
 	}
 	v := viewText(e.Model)
 	if strings.Contains(v, questionRow) {
-		t.Errorf("overlay still shown after Enter:\n%s", v)
+		t.Errorf("question box still shown after Enter:\n%s", v)
 	}
 	if !strings.Contains(v, "sqlite it is") {
 		t.Errorf("final reply missing:\n%s", v)
@@ -133,14 +133,14 @@ func TestQuestionOverlayVisibleAndTurnRunning(t *testing.T) {
 		v := viewText(e.Model)
 		for _, want := range []string{"Which database?", "postgres", "sqlite"} {
 			if !strings.Contains(v, want) {
-				t.Errorf("mode %v: overlay lacks %q:\n%s", mode, want, v)
+				t.Errorf("mode %v: question box lacks %q:\n%s", mode, want, v)
 			}
 		}
 		if !e.Session.Busy() {
-			t.Errorf("mode %v: turn not busy while the overlay waits", mode)
+			t.Errorf("mode %v: turn not busy while the question waits", mode)
 		}
 		if strings.Contains(v, "Worked for") {
-			t.Errorf("mode %v: turn finished marker while the overlay waits:\n%s", mode, v)
+			t.Errorf("mode %v: turn finished marker while the question waits:\n%s", mode, v)
 		}
 		if got := len(e.Server.Requests()); got != 1 {
 			t.Errorf("mode %v: requests = %d while waiting, want 1", mode, got)

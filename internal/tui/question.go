@@ -32,31 +32,46 @@ type questionState struct {
 }
 
 // enqueueQuestion appends req to the pending queue (the slice is copied so
-// earlier copies of the Model do not see the new entry).
+// earlier copies of the Model do not see the new entry). A question that
+// becomes the shown one is rendered at the bottom of the transcript.
 func (m *Model) enqueueQuestion(req *agent.QuestionRequest) {
 	next := make([]*agent.QuestionRequest, 0, len(m.questions)+1)
 	next = append(next, m.questions...)
-	if len(next) == 0 {
+	first := len(next) == 0
+	if first {
 		m.qs = newQuestionState(req)
 	}
 	m.questions = append(next, req)
+	if first {
+		m.refreshTo(true)
+	}
 }
 
 func newQuestionState(req *agent.QuestionRequest) questionState {
 	return questionState{marks: make([]bool, len(req.Options))}
 }
 
-// cancelQuestions answers Cancelled to every pending question and empties the
-// queue.
+// cancelQuestions answers Cancelled to every pending question, empties the
+// queue and leaves one answer line per question.
 func (m *Model) cancelQuestions() {
-	for _, r := range m.questions {
-		r.Cancel()
-	}
+	pending := m.questions
 	m.questions = nil
 	m.qs = questionState{}
+	for _, r := range pending {
+		r.Cancel()
+		m.addAnswerLine(r, agent.Cancelled)
+	}
 }
 
-// closeQuestion answers the first pending question and shows the next one.
+// addAnswerLine appends the permanent "Q: … → A: …" line of an answered or
+// cancelled question; the raw text is redacted when rendered.
+func (m *Model) addAnswerLine(req *agent.QuestionRequest, answer string) {
+	q := strings.Join(strings.Fields(req.Question), " ")
+	m.add(blockInfo, "Q: "+q+" → A: "+answer)
+}
+
+// closeQuestion answers the first pending question, leaves its answer line
+// and shows the next one.
 func (m *Model) closeQuestion(answer string) {
 	first := m.questions[0]
 	m.questions = append([]*agent.QuestionRequest(nil), m.questions[1:]...)
@@ -67,6 +82,7 @@ func (m *Model) closeQuestion(answer string) {
 		m.qs = newQuestionState(m.questions[0])
 	}
 	first.Respond(answer)
+	m.addAnswerLine(first, answer)
 }
 
 // questionResult returns the answer of the current state and whether there
@@ -90,7 +106,8 @@ func (m Model) questionResult() (string, bool) {
 
 // questionKey handles one key press while a question is pending. Ctrl+C is
 // not handled here (the caller keeps the normal rule); every other key is
-// swallowed, so nothing reaches the input.
+// swallowed, so nothing reaches the input. The inline box is re-rendered
+// after every key.
 func (m Model) questionKey(k tea.KeyMsg) (Model, tea.Cmd) {
 	req := m.questions[0]
 	n := len(req.Options)
@@ -127,6 +144,7 @@ func (m Model) questionKey(k tea.KeyMsg) (Model, tea.Cmd) {
 			m.qs.row = min(n, m.qs.row+1)
 		}
 	}
+	m.refresh()
 	return m, nil
 }
 
@@ -155,11 +173,12 @@ func (m *Model) toggleOption(req *agent.QuestionRequest) {
 	m.qs.marks = marks
 }
 
-// questionBox renders the overlay box for the first pending question. All
-// model-authored text is redacted; the typed free text is the user's own.
+// questionBox renders the inline transcript box for the first pending
+// question. Every text, the typed free text included, is redacted: the box
+// is part of m.lines and therefore copyable.
 func (q Model) questionBox() string {
 	req := q.questions[0]
-	inner := max(20, min(questionMaxW, q.width-4))
+	inner := max(20, min(questionMaxW, q.viewport.Width-4))
 	wrap := lipgloss.NewStyle().Width(inner)
 	lines := []string{
 		wrap.Render(questionBold.Render(questionTitle)),
@@ -181,7 +200,7 @@ func (q Model) questionBox() string {
 	free := questionFreeRow
 	onFree := q.qs.row >= len(req.Options)
 	if len(q.qs.text) > 0 {
-		free += ": " + string(q.qs.text)
+		free += ": " + q.redact(string(q.qs.text))
 	}
 	if onFree {
 		free += "█"
@@ -197,10 +216,4 @@ func (m Model) questionRow(cur bool, text string, inner int) string {
 		prefix = questionCursor.Render("› ")
 	}
 	return lipgloss.NewStyle().Width(inner).Render(prefix + text)
-}
-
-// overlayQuestion draws the question box centered over the dimmed viewport
-// view vp.
-func (m Model) overlayQuestion(vp string) string {
-	return m.overlayCentered(vp, m.questionBox())
 }

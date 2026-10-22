@@ -20,7 +20,7 @@ func questionCall(q string, options []string, multiple bool) providertest.Respon
 }
 
 // askQuestion runs a turn in which the model calls the question tool and
-// returns the model once the overlay is up.
+// returns the model once the inline question box is shown.
 func askQuestion(t *testing.T, q string, options []string, multiple bool) (Model, *providertest.Server, *agent.Session) {
 	t.Helper()
 	srv := providertest.New(questionCall(q, options, multiple), providertest.Response{Text: "thanks"})
@@ -34,15 +34,15 @@ func askQuestion(t *testing.T, q string, options []string, multiple bool) (Model
 			return m, srv, sess
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("question overlay never shown:\n%s", plain(m))
+			t.Fatalf("question box never shown:\n%s", plain(m))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-// countMarked counts the selected radio rows ("● label") of the overlay; the
-// tool-call bullet of the conversation is also a ●, but never followed by an
-// option label.
+// countMarked counts the selected radio rows ("● label") of the inline box
+// (its rows sit between │ borders); the tool-call bullet of the conversation
+// is also a ●, but never inside the box.
 func countMarked(v string) int {
 	n := 0
 	for _, l := range strings.Split(v, "\n") {
@@ -127,7 +127,7 @@ func TestQuestionEnterReturnsChosenLabel(t *testing.T) {
 	m, srv, sess := askQuestion(t, "Which?", []string{"a", "b", "c"}, false)
 	m = press(m, tea.KeyDown, tea.KeySpace, tea.KeyEnter)
 	if strings.Contains(plain(m), questionFreeRow) {
-		t.Error("overlay still shown after Enter")
+		t.Error("question box still shown after Enter")
 	}
 	if got := questionToolResult(t, srv, sess); got != "b" {
 		t.Errorf("tool result = %q, want b", got)
@@ -168,7 +168,7 @@ func TestQuestionEscCancelled(t *testing.T) {
 	v := plain(m)
 	for _, gone := range []string{questionFreeRow, questionHint, "○"} {
 		if strings.Contains(v, gone) {
-			t.Errorf("overlay remnant %q after Esc:\n%s", gone, v)
+			t.Errorf("question box remnant %q after Esc:\n%s", gone, v)
 		}
 	}
 	if len(m.questions) != 0 {
@@ -183,11 +183,11 @@ func TestQuestionNothingSelectedEnterStays(t *testing.T) {
 	m, srv, sess := askQuestion(t, "Which?", []string{"a", "b"}, false)
 	m = press(m, tea.KeyEnter)
 	if !strings.Contains(plain(m), questionFreeRow) || len(m.questions) != 1 {
-		t.Fatalf("overlay closed on Enter with nothing selected:\n%s", plain(m))
+		t.Fatalf("question closed on Enter with nothing selected:\n%s", plain(m))
 	}
 	m = press(m, tea.KeyDown, tea.KeyDown, tea.KeyEnter) // empty free text
 	if len(m.questions) != 1 {
-		t.Fatal("overlay closed on Enter with empty free text")
+		t.Fatal("question closed on Enter with empty free text")
 	}
 	if sess.Busy() && len(srv.Requests()) > 1 {
 		t.Fatalf("a result was sent: %d requests", len(srv.Requests()))
@@ -211,10 +211,10 @@ func TestQuestionRedactsSecretInPrompt(t *testing.T) {
 	}})
 	v := plain(m)
 	if strings.Contains(v, "SECRET123") {
-		t.Fatalf("overlay leaks the secret:\n%s", v)
+		t.Fatalf("question box leaks the secret:\n%s", v)
 	}
 	if !strings.Contains(v, "use key [redacted]?") || !strings.Contains(v, "○ yes [redacted]") {
-		t.Fatalf("overlay lacks the redacted text:\n%s", v)
+		t.Fatalf("question box lacks the redacted text:\n%s", v)
 	}
 	if !strings.Contains(v, questionFreeRow) {
 		t.Errorf("free-text row missing:\n%s", v)
