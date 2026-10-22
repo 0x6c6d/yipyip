@@ -39,9 +39,8 @@ var keys = []struct{ Key, Help string }{
 	{"Ctrl+O", "expand tool results"},
 	{"PgUp/PgDn, Mouse wheel", "scroll (the wheel scrolls 3 lines)"},
 	{"Ctrl+Home/Ctrl+End", "scroll to the first/last line (Home/End with an empty input)"},
-	{"Mouse drag", "select text; releasing copies it to the clipboard"},
-	{"Ctrl+T", "new tab (up to 8)"},
-	{"Ctrl+W", "close the tab (saves it first)"},
+	{"Mouse drag", "select text; releasing copies it (in the input, a click moves the cursor)"},
+	{"Ctrl+T / Ctrl+W", "new tab (up to 8) / close the tab (saves it first)"},
 	{"Click tab / × / +", "switch tab / close it / new tab"},
 }
 
@@ -70,6 +69,7 @@ func HelpText() string {
 	for i, c := range commands {
 		fmt.Fprintf(&b, "  %-*s  %s\n", width, labels[i], c.Help)
 	}
+	fmt.Fprintf(&b, "  %-*s  %s\n", width, "/<skill> [args]", "run a skill (see /skills); built-in commands win")
 	b.WriteString("\nKeys:\n")
 	keyWidth := 0
 	for _, k := range keys {

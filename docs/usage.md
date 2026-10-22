@@ -44,6 +44,23 @@ Top-level keys:
   - `reasoning`: whether the model accepts a reasoning effort (default `true`).
   - `limit.context`: context window size in tokens, used for `ctx used/limit`.
   - `cost`: accepted for compatibility and ignored.
+- `jev`: optional block that turns on jev decisions (see
+  [Jev decisions](#jev-decisions)):
+  - `baseURL`: default `https://api.typesafe.ai`.
+  - `apiKey`: normally `{env:TYPESAFE_API_KEY}`.
+  - `model`: default `jev-latest`.
+  - `min_confidence`: a number from 0 to 1 (default 0.7); answers below it are
+    ignored.
+  - `route.easy` / `route.hard`: configured `provider/model` ids for easy and
+    hard turns.
+
+```json
+"jev": {
+  "baseURL": "https://api.typesafe.ai",
+  "apiKey": "{env:TYPESAFE_API_KEY}",
+  "route": { "easy": "openrouter/small-model", "hard": "openrouter/big-model" }
+}
+```
 
 Secrets are never written in the files. Use `{env:NAME}` to read a value from
 an environment variable:
@@ -87,6 +104,10 @@ colour.
 | `/new` | open a fresh session in a new tab |
 | `/clear` | alias of `/new` |
 | `/sessions [id \| rm id]` | list saved sessions, load one into this tab, or remove one |
+| `/skills` | list the loaded skills with their source (see [Skills](#skills)) |
+| `/jev` | toggle jev decisions (see [Jev decisions](#jev-decisions)) |
+| `/jev stats` | show the jev counters |
+| `/<skill> [args]` | run a skill |
 | `/exit` | quit |
 | `/quit` | alias of `/exit` |
 | `/help` | show the command and key help |
@@ -98,7 +119,9 @@ while you type a command (see [Input](#input)).
 
 - **Suggestions**: typing `/` shows the matching slash command as grey ghost
   text after the cursor. `Tab` or `Right` accepts it. Mode and effort values
-  are suggested the same way.
+  are suggested the same way, and so are the names of loaded skills.
+- **Mouse**: a left click in the input moves the cursor there. Dragging in the
+  input selects text and copies it (redacted), like in the conversation.
 - **History**: `Up` and `Down` recall earlier inputs. History is kept per tab
   (see [Tabs](#tabs)) and saved with the tab's session (see [Sessions](#sessions)).
   It keeps at most 500 entries.
@@ -117,13 +140,10 @@ while you type a command (see [Input](#input)).
 | --- | --- |
 | Enter | send the message; while the agent is busy, queue it |
 | Alt+Enter | new line in the input |
-| Shift+Enter | new line in the input, in terminals that report modified Enter (yip requests it); Alt+Enter always works |
 | Esc | cancel the running turn (queued messages return to the input); deny a pending approval |
 | Shift+Tab | toggle auto/manual mode (auto is the default) |
 | Ctrl+T | open a new tab (see [Tabs](#tabs)) |
 | Ctrl+W | close the current tab (saved first) |
-| Ctrl+Tab / Ctrl+Shift+Tab | next / previous tab |
-| Alt+1 … Alt+8 | jump to tab 1 … 8 |
 | Ctrl+C | twice: quit (the first press cancels the running turn) |
 | Tab / Right | accept a suggestion or complete a command |
 | Up / Down | input history (Up first restores queued messages) |
@@ -132,9 +152,10 @@ while you type a command (see [Input](#input)).
 | Mouse wheel | scroll 3 lines |
 | Ctrl+Home / Ctrl+End | scroll to the first/last line (Home/End with an empty input) |
 | Mouse drag | select text; releasing copies it to the clipboard |
+| Click in the input | move the cursor; dragging there selects and copies |
+| Click tab / × / + | switch tab / close it / open a new tab |
 
-Inside tmux, Shift+Enter needs `set -g extended-keys on` in `tmux.conf`;
-otherwise tmux sends a plain Enter. `Alt+Enter` works everywhere.
+`Alt+Enter` is the only way to insert a newline.
 
 ### Scrolling and copying
 
@@ -226,8 +247,12 @@ hex characters derived from the SHA-256 of the saved content.
 ## Tabs
 
 yip keeps up to 8 sessions open side by side, one per tab. The tab bar is the
-top line: one `N:<title>` segment per tab, with the current tab in bold. A
-tab's title is its first user message.
+top line: one `N:<title> ×` segment per tab, with the current tab in bold, and
+a `+` after the last one (not shown at 8 tabs). A tab's title is its first
+user message. The bar always fits one row.
+
+- Click a title to switch to that tab, `×` to close it (saved first) and `+`
+  to open a new tab.
 
 - Each tab has its own conversation, input history, queue and pasted text. The
   model, effort and mode are global: a change applies to all tabs.
@@ -236,23 +261,62 @@ tab's title is its first user message.
 - `Ctrl+W` closes the current tab. It saves the tab first, then selects the
   tab on its left, or the one on its right if there is none. Closing the last
   tab is the same as `/exit`.
-- `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle through the tabs. Many terminals do not
-  send these two keys to programs; `Alt+1` … `Alt+8` jump to a tab and work in
-  every terminal.
+- The only tab hotkeys are `Ctrl+T` and `Ctrl+W`; use the mouse to switch.
 - `/new` (and `/clear`) opens a fresh session in a new tab. The saved file of
   the old tab is kept.
 - Plain `Tab` (completion) and `Shift+Tab` (mode toggle) are unchanged.
 
 ## Questions
 
-The model can ask you a question with its `question` tool. An overlay shows the
+The model can ask you a question with its `question` tool. It is shown inline in the
 question, up to 6 options and a free-text row. Options are radio buttons, or
 checkboxes when the model allows several answers.
 
 - `↑`/`↓` move the cursor, `Space` selects an option, `Enter` confirms, and
   `Esc` cancels. A cancelled question reaches the model as `cancelled`.
 - Questions are never approval-gated and work in both modes. The turn waits
-  while the overlay is open.
+  while the question is open. An answered question stays in the conversation as
+  a line `Q: <question> → A: <answer>`.
+- With jev on, a single-choice question with at least 2 options can be
+  answered by jev (see [Jev decisions](#jev-decisions)).
+
+## Skills
+
+A skill is a folder `<name>/SKILL.md`: frontmatter with `name` and
+`description`, then the body.
+
+```text
+---
+name: review
+description: review the current diff
+---
+Review the changes in the working tree and list problems.
+```
+
+- Skills are read from `~/.config/yipyip/skills/` and
+  `<startdir>/.yipyip/skills/`. On the same name the project skill wins.
+- `/<name> [args]` sends the body as a user message; args are appended after a
+  blank line.
+- A built-in command wins over a skill of the same name.
+- `/skills` lists the skills with their source and a note when a built-in
+  shadows one. Skills also appear in the `/` suggestions.
+- A file that cannot be loaded is skipped with one warning line.
+
+## Jev decisions
+
+Jev is a System One decision service. It is used only while the `jev` block is
+configured (see [Configuration](#configuration)). It starts off.
+
+- `/jev` toggles it: `jev on` / `jev off`. Without the block it prints
+  `jev is not configured`. `/jev stats` shows the counters (answered,
+  fallbacks, input tokens).
+- With jev on, a single-choice question with at least 2 options can be answered
+  by jev; each turn can be routed to the `route.easy` or `route.hard` model
+  (the status line shows `jev` and `route: <id>`); and in auto mode a risky
+  tool call becomes an approval prompt.
+- Any jev error, timeout or low confidence falls back to the normal behaviour:
+  you answer the question, the current model runs the turn, and auto mode runs
+  the tool.
 
 ## Retry
 
@@ -285,7 +349,8 @@ to `~/.config/yipyip/config.json`.
 ## Security
 
 - Network traffic goes only to the provider hosts configured in your config
-  files. yip has no web tools.
+  files, plus the jev host while a `jev` block is configured. yip has no web
+  tools.
 - File tools (`read_file`, `write_file`, `edit_file`, `glob`, `grep`) are
   confined to the start directory; paths that escape it are refused.
 - `bash` is not confined to the start directory. In auto mode (the default)
@@ -293,7 +358,8 @@ to `~/.config/yipyip/config.json`.
   approval. Review commands before approving them, and switch to manual mode
   (`Shift+Tab`) if you want to approve each one.
 - API keys are read only from environment variables. They are never shown in
-  the UI or in errors, and never written to a file.
+  the UI or in errors, and never written to a file. Jev state and skill text
+  are redacted like all other text shown in the UI or sent to a model.
 - yip writes no logs. Its only files are the saved sessions in
   `<startdir>/.yipyip/` (see [Sessions](#sessions)) and the model, effort and
   mode settings in your user config (see [Settings defaults](#settings-defaults)).

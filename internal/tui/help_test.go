@@ -72,3 +72,21 @@ func TestHelpStillListsOldEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpMouseAndTabs(t *testing.T) {
+	text := HelpText()
+	lower := strings.ToLower(text)
+	for _, want := range []string{"/skills", "/jev", "Alt+Enter", "Ctrl+T", "Ctrl+W", "×", "+"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("HelpText() does not contain %q", want)
+		}
+	}
+	if !strings.Contains(lower, "click") {
+		t.Error("HelpText() does not mention click")
+	}
+	for _, bad := range []string{"Shift+Enter", "Ctrl+Tab", "Alt+1"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("HelpText() contains %q", bad)
+		}
+	}
+}
