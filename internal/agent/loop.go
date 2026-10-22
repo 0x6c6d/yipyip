@@ -76,16 +76,18 @@ func (s *Session) Submit(text string) error {
 	s.busy = true
 	s.turnStarted = time.Now().UTC().Format(time.RFC3339)
 	s.turnInterrupted = false
+	s.turnRouted, s.turnModel = false, ""
 	s.cancelTurn = cancel
 	s.turnDone = done
 	gen := s.gen
 	mgr := s.subs
 	s.openTurnRecord() // records len(history) before the user message
-	s.history = append(s.history, provider.Message{Role: "user", Content: s.Redact(text)})
+	user := s.Redact(text)
+	s.history = append(s.history, provider.Message{Role: "user", Content: user})
 	hist := copyHistory(s.history)
 	s.mu.Unlock()
 
-	go s.runTurn(ctx, cancel, gen, mgr, hist, done)
+	go s.runTurn(ctx, cancel, gen, mgr, hist, user, done)
 	return nil
 }
 
@@ -120,7 +122,9 @@ func (s *Session) Busy() bool {
 // subagents spawned in the turn run under its context: when the turn ends
 // (normally or cancelled) they are cancelled and waited for. All events of the
 // turn and its subagents are queued before the turn is marked as finished.
-func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, mgr *Manager, hist []provider.Message, done chan struct{}) {
+// When jev routes the turn (see routeTurn), the routed model runs every
+// request of the main loop; user is the turn's (redacted) user message.
+func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, mgr *Manager, hist []provider.Message, user string, done chan struct{}) {
 	defer func() {
 		cut := ctx.Err() != nil // cancelled by the user, before our own cancel below
 		cancel()
@@ -147,7 +151,9 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 			}
 		}()
 		hist = s.autoCompact(ctx, gen, hist)
-		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, s.turnTools(mgr, spawned))
+		ts := s.turnTools(mgr, spawned)
+		ts.model = s.routeTurn(ctx, user)
+		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, ts)
 	}()
 	if newHist != nil {
 		s.mu.Lock()

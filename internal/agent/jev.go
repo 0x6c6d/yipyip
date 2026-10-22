@@ -103,6 +103,55 @@ func (s *Session) noteJev(answered bool) {
 	}
 }
 
+// difficultyQuestion is the jev score question that routes a turn.
+var difficultyQuestion = provider.JevQuestion{
+	Name:         "difficulty",
+	Type:         provider.JevScore,
+	Instructions: "Rate how hard the user's coding request is to carry out well.",
+	Levels: []string{
+		"easy: a question, a lookup or a small local change in one place",
+		"medium: a change across a few files that needs some reading of the code",
+		"hard: a design decision, a refactor or a bug that needs deep investigation",
+	},
+}
+
+// routeTurn picks the model of a main-agent turn with jev when jev is on and
+// "jev.route" is configured: score < 1 is Route.Easy, else Route.Hard. It
+// returns "" (the session's model) when not routed: jev off, no route, or a
+// failed, timed out or unconfident answer (counted as a fallback). It never
+// changes the session's model.
+func (s *Session) routeTurn(ctx context.Context, user string) string {
+	if !s.JevOn() || s.cfg.Jev == nil || s.cfg.Jev.Route == nil {
+		return ""
+	}
+	ans, err := s.askJev(ctx, "request: "+user, []provider.JevQuestion{difficultyQuestion})
+	if ctx.Err() != nil {
+		return ""
+	}
+	if err != nil || len(ans) != 1 || ans[0].Confidence < s.cfg.Jev.MinConfidence {
+		s.noteJev(false)
+		return ""
+	}
+	id := s.cfg.Jev.Route.Hard
+	if ans[0].Score < 1 {
+		id = s.cfg.Jev.Route.Easy
+	}
+	s.noteJev(true)
+	s.mu.Lock()
+	s.turnRouted, s.turnModel = true, id
+	s.mu.Unlock()
+	s.emit(Event{Kind: EvInfo, AgentID: MainAgentID, Text: "jev route: " + id})
+	return id
+}
+
+// TurnModel returns the model id jev routed the running or last turn to, ""
+// when that turn was not routed.
+func (s *Session) TurnModel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnModel
+}
+
 // truncateRunes keeps at most n runes of the start of text.
 func truncateRunes(text string, n int) string {
 	i := 0
