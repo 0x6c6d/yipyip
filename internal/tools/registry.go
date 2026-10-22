@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yipyip/internal/config"
+	"yipyip/internal/provider"
 )
 
 // Result is the outcome of one tool call, as reported to the model.
@@ -32,6 +33,8 @@ type Options struct {
 	Redactor    *config.Redactor
 	StripEnv    []string             // passed to BashRunner
 	BeforeWrite func(absPath string) // called by write tools before modifying a file (may be nil)
+	// Search is the web search client; nil = no web_search tool.
+	Search *provider.SearchClient
 }
 
 // toolFunc runs a tool with arguments that are known to be a JSON object.
@@ -64,20 +67,28 @@ func NewRegistry(opts Options) (*Registry, error) {
 	r.registerBash()
 	r.registerFileTools()
 	r.registerSearchTools()
+	if opts.Search != nil {
+		r.registerWebSearch()
+	}
 
 	return r, nil
 }
 
-// forbiddenToolWords may never appear in a tool name: yipyip has no web access.
+// forbiddenToolWords may never appear in a tool name: the only web tool is
+// web_search (WebSearchTool), which is exempt by its exact name.
 var forbiddenToolWords = []string{"web", "fetch", "search", "browse", "http", "url", "download", "curl"}
 
 // register adds a built-in tool. It panics on programming errors (duplicate
-// name, web-like name, schema that is not a JSON object schema).
+// name, web-like name, schema that is not a JSON object schema). The only
+// web tool is web_search: exactly that name (case-sensitive) skips the
+// web-like name check, every other name with a forbidden word panics.
 func (r *Registry) register(t Tool, fn toolFunc) {
-	lower := strings.ToLower(t.Name)
-	for _, bad := range forbiddenToolWords {
-		if strings.Contains(lower, bad) {
-			panic(fmt.Sprintf("tools: web-like tool name %q is not allowed", t.Name))
+	if t.Name != WebSearchTool {
+		lower := strings.ToLower(t.Name)
+		for _, bad := range forbiddenToolWords {
+			if strings.Contains(lower, bad) {
+				panic(fmt.Sprintf("tools: web-like tool name %q is not allowed", t.Name))
+			}
 		}
 	}
 	if _, dup := r.tools[t.Name]; dup {
