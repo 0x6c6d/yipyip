@@ -23,7 +23,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify T000.sh 13/13 |
 | T101 | 1 | Config: optional search block | T000 | opus | todo | |
 | T102 | 1 | Search transport: search-only HTTP client (transport.go) | T101 | opus | todo | |
 | T103 | 1 | Brave search client and fake Brave endpoint | T102 | sonnet | todo | |
