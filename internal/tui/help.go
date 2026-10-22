@@ -19,7 +19,7 @@ var commands = []CommandInfo{
 	{Name: "/compact", Help: "summarize the conversation"},
 	{Name: "/undo", Help: "undo the last turn's file changes"},
 	{Name: "/sessions", Args: "[id | rm id]", Help: "list, load or remove saved sessions"},
-	{Name: "/jev", Args: "[stats]", Help: "toggle jev (System One); /jev stats shows its counters"},
+	{Name: "/jev", Args: "[stats]", Help: "toggle jev turn routing; /jev stats shows routing counters"},
 	{Name: "/skills", Help: "list the loaded skills"},
 	{Name: "/new", Help: "open a fresh session in a new tab"},
 	{Name: "/clear", Help: "alias of /new"},

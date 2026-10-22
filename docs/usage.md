@@ -51,14 +51,20 @@ Top-level keys:
   - `model`: default `jev-latest`.
   - `min_confidence`: a number from 0 to 1 (default 0.7); answers below it are
     ignored.
-  - `route.easy` / `route.hard`: configured `provider/model` ids for easy and
-    hard turns.
+  - `route`: three `<provider>/<model>` ids of configured providers: `easy`,
+    `medium` and `hard`. Only `hard` is required; an absent `easy` or `medium`
+    uses the `hard` model. An unknown model is rejected at load and the error
+    names the key (for example `jev.route.medium`).
 
 ```json
 "jev": {
   "baseURL": "https://api.typesafe.ai",
   "apiKey": "{env:TYPESAFE_API_KEY}",
-  "route": { "easy": "openrouter/small-model", "hard": "openrouter/big-model" }
+  "route": {
+    "easy": "openrouter/small-model",
+    "medium": "openrouter/mid-model",
+    "hard": "openrouter/big-model"
+  }
 }
 ```
 
@@ -105,8 +111,8 @@ colour.
 | `/clear` | alias of `/new` |
 | `/sessions [id \| rm id]` | list saved sessions, load one into this tab, or remove one |
 | `/skills` | list the loaded skills with their source (see [Skills](#skills)) |
-| `/jev` | toggle jev decisions (see [Jev decisions](#jev-decisions)) |
-| `/jev stats` | show the jev counters |
+| `/jev` | toggle jev turn routing (see [Jev decisions](#jev-decisions)) |
+| `/jev stats` | show the jev routing counters |
 | `/<skill> [args]` | run a skill |
 | `/exit` | quit |
 | `/quit` | alias of `/exit` |
@@ -194,6 +200,8 @@ time).
   `● a1 task (14s · 1.2k tokens)`.
 - `/agents` lists them, `/agents <id>` shows the subagent's transcript, and
   `/agents kill <id>` cancels one.
+- A subagent run stops after 500 model calls; the main agent stops after 50
+  per turn.
 
 ## Undo, compaction and the status line
 
@@ -277,8 +285,7 @@ checkboxes when the model allows several answers.
 - Questions are never approval-gated and work in both modes. The turn waits
   while the question is open. An answered question stays in the conversation as
   a line `Q: <question> → A: <answer>`.
-- With jev on, a single-choice question with at least 2 options can be
-  answered by jev (see [Jev decisions](#jev-decisions)).
+- Every question goes to you; jev does not answer questions.
 
 ## Skills
 
@@ -304,19 +311,36 @@ Review the changes in the working tree and list problems.
 
 ## Jev decisions
 
-Jev is a System One decision service. It is used only while the `jev` block is
-configured (see [Configuration](#configuration)). It starts off.
+Jev is a System One service that only routes turns to a model. It is used only
+while the `jev` block is configured (see [Configuration](#configuration)). It
+starts off.
 
-- `/jev` toggles it: `jev on` / `jev off`. Without the block it prints
-  `jev is not configured`. `/jev stats` shows the counters (answered,
-  fallbacks, input tokens).
-- With jev on, a single-choice question with at least 2 options can be answered
-  by jev; each turn can be routed to the `route.easy` or `route.hard` model
-  (the status line shows `jev` and `route: <id>`); and in auto mode a risky
-  tool call becomes an approval prompt.
-- Any jev error, timeout or low confidence falls back to the normal behaviour:
-  you answer the question, the current model runs the turn, and auto mode runs
-  the tool.
+- Jev rates each user turn 0, 1 or 2, which means easy, medium or hard, and the
+  turn runs on the `route.easy`, `route.medium` or `route.hard` model. The
+  choice holds for the whole turn and the status line shows `route: <id>`.
+  Use `easy` for questions, lookups and small local edits, `medium` for changes
+  across a few files, and `hard` for design, refactors and deep bugs.
+- Every `question` goes to you, and approvals work as without jev.
+- Any jev error, a 10 s timeout or low confidence falls back to the session's
+  model.
+- `/jev` toggles it and prints `jev on · easy=<id> medium=<id> hard=<id>`,
+  `jev on · no route configured` or `jev off`. Without the block it prints
+  `jev is not configured`.
+- `/jev stats` prints the routing counters, per tab and in memory:
+
+```text
+turns routed easy: N
+turns routed medium: N
+turns routed hard: N
+turns not routed: N
+jev fallbacks: N
+jev input tokens: N
+main tokens easy: N
+main tokens medium: N
+main tokens hard: N
+main tokens not routed: N
+avg main tokens per turn: easy N, medium N, hard N, not routed N
+```
 
 ## Retry
 
