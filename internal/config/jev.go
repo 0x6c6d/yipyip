@@ -24,8 +24,9 @@ type Jev struct {
 	Route         *JevRoute // nil when "route" is absent
 }
 
-// JevRoute is "jev.route": model ids "<provider>/<model>" for easy and hard turns.
-type JevRoute struct{ Easy, Hard string }
+// JevRoute is "jev.route": model ids "<provider>/<model>" for easy, medium
+// and hard turns, "" when the key is absent. Only "hard" is required.
+type JevRoute struct{ Easy, Medium, Hard string }
 
 // fillJev parses the "jev" object. It must run after fillProviders, since
 // route entries are checked against the configured models. Errors name JSON
@@ -106,13 +107,17 @@ func (c *Config) parseJevRoute(v any, path []string) (*JevRoute, error) {
 	}
 	r := &JevRoute{}
 	for _, f := range []struct {
-		key string
-		dst *string
-	}{{"easy", &r.Easy}, {"hard", &r.Hard}} {
+		key      string
+		dst      *string
+		required bool
+	}{{"easy", &r.Easy, false}, {"medium", &r.Medium, false}, {"hard", &r.Hard, true}} {
 		kpath := strings.Join(append(path[:len(path):len(path)], f.key), ".")
 		mv, ok := m[f.key]
 		if !ok {
-			return nil, fmt.Errorf("config: %q is required", kpath)
+			if f.required {
+				return nil, fmt.Errorf("config: %q is required", kpath)
+			}
+			continue
 		}
 		id, isStr := mv.(string)
 		if !isStr {

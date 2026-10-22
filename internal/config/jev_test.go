@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const jevProviders = `"provider":{"fake":{"options":{"baseURL":"http://127.0.0.1:9/v1","apiKey":"k"},"models":{"m1":{},"m2":{}}}}`
+const jevProviders = `"provider":{"fake":{"options":{"baseURL":"http://127.0.0.1:9/v1","apiKey":"k"},"models":{"m1":{},"m2":{},"m3":{}}}}`
 
 // loadJev loads a global config with the fake providers and the given "jev"
 // value (omitted when jev is ""), plus an optional project file.
@@ -56,7 +56,7 @@ func TestJevConfigUnset(t *testing.T) {
 	if cfg.Jev != nil {
 		t.Fatalf("Jev = %+v, want nil", cfg.Jev)
 	}
-	if len(cfg.ModelIDs()) != 2 {
+	if len(cfg.ModelIDs()) != 3 {
 		t.Fatalf("providers changed: %v", cfg.ModelIDs())
 	}
 }
@@ -160,4 +160,41 @@ func TestJevAllowedBaseURLs(t *testing.T) {
 	if got := cfg.AllowedBaseURLs(); !slices.Equal(got, []string{"http://127.0.0.1:9/v1"}) {
 		t.Fatalf("dedup: %q", got)
 	}
+}
+
+func TestJevRouteThreeTiers(t *testing.T) {
+	for _, c := range []struct {
+		route string
+		want  JevRoute
+	}{
+		{`{"easy":"fake/m1","medium":"fake/m2","hard":"fake/m3"}`, JevRoute{Easy: "fake/m1", Medium: "fake/m2", Hard: "fake/m3"}},
+		{`{"hard":"fake/m3"}`, JevRoute{Hard: "fake/m3"}},
+		{`{"medium":"fake/m2","hard":"fake/m3"}`, JevRoute{Medium: "fake/m2", Hard: "fake/m3"}},
+	} {
+		cfg, err := loadJev(t, `{"route":`+c.route+`}`, "")
+		if err != nil {
+			t.Fatalf("%s: %v", c.route, err)
+		}
+		if cfg.Jev == nil || cfg.Jev.Route == nil || *cfg.Jev.Route != c.want {
+			t.Fatalf("%s: route %+v, want %+v", c.route, cfg.Jev, c.want)
+		}
+	}
+}
+
+func TestJevRouteTwoKeys(t *testing.T) {
+	cfg, err := loadJev(t, `{"route":{"easy":"fake/m1","hard":"fake/m2"}}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := cfg.Jev.Route
+	if r == nil || *r != (JevRoute{Easy: "fake/m1", Hard: "fake/m2"}) || r.Medium != "" {
+		t.Fatalf("v4 route: %+v", r)
+	}
+}
+
+func TestJevRouteMediumUnknown(t *testing.T) {
+	jevReject(t, `{"route":{"easy":"fake/m1","medium":"fake/ghost","hard":"fake/m2"}}`, "jev.route.medium", "ghost")
+	jevReject(t, `{"route":{"medium":"other/phantom","hard":"fake/m2"}}`, "jev.route.medium", "phantom", "other")
+	jevReject(t, `{"route":{"easy":"fake/m1","medium":3,"hard":"fake/m2"}}`, "jev.route.medium")
+	jevReject(t, `{"route":{"easy":"fake/m1","medium":"fake/m2"}}`, "jev.route.hard")
 }
