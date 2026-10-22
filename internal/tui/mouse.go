@@ -63,6 +63,14 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if row, col, ok := m.inputCellAt(msg.X, msg.Y, false); ok {
+			m.sel = selection{}
+			m.inputClick(row, col)
+			return m, nil
+		}
+	}
+
 	msg.Y -= tabBarRows // the tab bar is the top screen row
 	switch msg.Action {
 	case tea.MouseActionPress:
