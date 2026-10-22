@@ -22,7 +22,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify passes (9 checks) |
 | T101 | 1 | Skills loader, project dir (internal/skills) | T000 | opus | todo | |
 | T102 | 1 | /<skill> args dispatch in the TUI | T101 | sonnet | todo | |
 | T201 | 2 | Skills loader: global dir, override, skips | T101 | opus | todo | |
