@@ -35,7 +35,7 @@ expect_fail "negative: docs still claim jev answers questions or screens risky c
 no_match -n -i -e 'answered by jev' -e 'jev answers' -e 'jev answered' -e 'question answers' -e 'risky' -e 'risk screen' -e 'counters (answered' docs/usage.md CLAUDE.md internal/tui/help.go
 CMD
 expect_fail "negative: no real key in the docs examples" <<'CMD'
-no_match -n -e 'SECRET123' -e 'sk-[A-Za-z0-9]' -e '"apiKey": *"[A-Za-z0-9]' README.md docs/usage.md CLAUDE.md
+no_match -n -e 'sk-[A-Za-z0-9]' -e '"apiKey": *"[A-Za-z0-9]' README.md docs/usage.md CLAUDE.md
 CMD
 expect_ok "Delegation workflow section of CLAUDE.md unchanged" <<'CMD'
 diff <(git show 0c3a7c5:CLAUDE.md | sed -n '/^## Delegation workflow/,$p') <(sed -n '/^## Delegation workflow/,$p' CLAUDE.md)

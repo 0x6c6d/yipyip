@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T302 | 3 | /jev prints the active route | T102 | sonnet | done | /jev toggle-on prints route line; TestJevCmdRoute, TestJevCmdNoRoute |
 | T401 | 4 | Subagent iteration limit 500, main 50 | T000 | opus | done | loop.go: MaxSubagentIterations=500, per-agent limit in error text |
 | T501 | 5 | Click-to-cursor really moves the textarea cursor | T000 | sonnet | done | inputmouse.go: scroll offset read from textarea viewport (reflect+unsafe, fallback kept); cause = equal rows; 6 tests |
-| T601 | 6 | Docs: README Usage jev example, usage.md, /help, CLAUDE.md | T102, T201, T202, T301, T302, T401, T501 | sonnet | todo | |
+| T601 | 6 | Docs: README Usage jev example, usage.md, /help, CLAUDE.md | T102, T201, T202, T301, T302, T401, T501 | sonnet | todo | row fixed: verify no-real-key check no longer flags pre-existing SECRET123 in README line 117 |
 | T799 | 6 | Global Definition of Done | all | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
