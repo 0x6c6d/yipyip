@@ -228,7 +228,11 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 					return out, "", err
 				}
 				if ok {
-					res = ts.run(ctx, tc.Name, tc.Arguments)
+					tctx := ctx
+					if tc.Name == toolQuestion {
+						tctx = withTurnHistory(ctx, out) // the jev state of the question
+					}
+					res = ts.run(tctx, tc.Name, tc.Arguments)
 					if tc.Name == "bash" {
 						s.recordBash(gen, tc.Arguments)
 					}
