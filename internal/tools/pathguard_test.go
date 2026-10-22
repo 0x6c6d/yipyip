@@ -205,3 +205,74 @@ func TestGuardRootSymlinked(t *testing.T) {
 		}
 	}
 }
+
+// readFixture creates base/{start,outside} (symlink-resolved) with
+// outside/f.txt and the symlink start/link -> outside, and returns the root
+// (start), the outside directory and a guard for the root.
+func readFixture(t *testing.T) (root, outside string, g *PathGuard) {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = filepath.Join(base, "start")
+	outside = filepath.Join(base, "outside")
+	for _, d := range []string{root, outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outside, "f.txt"), []byte("f"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, outside, filepath.Join(root, "link"))
+	return root, outside, newGuard(t, root)
+}
+
+func wantRead(t *testing.T, g *PathGuard, in, want string) {
+	t.Helper()
+	got, err := g.ResolveRead(in)
+	if err != nil {
+		t.Fatalf("ResolveRead(%q): unexpected error %v", in, err)
+	}
+	if got != want {
+		t.Fatalf("ResolveRead(%q) = %q, want %q", in, got, want)
+	}
+}
+
+func TestGuardReadAbsoluteOutside(t *testing.T) {
+	_, outside, g := readFixture(t)
+	f := filepath.Join(outside, "f.txt")
+	wantRead(t, g, f, f)
+}
+
+func TestGuardReadDotDot(t *testing.T) {
+	_, outside, g := readFixture(t)
+	wantRead(t, g, "../outside/f.txt", filepath.Join(outside, "f.txt"))
+}
+
+func TestGuardReadSymlinkOutside(t *testing.T) {
+	root, outside, g := readFixture(t)
+	wantRead(t, g, "link/f.txt", filepath.Join(outside, "f.txt"))
+	wantRead(t, g, "x.txt", filepath.Join(root, "x.txt"))
+	wantRead(t, g, "/", "/")
+}
+
+func TestGuardReadErrors(t *testing.T) {
+	root, outside, g := readFixture(t)
+	symlink(t, filepath.Join(outside, "nowhere"), filepath.Join(root, "dangling"))
+	for _, p := range []string{"", "a\x00b", "dangling", "dangling/x.txt"} {
+		if got, err := g.ResolveRead(p); err == nil {
+			t.Fatalf("ResolveRead(%q) = %q, want error", p, got)
+		}
+	}
+}
+
+func TestGuardWriteStillConfined(t *testing.T) {
+	root, outside, g := readFixture(t)
+	for _, p := range []string{filepath.Join(outside, "f.txt"), "../outside/new.txt", "link/f.txt", "link/sub/new.txt", "link"} {
+		wantOutside(t, g, p)
+	}
+	wantResolve(t, g, "x.txt", filepath.Join(root, "x.txt"))
+	wantResolve(t, g, "sub/new.txt", filepath.Join(root, "sub", "new.txt"))
+}

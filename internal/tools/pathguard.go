@@ -1,4 +1,9 @@
 // Package tools implements the file and shell tools available to the agent.
+//
+// File paths go through PathGuard: writes (and every caller that must stay
+// inside) use Resolve, which confines the result to the start directory;
+// reads use ResolveRead, which resolves the path the same way but may end
+// anywhere on the file system.
 package tools
 
 import (
@@ -15,7 +20,10 @@ import (
 // the start directory.
 var ErrOutsideStartDir = errors.New("path is outside the start directory")
 
-// PathGuard confines paths to the start directory. It is the only place that
+// PathGuard resolves paths relative to the start directory and confines
+// writes to it: Resolve (write mode) rejects every path that resolves outside
+// the start directory, ResolveRead (read mode) resolves the same way without
+// that check. It is the only place that resolves agent-supplied paths and
 // decides whether a path lies inside the start directory.
 type PathGuard struct {
 	root string
@@ -48,12 +56,38 @@ func NewPathGuard(startDir string) (*PathGuard, error) {
 // Root returns the absolute, symlink-resolved start directory.
 func (g *PathGuard) Root() string { return g.root }
 
-// Resolve returns the absolute, symlink-resolved form of p (relative paths
-// are taken relative to the root). It fails if p is empty, contains a
-// dangling symlink, or resolves outside the root; escapes wrap
-// ErrOutsideStartDir. Non-existent trailing components are allowed so that
-// new files can be created.
+// Resolve is the write-mode resolution, used by every caller that writes or
+// must stay inside the start directory. It returns the absolute,
+// symlink-resolved form of p (relative paths are taken relative to the root).
+// It fails if p is empty, contains a NUL byte or a dangling symlink, or
+// resolves outside the root; escapes wrap ErrOutsideStartDir. Non-existent
+// trailing components are allowed so that new files can be created.
 func (g *PathGuard) Resolve(p string) (string, error) {
+	resolved, err := g.resolve(p)
+	if err != nil {
+		return "", err
+	}
+	if !g.inside(resolved) {
+		return "", fmt.Errorf("%w: %s", ErrOutsideStartDir, p)
+	}
+	return resolved, nil
+}
+
+// ResolveRead is the read-mode resolution. It resolves p exactly like
+// Resolve (empty or NUL paths and dangling symlinks are errors, relative
+// paths start at the root, non-existent trailing components are allowed)
+// but without the inside-the-root check: absolute paths, ".." and symlinks
+// may resolve anywhere on the file system.
+func (g *PathGuard) ResolveRead(p string) (string, error) {
+	return g.resolve(p)
+}
+
+// resolve returns the absolute, clean, symlink-resolved form of p: relative
+// paths are joined to the root, the deepest existing ancestor is resolved with
+// filepath.EvalSymlinks (a dangling symlink or broken chain is an error and is
+// never followed) and the non-existent rest is appended. It does not check
+// where the result lies.
+func (g *PathGuard) resolve(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("empty path")
 	}
@@ -93,12 +127,7 @@ func (g *PathGuard) Resolve(p string) (string, error) {
 	for i := len(rest) - 1; i >= 0; i-- {
 		resolved = filepath.Join(resolved, rest[i])
 	}
-	resolved = filepath.Clean(resolved)
-
-	if !g.inside(resolved) {
-		return "", fmt.Errorf("%w: %s", ErrOutsideStartDir, p)
-	}
-	return resolved, nil
+	return filepath.Clean(resolved), nil
 }
 
 // inside reports whether the absolute, clean path abs equals the root or lies

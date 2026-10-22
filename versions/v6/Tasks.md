@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Session wiring of web_search, agent gate and Secret tests | T104, T201 | opus | done | session.go: search client wired to tools.Options.Search; 7 tests |
 | T203 | 2 | e2e: web_search Secret tests | T202 | opus | done | e2e/websearch_secret_test.go: 2 Secret tests, BRAVE_API_KEY in getenv stub |
 | T204 | 2 | TUI: approval summary shows the query, /help line | T000 | sonnet | done | tui approval summary = query, /help web_search block; 3 tests |
-| T301 | 3 | PathGuard read mode ResolveRead (pathguard.go) | T000 | opus | todo | |
+| T301 | 3 | PathGuard read mode ResolveRead (pathguard.go) | T000 | opus | done | pathguard.go: shared resolve helper, ResolveRead; Resolve unchanged; 5 tests |
 | T302 | 3 | read_file, glob, grep read anywhere; writes stay confined | T301 | sonnet | todo | |
 | T303 | 3 | System prompt read/write rule and web_search; undo stays inside | T202, T301 | sonnet | todo | |
 | T401 | 4 | Docs: docs/usage.md for search and reads | T104, T202, T204, T302, T303 | haiku | todo | |
