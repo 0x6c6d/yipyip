@@ -25,7 +25,11 @@ func cmdJev(m Model, args string) (Model, tea.Cmd) {
 		}
 		m.setJev(!sess.JevOn())
 		if m.jevOn {
-			m.add(blockInfo, "jev on")
+			if easy, medium, hard := sess.JevRoute(); hard == "" {
+				m.add(blockInfo, "jev on · no route configured")
+			} else {
+				m.add(blockInfo, "jev on · easy="+easy+" medium="+medium+" hard="+hard)
+			}
 		} else {
 			m.add(blockInfo, "jev off")
 		}

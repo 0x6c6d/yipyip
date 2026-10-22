@@ -18,6 +18,16 @@ import (
 // project file (none when jev is ""); TYPESAFE_API_KEY resolves to a fake key.
 func newJevModel(t *testing.T, srv *providertest.Server, jev string) (Model, *agent.Session) {
 	t.Helper()
+	project := ""
+	if jev != "" {
+		project = `{"jev":` + jev + `}`
+	}
+	return newJevProjectModel(t, srv, project)
+}
+
+// newJevProjectModel is newJevModel with a whole project file (none when "").
+func newJevProjectModel(t *testing.T, srv *providertest.Server, project string) (Model, *agent.Session) {
+	t.Helper()
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -31,8 +41,8 @@ func newJevModel(t *testing.T, srv *providertest.Server, jev string) (Model, *ag
 	if err := os.WriteFile(config.GlobalPath(home), []byte(providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", 8000)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if jev != "" {
-		if err := os.WriteFile(filepath.Join(dir, config.ProjectFile), []byte(`{"jev":`+jev+`}`), 0o644); err != nil {
+	if project != "" {
+		if err := os.WriteFile(filepath.Join(dir, config.ProjectFile), []byte(project), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -227,5 +237,42 @@ func TestJevHelp(t *testing.T) {
 	v := plain(m)
 	if !strings.Contains(v, "/jev ") || !strings.Contains(v, "/jev stats") {
 		t.Fatalf("/help does not list /jev:\n%s", v)
+	}
+}
+
+func jevRouteProject(route string) string {
+	j := `{"provider":{"fake":{"models":{"m3":{"name":"m3"},"m4":{"name":"m4"}}}},"jev":{"baseURL":"http://127.0.0.1:1","apiKey":"{env:TYPESAFE_API_KEY}"`
+	if route != "" {
+		j += `,"route":` + route
+	}
+	return j + `}}`
+}
+
+func TestJevCmdRoute(t *testing.T) {
+	srv := providertest.New()
+	defer srv.Close()
+	for _, c := range []struct{ route, want string }{
+		{`{"easy":"fake/m2","medium":"fake/m3","hard":"fake/m4"}`, "jev on · easy=fake/m2 medium=fake/m3 hard=fake/m4"},
+		{`{"easy":"fake/m2","hard":"fake/m4"}`, "jev on · easy=fake/m2 medium=fake/m4 hard=fake/m4"},
+	} {
+		m, sess := newJevProjectModel(t, srv, jevRouteProject(c.route))
+		m, _ = m.Command("/jev")
+		if !sess.JevOn() || !strings.Contains(plain(m), c.want) {
+			t.Fatalf("route %s: want %q in:\n%s", c.route, c.want, plain(m))
+		}
+		m, _ = m.Command("/jev")
+		if sess.JevOn() || !strings.Contains(plain(m), "jev off") {
+			t.Fatalf("toggle off:\n%s", plain(m))
+		}
+	}
+}
+
+func TestJevCmdNoRoute(t *testing.T) {
+	srv := providertest.New()
+	defer srv.Close()
+	m, sess := newJevProjectModel(t, srv, jevRouteProject(""))
+	m, _ = m.Command("/jev")
+	if !sess.JevOn() || !strings.Contains(plain(m), "jev on · no route configured") {
+		t.Fatalf("got:\n%s", plain(m))
 	}
 }

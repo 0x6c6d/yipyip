@@ -29,7 +29,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | Remove jev question answering | T000 | opus | done | question.go: jev answering removed; tests; tui TestJevStats adapted (v4 test relied on removed behaviour) |
 | T202 | 2 | Remove jev risk screen, approval.go back to pre-v4 | T000 | opus | done | approval.go == ba7d939^; risk screen removed; TestJevNoRiskQuestion, TestJevNoRiskScreen |
 | T301 | 3 | Routing-only jev stats and /jev stats lines | T102, T201, T202 | sonnet | done | JevStats per tier, 11 /jev stats lines; e2e TestJevE2E stat check adapted |
-| T302 | 3 | /jev prints the active route | T102 | sonnet | todo | |
+| T302 | 3 | /jev prints the active route | T102 | sonnet | done | /jev toggle-on prints route line; TestJevCmdRoute, TestJevCmdNoRoute |
 | T401 | 4 | Subagent iteration limit 500, main 50 | T000 | opus | todo | |
 | T501 | 5 | Click-to-cursor really moves the textarea cursor | T000 | sonnet | todo | |
 | T601 | 6 | Docs: README Usage jev example, usage.md, /help, CLAUDE.md | T102, T201, T202, T301, T302, T401, T501 | sonnet | todo | |
