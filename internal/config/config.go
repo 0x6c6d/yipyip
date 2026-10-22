@@ -37,6 +37,8 @@ type Config struct {
 	Providers map[string]Provider // keyed by provider id
 	EnvNames  []string            // sorted unique NAMEs referenced via {env:NAME}
 	Redactor  *Redactor           // never nil after Load; holds every resolved {env:} value
+
+	Jev *Jev // "jev", nil when absent
 }
 
 // Provider is one entry of the "provider" object.
@@ -190,6 +192,11 @@ func (c *Config) fill() error {
 	}
 	if v, ok := c.Raw["provider"]; ok {
 		if err := c.fillProviders(v); err != nil {
+			return err
+		}
+	}
+	if v, ok := c.Raw["jev"]; ok {
+		if err := c.fillJev(v); err != nil {
 			return err
 		}
 	}
