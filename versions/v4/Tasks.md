@@ -42,7 +42,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T407 | 4 | e2e TestJevE2E | T402, T403, T405, T406 | sonnet | done | e2e/jev_test.go TestJevE2E (easy route, jev answers question, risky bash prompts in auto, 500 fallback, no secret/key in jev requests), helpers_test.go maps TYPESAFE_API_KEY; no production change; verify 9/9 |
 | T501 | 5 | Input click-to-cursor | T000 | sonnet | done | tui/inputmouse.go inputCellAt(x,y,clamp)+inputClick, mouse.go press hook, inputmouse_test.go TestInputClick; textarea scroll offset inferred from rendered rows; verify 7/7 |
 | T502 | 5 | Input select-to-copy (redacted) | T501 | opus | done | tui/inputmouse.go inputMouse/inputSelectedText/inputView, mouse.go copyText helper (redact→clip→notice, both selections), model.go inSel + view hook; verify 10/10 |
-| T503 | 5 | Tab bar layout with × / + and 1-row bounds | T000 | sonnet | todo | |
+| T503 | 5 | Tab bar layout with × / + and 1-row bounds | T000 | sonnet | done | tui/tabbar.go tabBarLayout()+tabZone (switch/close/plus), bounds rules 1-6, min title 8 cells; row fixed: brief missed that TestCtrlWSavesAndSwitchesLeftNeighbour also pins the old bar format, only expected strings changed; verify 8/8 |
 | T504 | 5 | Tab bar clicks: × closes, + opens, title switches | T503 | sonnet | todo | |
 | T505 | 5 | Tab hotkeys trimmed to Ctrl+T / Ctrl+W | T504 | sonnet | todo | |
 | T601 | 6 | Shift+Enter removed (no modifyOtherKeys, no CSI map) | T000 | sonnet | todo | |
