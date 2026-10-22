@@ -62,6 +62,8 @@ var gatedTools = map[string]bool{
 	"write_file":  true,
 	"edit_file":   true,
 	"spawn_agent": true,
+	// web_search sends the query to the search host, so it needs approval.
+	"web_search": true,
 }
 
 // IsGated reports whether tool needs approval in manual mode.
