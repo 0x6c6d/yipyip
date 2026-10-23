@@ -24,7 +24,7 @@ const searchURLError = `config: "search.baseURL" must be an https URL (http only
 // fillSearch parses the "search" object. Errors name JSON paths only, never
 // values. The key is registered with the Redactor so a literal (non-{env:})
 // key is redacted like an {env:} value. The search base URL is deliberately
-// not part of AllowedBaseURLs: the search client builds its own transport.
+// not part of BaseURLs: the search client builds its own transport.
 func (c *Config) fillSearch(v any) error {
 	path := []string{"search"}
 	m, err := asObject(v, path)

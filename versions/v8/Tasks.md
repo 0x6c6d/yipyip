@@ -23,7 +23,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T101 | 1 | Remove jev from internal/tui and e2e | T000 | opus | done | jev removed from tui and e2e |
 | T102 | 1 | Remove jev from internal/agent (main turn on the session model) | T101 | opus | done | jev removed from agent |
 | T103 | 1 | Remove jev from internal/provider and providertest | T102 | opus | done | jev removed from provider |
-| T104 | 1 | Remove jev from internal/config (leftover key ignored) | T103 | opus | todo | |
+| T104 | 1 | Remove jev from internal/config (leftover key ignored) | T103 | opus | done | jev removed from config, leftover key ignored; row fixed: grep skips .yipyip |
 | T199 | 1 | Phase 1 exit (no jev in code) | T101, T102, T103, T104 | supervisor | todo | |
 | T201 | 2 | Remove the jev block from the README Usage section | T000 | haiku | todo | |
 | T202 | 2 | Remove jev from docs/usage.md | T000 | haiku | todo | |

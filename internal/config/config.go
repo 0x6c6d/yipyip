@@ -38,7 +38,6 @@ type Config struct {
 	EnvNames  []string            // sorted unique NAMEs referenced via {env:NAME}
 	Redactor  *Redactor           // never nil after Load; holds every resolved {env:} value
 
-	Jev    *Jev    // "jev", nil when absent
 	Search *Search // "search", nil when absent
 }
 
@@ -193,11 +192,6 @@ func (c *Config) fill() error {
 	}
 	if v, ok := c.Raw["provider"]; ok {
 		if err := c.fillProviders(v); err != nil {
-			return err
-		}
-	}
-	if v, ok := c.Raw["jev"]; ok {
-		if err := c.fillJev(v); err != nil {
 			return err
 		}
 	}

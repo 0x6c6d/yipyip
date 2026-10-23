@@ -138,23 +138,19 @@ func TestSearchConfigNoEcho(t *testing.T) {
 	}
 }
 
-func TestSearchNotInAllowedBaseURLs(t *testing.T) {
+func TestSearchNotInBaseURLs(t *testing.T) {
 	cfg, err := loadSearch(t,
-		`"jev":{"apiKey":"j"},"search":{"apiKey":"{env:BRAVE_API_KEY}","baseURL":"https://search.example.org/"}`,
+		`"search":{"apiKey":"{env:BRAVE_API_KEY}","baseURL":"https://search.example.org/"}`,
 		"", braveEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Search == nil || cfg.Jev == nil {
-		t.Fatalf("search=%+v jev=%+v", cfg.Search, cfg.Jev)
+	if cfg.Search == nil {
+		t.Fatal("search block not loaded")
 	}
-	allowed := cfg.AllowedBaseURLs()
-	if !slices.Contains(allowed, DefaultJevBaseURL) {
-		t.Fatalf("AllowedBaseURLs lost jev: %v", allowed)
-	}
-	for _, u := range append(allowed, cfg.BaseURLs()...) {
+	for _, u := range cfg.BaseURLs() {
 		if strings.Contains(u, "search.example.org") {
-			t.Fatalf("search URL in allowlist: %v / %v", allowed, cfg.BaseURLs())
+			t.Fatalf("search URL in BaseURLs: %v", cfg.BaseURLs())
 		}
 	}
 
@@ -162,9 +158,12 @@ func TestSearchNotInAllowedBaseURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, u := range append(cfg.AllowedBaseURLs(), cfg.BaseURLs()...) {
+	if cfg.Search == nil || cfg.Search.BaseURL != DefaultSearchBaseURL {
+		t.Fatalf("Search = %+v", cfg.Search)
+	}
+	for _, u := range cfg.BaseURLs() {
 		if u == DefaultSearchBaseURL {
-			t.Fatalf("default search URL in allowlist: %v", cfg.AllowedBaseURLs())
+			t.Fatalf("default search URL in BaseURLs: %v", cfg.BaseURLs())
 		}
 	}
 }
