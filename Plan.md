@@ -33,9 +33,8 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   parsing, `max_subagents` (4), `auto_compact` (true), ignores `cost`/`npm`; **Redactor** (resolved
   secrets → `[redacted]`); v3 settings write (only `model`/`effort`/`mode`, atomic, `{env:}` kept
   literal, never a secret); v6 `search` (`baseURL` `https://api.search.brave.com`, `apiKey` required,
-  https unless loopback, errors name the key); v8 `escalate_model` (configured id) + `escalate_after`
-  (int 1..20, default 3), errors name the key; v8: `jev` block removed, a leftover key is an ignored
-  unknown key; talks to: nothing. (v1; v3; v6; v8)
+  https unless loopback, errors name the key); v8: `jev` block removed, a leftover key is an
+  ignored unknown key; talks to: nothing. (v1; v3; v6; v8)
 - **internal/provider**: `Client.Stream(ctx, req) <-chan Event` → `POST <baseURL>/chat/completions`
   (Bearer if set, `stream:true`, `include_usage:true`, `tools`, `reasoning_effort` unless
   `reasoning:false`); own SSE parser; 4xx/5xx/dropped streams → redacted `ErrorEvent`s; v3 retry:
@@ -64,10 +63,8 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   **Approval gate** (`y/n/a`, "always" per tool per session; v6 + `web_search`; v8 + `web_fetch`);
   v3 **Question gate**: `question` (never gated, always to the user) blocks on a TUI reply
   channel → labels joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**,
-  compaction, `/init`, system prompt (+`AGENTS.md`); v8 **Escalation** (`escalate.go`, main loop
-  only): consecutive failed tool results (denied/cancelled neutral, success resets) reach
-  `escalate_after` → rest of the turn on `escalate_model`, same history, once per turn, info line,
-  session model untouched; v8: jev routing removed; talks to: provider, tools. (v1; v3; v7; v8)
+  compaction, `/init`, system prompt (+`AGENTS.md`); v8: jev routing removed, every main turn runs
+  on the session model; talks to: provider, tools. (v1; v3: question, restore; v7; v8)
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** (≤8, per-tab conversation/
   counters/history/pastes/queue/turn, global model/effort/mode); v4 bar exactly 1 row (`…`,
   current tab always visible), clickable `×`/`+`, tab keys only `Ctrl+T`/`Ctrl+W`; viewport
@@ -80,7 +77,7 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   change; only alt+enter newline (v4); text passes the redactor; talks to: agent, session,
   config, skills. (v1; reworked v2; extended v3, v4; v8)
 - **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`,
-  v3 `Session`, `Question`, `Retry`, v4 `Skills`, v8 `Escalate`, `WebFetch`; talks to: agent, tui.
+  v3 `Session`, `Question`, `Retry`, v4 `Skills`, v8 `WebFetch`; talks to: agent, tui.
 
 ## Commands
 - install: `go mod download`
@@ -106,7 +103,7 @@ example.
   input, shell/SQL/command construction), concurrency, cross-cutting refactors, anything touching
   a Consequential assumption. Examples: host-allowlist Transport; PathGuard; Bash runner;
   approval gate; Redactor/`{env:}` errors; subagent manager, turn cancellation; undo journal;
-  v8 fetch client and `web_fetch`, escalation trigger in the main loop.
+  v8 fetch client and `web_fetch`.
 - **Shared-code rule:** security-critical logic lives only in shared, opus-built code:
   `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go` (sole
   `os/exec` site), `internal/agent/approval.go`, `internal/config/redact.go`. Modules that only
@@ -126,7 +123,7 @@ deferrals "session persistence"/"config writes"; v4 skills "custom slash command
 - C: Approvals: "always" per tool per session, reset by `/new`; the gate is the only path to
   `Registry.Run` for gated tools (v6 + `web_search`, v8 + `web_fetch`); `question` never gated,
   always the user; skills grant nothing. Undo in memory; `bash` unsandboxed, process group killed
-  on timeout/Esc. Public interface: config schema (v6 `search`, v8 `escalate_*`, v8 drops `jev`),
+  on timeout/Esc. Public interface: config schema (v6 `search`, v8 drops `jev`),
   tool names/args (v6 `web_search`, v8 `web_fetch`), slash commands (v8 drops `/jev`),
   `<name>/SKILL.md`, session `version` 1, `<id>`.
 - C (v3): session files keep tool results un-redacted; interrupted turns stored as finished; queue
@@ -140,11 +137,9 @@ deferrals "session persistence"/"config writes"; v4 skills "custom slash command
   for it; T799 drift checks rebased to `4f99ac0` (approval.go guard kept).
 - C (v8): `web_fetch` = the only client to arbitrary hosts (SSRF): IP checked at dial after `Unmap`
   (rebinding, redirects), test-only `AllowAddr`, URL redacted before send/show, gated, content marked
-  untrusted. README R3/§5 "no web fetch tool" is stale (README 1-9 frozen), docs win.
-- C (v8, money): escalation counts only main-loop tool results (`IsError`; denied/`cancelled` neutral,
-  success resets), at most once per turn, never subagents, never changes session model/settings;
-  escalated tokens in normal totals. Diff guards use v8 start `a99a82f`; v4-v7 verify scripts
-  (incl. v5 `T799.sh`) pin jev and are not rerun; the v8 DoD carries the approval.go guard.
+  untrusted. README R3/§5 "no web fetch tool" is stale (README 1-9 frozen), docs win. Diff guards
+  use v8 start `a99a82f`; v4-v7 verify scripts (incl. v5 `T799.sh`) pin jev and are not rerun;
+  the v8 DoD carries the approval.go guard.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/Brave/`web_fetch` URLs only when
   the user runs `yip` by hand; a real host in tests or Makefile fails R18. No new modules; missing
   usage → chars/4 estimate. Testability: no teatest; TUI tests drive `Model.Update` + `View()`.
