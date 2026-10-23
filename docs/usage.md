@@ -46,30 +46,6 @@ Top-level keys:
   - `reasoning`: whether the model accepts a reasoning effort (default `true`).
   - `limit.context`: context window size in tokens, used for `ctx used/limit`.
   - `cost`: accepted for compatibility and ignored.
-- `jev`: optional block that turns on jev decisions (see
-  [Jev decisions](#jev-decisions)):
-  - `baseURL`: default `https://api.typesafe.ai`.
-  - `apiKey`: normally `{env:TYPESAFE_API_KEY}`.
-  - `model`: default `jev-latest`.
-  - `min_confidence`: a number from 0 to 1 (default 0.7); answers below it are
-    ignored.
-  - `route`: three `<provider>/<model>` ids of configured providers: `easy`,
-    `medium` and `hard`. Only `hard` is required; an absent `easy` or `medium`
-    uses the `hard` model. An unknown model is rejected at load and the error
-    names the key (for example `jev.route.medium`).
-
-```json
-"jev": {
-  "baseURL": "https://api.typesafe.ai",
-  "apiKey": "{env:TYPESAFE_API_KEY}",
-  "route": {
-    "easy": "openrouter/small-model",
-    "medium": "openrouter/mid-model",
-    "hard": "openrouter/big-model"
-  }
-}
-```
-
 - `search`: optional block that enables the `web_search` tool (see
   [Web search](#web-search)). Without it there is no web tool.
   - `baseURL`: default `https://api.search.brave.com`. It must be `https`; plain
@@ -132,8 +108,6 @@ colour.
 | `/clear` | alias of `/new` |
 | `/sessions [id \| rm id]` | list saved sessions, load one into this tab, or remove one |
 | `/skills` | list the loaded skills with their source (see [Skills](#skills)) |
-| `/jev` | toggle jev turn routing (see [Jev decisions](#jev-decisions)) |
-| `/jev stats` | show the jev routing counters |
 | `/<skill> [args]` | run a skill |
 | `/exit` | quit |
 | `/quit` | alias of `/exit` |
@@ -307,7 +281,6 @@ checkboxes when the model allows several answers.
 - Questions are never approval-gated and work in both modes. The turn waits
   while the question is open. An answered question stays in the conversation as
   a line `Q: <question> → A: <answer>`.
-- Every question goes to you; jev does not answer questions.
 
 ## Skills
 
@@ -330,39 +303,6 @@ Review the changes in the working tree and list problems.
 - `/skills` lists the skills with their source and a note when a built-in
   shadows one. Skills also appear in the `/` suggestions.
 - A file that cannot be loaded is skipped with one warning line.
-
-## Jev decisions
-
-Jev is a System One service that only routes turns to a model. It is used only
-while the `jev` block is configured (see [Configuration](#configuration)). It
-starts off.
-
-- Jev rates each user turn 0, 1 or 2, which means easy, medium or hard, and the
-  turn runs on the `route.easy`, `route.medium` or `route.hard` model. The
-  choice holds for the whole turn and the status line shows `route: <id>`.
-  Use `easy` for questions, lookups and small local edits, `medium` for changes
-  across a few files, and `hard` for design, refactors and deep bugs.
-- Every `question` goes to you, and approvals work as without jev.
-- Any jev error, a 10 s timeout or low confidence falls back to the session's
-  model.
-- `/jev` toggles it and prints `jev on · easy=<id> medium=<id> hard=<id>`,
-  `jev on · no route configured` or `jev off`. Without the block it prints
-  `jev is not configured`.
-- `/jev stats` prints the routing counters, per tab and in memory:
-
-```text
-turns routed easy: N
-turns routed medium: N
-turns routed hard: N
-turns not routed: N
-jev fallbacks: N
-jev input tokens: N
-main tokens easy: N
-main tokens medium: N
-main tokens hard: N
-main tokens not routed: N
-avg main tokens per turn: easy N, medium N, hard N, not routed N
-```
 
 ## Retry
 
@@ -412,7 +352,7 @@ tries to give instructions, and yip does not follow it as an instruction.
 - **Redaction**: the query and the results are redacted. A resolved secret in
   the query is sent as `[redacted]`.
 - **Network**: the Brave host is reached only by the search client. Provider
-  and jev calls never go there.
+  calls never go there.
 - **API key**: `BRAVE_API_KEY` is never shown, never written to a file and never
   sent anywhere but the Brave host. Like every `{env:NAME}` variable, it is
   removed from the `bash` environment.
@@ -420,9 +360,9 @@ tries to give instructions, and yip does not follow it as an instruction.
 ## Security
 
 - Network traffic goes only to the provider hosts configured in your config
-  files, the jev host while a `jev` block is configured, and the Brave host for
-  `web_search` while a `search` block is configured (by default
-  `api.search.brave.com`). yip makes no other web requests.
+  files and the Brave host for `web_search` while a `search` block is
+  configured (by default `api.search.brave.com`). yip makes no other web
+  requests.
 - File reads (`read_file`, `glob`, `grep`) accept absolute paths, `..` and
   symlinks anywhere on the file system. Relative paths start at the start
   directory. Reads are not approval-gated. Output is redacted and truncated,
@@ -441,8 +381,8 @@ tries to give instructions, and yip does not follow it as an instruction.
   (`Shift+Tab`) if you want to approve each one.
 - API keys should come from environment variables (`{env:NAME}`; a literal key
   in a config file is accepted but not recommended). They are never shown in
-  the UI or in errors, and never written to a file. Jev state and skill text
-  are redacted like all other text shown in the UI or sent to a model.
+  the UI or in errors, and never written to a file. Skill text is
+  redacted like all other text shown in the UI or sent to a model.
 - yip writes no logs. Its only files are the saved sessions in
   `<startdir>/.yipyip/` (see [Sessions](#sessions)) and the model, effort and
   mode settings in your user config (see [Settings defaults](#settings-defaults)).
