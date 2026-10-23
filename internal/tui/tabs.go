@@ -212,7 +212,6 @@ func (m *Model) addTab() error {
 	model, effort, mode := m.globals()
 	if sess != nil {
 		sess.RestoreModelEffortMode(model, effort, agent.Mode(mode))
-		_ = sess.SetJev(m.jevOn)
 	}
 	m.park()
 	m.tabs = append(m.tabs, newTab(m.ctx, sess))

@@ -7,7 +7,7 @@ import (
 
 func TestHelpTextListsCommands(t *testing.T) {
 	want := []string{"/model", "/effort", "/mode", "/agents", "/init", "/compact",
-		"/undo", "/sessions", "/jev", "/skills", "/new", "/clear", "/exit", "/quit", "/help"}
+		"/undo", "/sessions", "/skills", "/new", "/clear", "/exit", "/quit", "/help"}
 	cmds := Commands()
 	if len(cmds) != len(want) {
 		t.Fatalf("Commands() has %d entries, want %d", len(cmds), len(want))
@@ -76,7 +76,7 @@ func TestHelpStillListsOldEntries(t *testing.T) {
 func TestHelpMouseAndTabs(t *testing.T) {
 	text := HelpText()
 	lower := strings.ToLower(text)
-	for _, want := range []string{"/skills", "/jev", "Alt+Enter", "Ctrl+T", "Ctrl+W", "×", "+"} {
+	for _, want := range []string{"/skills", "Alt+Enter", "Ctrl+T", "Ctrl+W", "×", "+"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("HelpText() does not contain %q", want)
 		}

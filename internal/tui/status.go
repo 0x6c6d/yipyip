@@ -69,14 +69,6 @@ func (m Model) StatusRows() (row1, row2 string) {
 		effort = dimStyle.Render(effort)
 	}
 	fields := []string{model, effort, modeLabel(mode)}
-	if m.sess != nil {
-		if m.sess.JevOn() {
-			fields = append(fields, "jev")
-		}
-		if id := m.sess.TurnModel(); id != "" {
-			fields = append(fields, "route: "+m.redact(id))
-		}
-	}
 	if m.retryStatus != "" {
 		fields = append(fields, dimStyle.Render(m.retryStatus))
 	}
