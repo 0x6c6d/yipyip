@@ -45,7 +45,9 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   set; v6 `NewSearchHTTPClient`: only the search host, 20 s), `Proxy: nil`, other hosts + redirects
   rejected; v4 **JevClient** `POST <baseURL>/v1/systemone` (Bearer, `{model,state,questions}`);
   v6 `search.go` Brave client `GET /res/v1/web/search`; `providertest`: scripted SSE fake (v3
-  failures; v4 System One; v6 Brave); talks to: config. (v1; v3: retry; v4: jev; v6: search)
+  failures; v4 System One; v6 Brave); v8 `NewFetchHTTPClient` (`web_fetch` only): any host, dial-time
+  IP check (no loopback/private/link-local/unspecified/multicast), ≤5 re-checked redirects, 20 s, no
+  jar/auth, `User-Agent: yipyip`; talks to: config. (v1; v3: retry; v4: jev; v6: search; v8: fetch)
 - **internal/skills** (v4): `Load` from `~/.config/yipyip/skills/` + `<startdir>/.yipyip/skills/`
   (project wins, project paths via PathGuard), `<name>/SKILL.md`, hand-parsed `key: value`
   frontmatter, name `^[a-z0-9-]+$`, bad entries skipped with one warning; read-only; talks to: tools.
@@ -53,32 +55,34 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   `Save`/`Load`/`List` (newest first)/`Delete`; atomic temp+`os.Rename`; every path via PathGuard;
   `version`≠1 or invalid JSON → error naming the file; unknown fields ignored; imports agent only.
 - **internal/tools**: `Registry` (`read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`;
-  v6 `web_search` only with `search`, no other web-like name), **PathGuard** (`EvalSymlinks` of the
+  v6 `web_search` only with `search`; v8 `web_fetch` always, gated, stdlib HTML→text, 1 MiB read,
+  20,000 chars, untrusted marker; no other web-like name), **PathGuard** (`EvalSymlinks` of the
   deepest existing ancestor; `Resolve` = write mode, rejects outside; v6 `ResolveRead` for
   `read_file`/`glob`/`grep`, anywhere), **Bash runner** (only `os/exec` site, env without `{env:}`
-  vars), undo pre-write hook; talks to: config (redactor), provider (search). (v1; v6)
+  vars), undo pre-write hook; talks to: config (redactor), provider (search, v8 fetch). (v1; v6; v8)
 - **internal/agent**: `Session` (history, model/effort/mode, counters, turns, v3 export/restore);
   loop (v7: main turn unlimited, `MaxIterations` 0; v5 ≤500 per subagent run, per-turn ctx, Esc cancels);
-  **Approval gate** (`y/n/a`, "always" per tool per session; v5 no jev hook; v6 + `web_search`);
+  **Approval gate** (`y/n/a`, "always" per tool per session; v5 no jev hook; v6 + `web_search`; v8 + `web_fetch`);
   v3 **Question gate**: `question` (never gated, v5 always to the user) blocks on a TUI reply
   channel → labels joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**,
   compaction, `/init`, system prompt (+`AGENTS.md`); v4 `jev.go` **Jev decider** (v5: per-turn
   routing only, score 0/1/2 → easy/medium/hard, 10 s timeout/error/low confidence → session
   model, in-memory per-tier stats; v4 question auto-answer and risk screen removed); talks to:
-  provider, tools. (v1; v3: question, restore; v4: jev; v5: routing only; v7: no main limit)
+  provider, tools; v8 `jev_rate` (`jevrate.go`: jev configured, `/jev`-independent, not gated, unsure →
+  `medium`, own task counters). (v1; v3: question, restore; v4: jev; v5: routing; v7: no main limit; v8)
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** (≤8, per-tab conversation/
   counters/history/pastes/queue/turn, global model/effort/mode); v4 bar exactly 1 row (`…`,
   current tab always visible), clickable `×`/`+`, tab keys only `Ctrl+T`/`Ctrl+W`; viewport
   (chroma, subagent blocks), textarea (suggest, history, pastes, queue; v4 click-to-cursor, v5
   fixed: geometry from the rendered layout, textarea's own cursor; select-to-copy), status rows
   (v4 `jev`, routed model), scroll, copy-on-select; slash commands + v3 `/sessions` + v4
-  `/skills`, `/jev` (v5 prints the route; `/jev stats` per tier), `/<skill>` (built-ins win);
-  save of every tab on exit; overlays: model picker, approval prompt (v6 `web_search`: the query),
+  `/skills`, `/jev` (v5 prints the route; `/jev stats` per tier; v8 `/jev stats tasks`), `/<skill>` (built-ins win);
+  save of every tab on exit; overlays: model picker, approval prompt (v6 `web_search`: the query; v8 `web_fetch`: the URL),
   resume picker; v4 question block inline in the
   transcript; settings persist on change; only alt+enter newline (v4); text passes the redactor;
   talks to: agent, session, config, skills. (v1; reworked v2; extended v3, v4)
 - **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`,
-  v3 `Session`, `Question`, `Retry`, v4 `Skills`, `Jev`; talks to: agent, tui. (v1; v3; v4)
+  v3 `Session`, `Question`, `Retry`, v4 `Skills`, `Jev`, v8 `JevRate`, `WebFetch`; talks to: agent, tui.
 
 ## Commands
 - install: `go mod download`
@@ -137,6 +141,10 @@ deferrals "session persistence"/"config writes"; v4 skills "custom slash command
 - C (v7, money): main agent has no per-turn model-call limit (cost guard removed); `Esc` is the only
   brake (no budget, no loop guard). Supervisor-owned `scripts/verify/v5/T401.sh`/`T799.sh` rewritten
   for it; T799 drift checks rebased to `4f99ac0` (approval.go guard kept).
+- C (v8): `web_fetch` = the only client to arbitrary hosts (SSRF): IP checked at dial after `Unmap`
+  (rebinding, redirects), test-only `AllowAddr`, URL redacted before send/show, gated, content marked
+  untrusted; `jev_rate` sends redacted `task: `+text (≤2000) whenever jev is configured, `/jev` off too.
+  README R3/§5 "no web fetch tool" is stale (README frozen), docs win; v5 `T799.sh` rebased to `75b78f2`.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/`api.typesafe.ai`/Brave only when
   the user runs `yip` by hand; a real host in tests or Makefile fails R18. No new modules; missing
   usage → chars/4 estimate. Testability: no teatest; TUI tests drive `Model.Update` + `View()`.
