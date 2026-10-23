@@ -29,7 +29,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Remove jev from docs/usage.md | T000 | haiku | done | usage.md jev removed |
 | T203 | 2 | Remove jev from CLAUDE.md | T000 | haiku | done | CLAUDE.md jev removed |
 | T301 | 3 | Fetch HTTP client NewFetchHTTPClient | T199 | opus | done | NewFetchHTTPClient in transport.go, fetch_test.go |
-| T401 | 4 | Gate web_fetch in approval.go (one line) | T000 | opus | todo | |
+| T401 | 4 | Gate web_fetch in approval.go (one line) | T000 | opus | done | web_fetch gated in approval.go |
 | T402 | 4 | HTML-to-text converter (stdlib) | T000 | opus | todo | |
 | T403 | 4 | web_fetch tool: registration, URL check, request | T301, T401 | opus | todo | |
 | T404 | 4 | web_fetch tool: result (content types, 1 MiB, HTML, cut) | T402, T403 | opus | todo | |
