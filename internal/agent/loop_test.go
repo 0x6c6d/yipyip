@@ -276,6 +276,118 @@ func TestCancelStopsTurn(t *testing.T) {
 	}
 }
 
+func TestMainCancelLongTurn(t *testing.T) {
+	const rounds = 60
+	srv := providertest.NewFunc(func(n int, _ providertest.Request) fakeResp {
+		switch {
+		case n < rounds-1:
+			return fakeResp{ToolCalls: []fakeCall{{ID: fmt.Sprintf("g%d", n), Name: "glob", Arguments: `{"pattern":"*.none"}`}}}
+		case n == rounds-1:
+			return fakeResp{ToolCalls: []fakeCall{
+				{ID: "b59", Name: "bash", Arguments: `{"command":"sleep 30"}`},
+				{ID: "c59", Name: "glob", Arguments: `{"pattern":"*"}`},
+			}}
+		}
+		return fakeResp{Text: "unexpected"}
+	})
+	defer srv.Close()
+	s, _ := newLoopSession(t, srv)
+	s.SetMode(ModeAuto)
+	if err := s.Submit("work long"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	calls := 0
+	for calls < rounds {
+		ev, err := s.NextEvent(ctx)
+		if err != nil {
+			t.Fatalf("after %d tool calls: %v", calls, err)
+		}
+		switch {
+		case ev.Kind == EvTurnDone:
+			t.Fatalf("turn ended after %d tool calls, want cancel in round %d", calls, rounds)
+		case ev.Kind == EvError:
+			t.Fatalf("error after %d tool calls: %s", calls, ev.Text)
+		case ev.Kind == EvToolCall && ev.AgentID == MainAgentID:
+			calls++
+			if calls == rounds && ev.Tool != "bash" {
+				t.Fatalf("tool call %d is %q, want bash", calls, ev.Tool)
+			}
+		}
+	}
+	time.Sleep(200 * time.Millisecond) // let bash start
+	start := time.Now()
+	s.Cancel()
+	waitTurn(t, s, 2*time.Second)
+	if el := time.Since(start); el > 2*time.Second {
+		t.Fatalf("cancel took %v", el)
+	}
+	if s.Busy() {
+		t.Fatal("still busy")
+	}
+	evs := s.PollEvents()
+	if len(evs) == 0 || evs[len(evs)-1].Kind != EvTurnDone || !findEvent(evs, EvInfo, CancelledMessage) {
+		t.Fatalf("events %+v", evs)
+	}
+	for _, ev := range evs {
+		if ev.Kind == EvError && ev.AgentID == MainAgentID {
+			t.Errorf("unexpected error: %s", ev.Text)
+		}
+	}
+	if n := len(srv.Requests()); n != rounds {
+		t.Fatalf("requests = %d, want %d", n, rounds)
+	}
+
+	h := s.History()
+	assistants := 0
+	calledAt := map[string]int{}
+	for i, e := range h {
+		if e.Role != "assistant" {
+			continue
+		}
+		assistants++
+		if e.Content == "unexpected" {
+			t.Errorf("history %d: unexpected assistant answer", i)
+		}
+		for _, c := range e.ToolCalls {
+			calledAt[c.ID] = i
+			results := 0
+			for _, r := range h[i+1:] {
+				if r.Role == "tool" && r.ToolCallID == c.ID {
+					results++
+				}
+			}
+			if results != 1 {
+				t.Errorf("tool call %s has %d results, want 1", c.ID, results)
+			}
+		}
+	}
+	if assistants != rounds {
+		t.Errorf("assistant entries = %d, want %d", assistants, rounds)
+	}
+	results := map[string]string{}
+	for i, e := range h {
+		if e.Role != "tool" {
+			continue
+		}
+		if at, ok := calledAt[e.ToolCallID]; !ok || at >= i {
+			t.Errorf("history %d: tool result %q without a preceding call", i, e.ToolCallID)
+		}
+		results[e.ToolCallID] = e.Content
+	}
+	if _, ok := results["b59"]; !ok {
+		t.Error("no result for b59")
+	}
+	if got, ok := results["c59"]; !ok || got != CancelledMessage {
+		t.Errorf("c59 result = %q (present %v), want %q", got, ok, CancelledMessage)
+	}
+	s.Cancel() // no-op when idle
+	if s.Busy() {
+		t.Error("busy after idle Cancel")
+	}
+}
+
 func TestSubmitNoModel(t *testing.T) {
 	s, _ := newLoopSession(t, nil)
 	if err := s.Submit("hi"); !errors.Is(err, ErrNoModel) {
