@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ type Options struct {
 	BeforeWrite func(absPath string) // called by write tools before modifying a file (may be nil)
 	// Search is the web search client; nil = no web_search tool.
 	Search *provider.SearchClient
+	Fetch  *http.Client // web_fetch client; nil = provider.NewFetchHTTPClient(provider.FetchOptions{})
 }
 
 // toolFunc runs a tool with arguments that are known to be a JSON object.
@@ -50,6 +52,7 @@ type entry struct {
 type Registry struct {
 	opts  Options
 	guard *PathGuard
+	fetch *http.Client // web_fetch client (Options.Fetch or the default fetch client)
 	tools map[string]entry
 }
 
@@ -70,20 +73,27 @@ func NewRegistry(opts Options) (*Registry, error) {
 	if opts.Search != nil {
 		r.registerWebSearch()
 	}
+	r.registerWebFetch()
 
 	return r, nil
 }
 
-// forbiddenToolWords may never appear in a tool name: the only web tool is
-// web_search (WebSearchTool), which is exempt by its exact name.
+// forbiddenToolWords may never appear in a tool name: the only web tools are
+// web_search (WebSearchTool) and web_fetch (WebFetchTool), which are exempt
+// by their exact names.
 var forbiddenToolWords = []string{"web", "fetch", "search", "browse", "http", "url", "download", "curl"}
+
+// webToolName reports whether name is one of the two tool names exempt from
+// the web-like name check (exact, case-sensitive match).
+func webToolName(name string) bool { return name == WebSearchTool || name == WebFetchTool }
 
 // register adds a built-in tool. It panics on programming errors (duplicate
 // name, web-like name, schema that is not a JSON object schema). The only
-// web tool is web_search: exactly that name (case-sensitive) skips the
-// web-like name check, every other name with a forbidden word panics.
+// web tools are web_search and web_fetch: exactly these two names
+// (case-sensitive) skip the web-like name check, every other name with a
+// forbidden word panics.
 func (r *Registry) register(t Tool, fn toolFunc) {
-	if t.Name != WebSearchTool {
+	if !webToolName(t.Name) {
 		lower := strings.ToLower(t.Name)
 		for _, bad := range forbiddenToolWords {
 			if strings.Contains(lower, bad) {

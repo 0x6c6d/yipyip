@@ -29,6 +29,9 @@ func TestRegistryNoWebTools(t *testing.T) {
 	var names []string
 	for _, tool := range r.Tools() {
 		names = append(names, tool.Name)
+		if tool.Name == WebFetchTool {
+			continue
+		}
 		l := strings.ToLower(tool.Name)
 		for _, bad := range forbiddenToolWords {
 			if strings.Contains(l, bad) {
@@ -42,7 +45,10 @@ func TestRegistryNoWebTools(t *testing.T) {
 	if !r.Has("bash") {
 		t.Errorf("bash not registered: %v", names)
 	}
-	for _, n := range []string{"web_fetch", "web_search", "fetch", "curl", "http_get", "download"} {
+	if !r.Has("web_fetch") {
+		t.Errorf("web_fetch not registered: %v", names)
+	}
+	for _, n := range []string{"web_search", "fetch", "curl", "http_get", "download"} {
 		if r.Has(n) {
 			t.Errorf("Has(%q) = true", n)
 		}
@@ -51,19 +57,24 @@ func TestRegistryNoWebTools(t *testing.T) {
 		if tool.Name == "bash" && !tool.Gated {
 			t.Errorf("bash must be gated")
 		}
+		if tool.Name == "web_fetch" && !tool.Gated {
+			t.Errorf("web_fetch must be gated")
+		}
 	}
 
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Errorf("registering a web-like tool did not panic")
-			}
+	for _, n := range []string{"fetch", "Web_Fetch"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("registering web-like tool %q did not panic", n)
+				}
+			}()
+			r.register(Tool{Name: n, Parameters: json.RawMessage(`{"type":"object"}`)},
+				func(context.Context, json.RawMessage) Result { return Result{} })
 		}()
-		r.register(Tool{Name: "web_fetch", Parameters: json.RawMessage(`{"type":"object"}`)},
-			func(context.Context, json.RawMessage) Result { return Result{} })
-	}()
-	if r.Has("web_fetch") {
-		t.Errorf("web_fetch registered")
+		if r.Has(n) {
+			t.Errorf("%q registered", n)
+		}
 	}
 }
 
@@ -78,8 +89,8 @@ func TestRegistryBadStartDir(t *testing.T) {
 
 func TestRegistryUnknownTool(t *testing.T) {
 	r := newTestRegistry(t, Options{Redactor: config.NewRedactor("SECRET123")})
-	res := r.Run(context.Background(), "web_fetch", json.RawMessage(`{"url":"http://example.org"}`))
-	if !res.IsError || res.Output != "unknown tool: web_fetch" {
+	res := r.Run(context.Background(), "no_such_tool", json.RawMessage(`{"url":"http://example.org"}`))
+	if !res.IsError || res.Output != "unknown tool: no_such_tool" {
 		t.Errorf("unknown tool result = %+v", res)
 	}
 	res = r.Run(context.Background(), "SECRET123", json.RawMessage(`{}`))

@@ -13,7 +13,7 @@ import (
 	"yipyip/internal/provider"
 )
 
-// WebSearchTool is the name of the only web tool. It is registered only when
+// WebSearchTool is the name of the web search tool. It is registered only when
 // a search client is configured (Options.Search).
 const WebSearchTool = "web_search"
 

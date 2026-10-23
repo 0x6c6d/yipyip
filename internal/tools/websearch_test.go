@@ -254,7 +254,7 @@ func TestWebSearchNameRule(t *testing.T) {
 	if !r.Has("web_search") {
 		t.Errorf("web_search not registered")
 	}
-	for _, n := range []string{"web_fetch", "Web_Search", "web_search2", "my_web_search"} {
+	for _, n := range []string{"Web_Search", "web_search2", "my_web_search", "Web_Fetch", "web_fetch2", "my_web_fetch", "fetch", "curl", "http_get"} {
 		if !try(n) {
 			t.Errorf("%q registered without panic", n)
 		}
