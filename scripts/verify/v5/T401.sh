@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Verification for T401 (supervisor-owned; workers never edit it). Exit 0 = pass.
 . "$(dirname "$0")/../_lib.sh"
-expect_ok "named tests and the v1 iteration test" <<'CMD'
-go_tests ./internal/agent TestMainIterationLimit TestSubagentIterationLimit TestIterationLimit
+expect_ok "named tests: main unlimited, subagent 500" <<'CMD'
+go_tests ./internal/agent TestMainNoIterationLimit TestSubagentIterationLimit
 CMD
 expect_ok "phase 4 exit criterion" <<'CMD'
 go test -count=1 ./internal/agent/ -run 'IterationLimit'
@@ -130,7 +130,7 @@ func zzRig(t *testing.T) (*Session, *atomic.Int64, *atomic.Int64, *atomic.Int64)
 }
 
 func TestZZPosSubagent500(t *testing.T) {
-	if MaxIterations != 50 || MaxSubagentIterations != 500 {
+	if MaxIterations != 0 || MaxSubagentIterations != 500 {
 		t.Fatalf("limits %d %d", MaxIterations, MaxSubagentIterations)
 	}
 	s, sub, main, waitRes := zzRig(t)
@@ -152,46 +152,43 @@ func TestZZPosSubagent500(t *testing.T) {
 	}
 }
 
-func TestZZPosMain50(t *testing.T) {
-	s, _, main, _ := zzRig(t)
-	evs := zzTurn(t, s, "loop", 30*time.Second)
-	if main.Load() != 50 {
-		t.Fatalf("main requests = %d, want 50", main.Load())
+func TestZZPosMainUnlimited(t *testing.T) {
+	var reqs atomic.Int64
+	srv := providertest.NewFunc(func(n int, _ providertest.Request) providertest.Response {
+		reqs.Add(1)
+		if n >= 120 {
+			return providertest.Response{Text: "probe done"}
+		}
+		return providertest.Response{ToolCalls: []providertest.ToolCall{{ID: fmt.Sprintf("u%d", n), Name: "glob", Arguments: `{"pattern":"*.none"}`}}}
+	})
+	t.Cleanup(srv.Close)
+	s := zzSess(t, srv)
+	s.SetMode(ModeAuto)
+	evs := zzTurn(t, s, "unlimited", 30*time.Second)
+	if reqs.Load() != 121 {
+		t.Fatalf("main requests = %d, want 121", reqs.Load())
 	}
-	found := false
 	for _, ev := range evs {
-		if ev.Kind == EvError && strings.Contains(ev.Text, "iteration limit (50) reached") {
-			found = true
+		if ev.Kind == EvError && ev.AgentID == MainAgentID {
+			t.Fatalf("main turn failed: %s", ev.Text)
 		}
 	}
-	if !found {
-		t.Fatal("no iteration limit (50) error")
+	h := s.History()
+	if last := h[len(h)-1]; last.Role != "assistant" || last.Content != "probe done" {
+		t.Fatalf("last history entry %+v", last)
 	}
-}
-
-// TestZZEvil passes only when the main agent makes more than 50 model calls
-// in one turn.
-func TestZZEvil(t *testing.T) {
-	s, _, main, _ := zzRig(t)
-	zzTurn(t, s, "loop", 60*time.Second)
-	if main.Load() > 50 {
-		t.Logf("main agent made %d calls", main.Load())
-		return
+	if MaxIterations != 0 {
+		t.Errorf("MaxIterations = %d, want 0", MaxIterations)
 	}
-	t.Fatal("REJECTED: main agent stopped at 50")
 }
 EOF
 printf '{"Replace":{"%s":"%s"}}' "$ROOT/internal/agent/zz_verify_probe_test.go" "$VTMP/probe_test.go" > "$VTMP/overlay.json"
 CMD
-expect_ok "probe: subagent stops at exactly 500 calls, main at 50, error texts" <<'CMD'
-GOFLAGS="-overlay=$VTMP/overlay.json" go_tests ./internal/agent TestZZPosSubagent500 TestZZPosMain50
+expect_ok "probe: subagent stops at exactly 500 calls with its error text, main agent runs 121 requests unlimited" <<'CMD'
+GOFLAGS="-overlay=$VTMP/overlay.json" go_tests ./internal/agent TestZZPosSubagent500 TestZZPosMainUnlimited
 CMD
-expect_fail "negative: main agent exceeds 50 model calls in a turn" <<'CMD'
-out="$(go test -count=1 -overlay="$VTMP/overlay.json" -run '^TestZZEvil$' ./internal/agent 2>&1)"
-printf '%s\n' "$out"
-printf '%s\n' "$out" | grep -q -e 'REJECTED:' && exit 1
-printf '%s\n' "$out" | grep -q -e '^ok' && exit 0
-exit 125
+expect_fail "negative: no main 50 limit in internal/agent" <<'CMD'
+no_match -n -F -e 'iteration limit (50)' internal/agent/*.go
 CMD
 expect_ok "go.mod and go.sum unchanged" <<'CMD'
 git diff --quiet 0c3a7c5 -- go.mod go.sum
