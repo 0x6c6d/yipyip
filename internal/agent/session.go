@@ -34,7 +34,7 @@ const (
 type Options struct {
 	Config     *config.Config
 	StartDir   string
-	HTTPClient *http.Client // nil -> provider.NewHTTPClient(Config.AllowedBaseURLs())
+	HTTPClient *http.Client // nil -> provider.NewHTTPClient(Config.BaseURLs())
 }
 
 // Tokens are the accumulated token counts of a session.
@@ -46,7 +46,6 @@ type Session struct {
 	cfg      *config.Config
 	startDir string // absolute, symlink-resolved
 	hc       *http.Client
-	jev      *provider.JevClient // nil unless "jev" is configured with an apiKey
 	registry *tools.Registry
 	gate     *Gate
 	events   *eventQueue
@@ -69,12 +68,6 @@ type Session struct {
 	gen              uint64        // incremented by Reset so a stale turn can detect it
 	subs             *Manager      // subagents of the current generation
 	journal          []*turnRecord // undo journal, one record per turn (memory only)
-	jevOn            bool          // jev decides for the user; off at start, never persisted, kept by Reset
-	jevStats         JevStats      // memory only, kept by Reset
-	jevTimeout       time.Duration // test seam, see SetJevTimeout; 0 = JevTimeout
-	turnActive       bool          // a main-agent turn (Submit) is running
-	turnModel        string        // model id jev routed the running/last turn to; "" = not routed
-	turnTier         Tier          // effective tier of the running/last turn; TierNone = not routed
 
 	jmu sync.Mutex // guards the snapshots and bash lists of the journal records
 }
@@ -90,7 +83,7 @@ func NewSession(opts Options) (*Session, error) {
 	hc := opts.HTTPClient
 	if hc == nil {
 		var err error
-		hc, err = provider.NewHTTPClient(cfg.AllowedBaseURLs())
+		hc, err = provider.NewHTTPClient(cfg.BaseURLs())
 		if err != nil {
 			// A base URL may contain an {env:} value and URL parse errors
 			// quote the URL.
@@ -106,11 +99,8 @@ func NewSession(opts Options) (*Session, error) {
 		mode:    ModeManual,
 		sessID:  newSessionID(),
 	}
-	if j := cfg.Jev; j != nil && j.APIKey != "" {
-		s.jev = provider.NewJevClient(hc, j.BaseURL, j.APIKey, j.Model)
-	}
 	// The web search client gets its own search-only HTTP client: never
-	// opts.HTTPClient or the provider/jev client, which never learn the
+	// opts.HTTPClient or the provider client, which never learn the
 	// search URL.
 	var search *provider.SearchClient
 	if sc := cfg.Search; sc != nil {
@@ -140,10 +130,6 @@ func NewSession(opts Options) (*Session, error) {
 	s.subs = s.newManager(0)
 	return s, nil
 }
-
-// JevClient returns the session's jev client on the session's HTTP client,
-// or nil when "jev" is not configured or has no apiKey.
-func (s *Session) JevClient() *provider.JevClient { return s.jev }
 
 // ModelID returns the current model id ("" when none is configured).
 func (s *Session) ModelID() string {
