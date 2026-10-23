@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T401 | 4 | Gate web_fetch in approval.go (one line) | T000 | opus | done | web_fetch gated in approval.go |
 | T402 | 4 | HTML-to-text converter (stdlib) | T000 | opus | done | htmlToText converter |
 | T403 | 4 | web_fetch tool: registration, URL check, request | T301, T401 | opus | done | web_fetch tool: registration, URL check, request |
-| T404 | 4 | web_fetch tool: result (content types, 1 MiB, HTML, cut) | T402, T403 | opus | todo | |
+| T404 | 4 | web_fetch tool: result (content types, 1 MiB, HTML, cut) | T402, T403 | opus | done | web_fetch result handling |
 | T501 | 5 | Agent wiring: FetchClient seam, gated and registered tests | T401, T403 | opus | todo | |
 | T502 | 5 | System prompt web sentence | T403 | sonnet | todo | |
 | T503 | 5 | TUI approval prompt shows the web_fetch URL | T401, T403 | opus | todo | |
