@@ -20,7 +20,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | preflight script passes |
 | T101 | 1 | TestMainCancelLongTurn (cancel in the 60th tool round) | T000 | opus | done | loop_test.go: TestMainCancelLongTurn (60th round, 2 s bound, history intact) |
-| T102 | 1 | Verify already-done R64/R66 files and v1 T403 | T000 | supervisor | todo | |
+| T102 | 1 | Verify already-done R64/R66 files and v1 T403 | T000 | supervisor | done | verify-only, passes |
 | T201 | 2 | README R6 requirement and acceptance line | T000 | supervisor | todo | |
 | T202 | 2 | Rewrite scripts/verify/v5/T401.sh for R64 | T000 | supervisor | todo | |
 | T203 | 2 | Rewrite scripts/verify/v5/T799.sh for R64, rebase drift checks | T202 | supervisor | todo | |
