@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrHostNotAllowed is wrapped by every error returned for a request whose
@@ -210,6 +213,171 @@ func newAllowlistClient(t *Transport) *http.Client {
 			}
 			if ok, target := t.allows(req.URL); !ok {
 				return fmt.Errorf("%w: redirect to %s", ErrHostNotAllowed, target)
+			}
+			return nil
+		},
+	}
+}
+
+// The web_fetch client (NewFetchHTTPClient) is the only client that reaches
+// arbitrary hosts. Instead of a host allowlist it checks the resolved address
+// of every connection in the dialer's Control function, so DNS names, DNS
+// rebinding and redirects are all covered by the same check.
+
+// FetchTimeout is the default overall timeout of one web_fetch call,
+// redirects included.
+const FetchTimeout = 20 * time.Second
+
+// MaxFetchRedirects is the maximum number of redirects the fetch client
+// follows.
+const MaxFetchRedirects = 5
+
+// MaxFetchURLLen is the maximum length of a web_fetch URL in characters
+// (runes).
+const MaxFetchURLLen = 2000
+
+// ErrAddressNotAllowed is returned by the fetch client's dialer for a
+// connection to a loopback, private, link-local, multicast, unspecified or
+// otherwise non-public address.
+var ErrAddressNotAllowed = errors.New("address not allowed")
+
+// ErrTooManyRedirects is returned when a fetch follows more than
+// MaxFetchRedirects redirects.
+var ErrTooManyRedirects = errors.New("too many redirects")
+
+// ErrRedirectNotAllowed is returned when a redirect target fails
+// ValidateFetchURL.
+var ErrRedirectNotAllowed = errors.New("redirect not allowed")
+
+// FetchOptions configures NewFetchHTTPClient.
+type FetchOptions struct {
+	Timeout   time.Duration // 0 = FetchTimeout
+	AllowAddr string        // test hook: one exact resolved "ip:port" exempt from the address check; "" in production
+}
+
+// fetchUserAgent is the fixed User-Agent of every fetch request.
+const fetchUserAgent = "yipyip"
+
+// ValidateFetchURL checks raw against the web_fetch URL rule and returns the parsed URL.
+// The error text is a short reason without the URL, e.g. "url is empty", "url is longer than 2000 characters",
+// "scheme must be http or https", "url has no host", "url must not contain user info", "cannot parse url".
+func ValidateFetchURL(raw string) (*url.URL, error) {
+	if raw == "" {
+		return nil, errors.New("url is empty")
+	}
+	if utf8.RuneCountInString(raw) > MaxFetchURLLen {
+		return nil, fmt.Errorf("url is longer than %d characters", MaxFetchURLLen)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, errors.New("cannot parse url")
+	}
+	if s := strings.ToLower(u.Scheme); s != "http" && s != "https" {
+		return nil, errors.New("scheme must be http or https")
+	}
+	if u.User != nil {
+		return nil, errors.New("url must not contain user info")
+	}
+	if u.Hostname() == "" {
+		return nil, errors.New("url has no host")
+	}
+	return u, nil
+}
+
+// fetchAddrAllowed reports whether the fetch client may connect to a. It
+// refuses loopback, private (incl. fc00::/7), link-local unicast, link-local
+// multicast, interface-local multicast, multicast, unspecified, 0.0.0.0/8
+// and invalid addresses; IPv4-mapped IPv6 addresses are judged as IPv4.
+// CGNAT (100.64.0.0/10) and other public addresses are allowed.
+func fetchAddrAllowed(a netip.Addr) bool {
+	if !a.IsValid() {
+		return false
+	}
+	a = a.Unmap().WithZone("")
+	switch {
+	case a.IsLoopback(), a.IsPrivate(), a.IsLinkLocalUnicast(),
+		a.IsLinkLocalMulticast(), a.IsInterfaceLocalMulticast(),
+		a.IsMulticast(), a.IsUnspecified():
+		return false
+	}
+	if a.Is4() && a.As4()[0] == 0 { // 0.0.0.0/8
+		return false
+	}
+	return true
+}
+
+// fetchDialControl returns the dialer Control function of the fetch client:
+// it checks the resolved address of every connection before it is made.
+// allowAddr, when not empty, exempts exactly that "ip:port" (tests only).
+func fetchDialControl(allowAddr string) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if allowAddr != "" && address == allowAddr {
+			return nil
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return ErrAddressNotAllowed
+		}
+		a, err := netip.ParseAddr(host)
+		if err != nil || !fetchAddrAllowed(a) {
+			return ErrAddressNotAllowed
+		}
+		return nil
+	}
+}
+
+// fetchTransport clones every request (redirects included), sets the fixed
+// User-Agent and removes credentials and cookies before passing it on.
+type fetchTransport struct {
+	inner *http.Transport
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *fetchTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r := req.Clone(req.Context())
+	r.Header.Set("User-Agent", fetchUserAgent)
+	r.Header.Del("Authorization")
+	r.Header.Del("Proxy-Authorization")
+	r.Header.Del("Cookie")
+	return t.inner.RoundTrip(r)
+}
+
+// NewFetchHTTPClient returns a new client for web_fetch: its own transport
+// (no proxy, TLS >= 1.2, bounded dial and handshake times, the resolved
+// address of every connection checked by fetchAddrAllowed), no cookie jar,
+// at most MaxFetchRedirects redirects whose targets must pass
+// ValidateFetchURL, and an overall timeout of opts.Timeout (FetchTimeout
+// when 0).
+func NewFetchHTTPClient(opts FetchOptions) *http.Client {
+	timeout := opts.Timeout
+	if timeout == 0 {
+		timeout = FetchTimeout
+	}
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   fetchDialControl(opts.AllowAddr),
+	}
+	inner := &http.Transport{
+		Proxy:                 nil,
+		DialContext:           dialer.DialContext,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout:   10 * time.Second,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{
+		Transport: &fetchTransport{inner: inner},
+		Jar:       nil,
+		Timeout:   timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > MaxFetchRedirects {
+				return ErrTooManyRedirects
+			}
+			if _, err := ValidateFetchURL(req.URL.String()); err != nil {
+				return ErrRedirectNotAllowed
 			}
 			return nil
 		},
