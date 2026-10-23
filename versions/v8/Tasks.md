@@ -19,7 +19,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | preflight passes |
 | T101 | 1 | Remove jev from internal/tui and e2e | T000 | opus | todo | |
 | T102 | 1 | Remove jev from internal/agent (main turn on the session model) | T101 | opus | todo | |
 | T103 | 1 | Remove jev from internal/provider and providertest | T102 | opus | todo | |
