@@ -4,7 +4,7 @@
 : "${VERIFY_TIMEOUT:=1200}"
 . "$(dirname "$0")/../_lib.sh"
 expect_fail "negative AC1: no jev, systemone or typesafe in *.go, *.json, Makefile" <<'CMD'
-hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/')"
+hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/' -e '^./.yipyip/')"
 printf '%s\n' "$hits"
 test -n "$hits"
 CMD

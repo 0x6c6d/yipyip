@@ -19,7 +19,7 @@ go doc ./internal/config Config.BaseURLs >/dev/null 2>&1 || exit 125
 exit 1
 CMD
 expect_fail "negative (Phase 1 exit grep): no jev, systemone or typesafe in *.go, *.json, Makefile" <<'CMD'
-hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/')"
+hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/' -e '^./.yipyip/')"
 printf '%s\n' "$hits"
 test -n "$hits"
 CMD

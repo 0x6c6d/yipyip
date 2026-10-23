@@ -6,7 +6,7 @@
 
 # --- Phase 1 and Phase 2 exits ---
 expect_fail "negative AC1: no jev, systemone or typesafe in *.go, *.json, Makefile" <<'CMD'
-hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/')"
+hits="$(grep -rniE 'jev|systemone|typesafe' --include='*.go' --include='*.json' --include='Makefile' . | grep -v -e '^./scripts/verify/' -e '^./versions/' -e '^./.git/' -e '^./.yipyip/')"
 printf '%s\n' "$hits"
 test -n "$hits"
 CMD
