@@ -58,14 +58,14 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   `read_file`/`glob`/`grep`, anywhere), **Bash runner** (only `os/exec` site, env without `{env:}`
   vars), undo pre-write hook; talks to: config (redactor), provider (search). (v1; v6)
 - **internal/agent**: `Session` (history, model/effort/mode, counters, turns, v3 export/restore);
-  loop (≤50 model calls per main turn, v5 ≤500 per subagent run, per-turn ctx, Esc cancels);
+  loop (v7: main turn unlimited, `MaxIterations` 0; v5 ≤500 per subagent run, per-turn ctx, Esc cancels);
   **Approval gate** (`y/n/a`, "always" per tool per session; v5 no jev hook; v6 + `web_search`);
   v3 **Question gate**: `question` (never gated, v5 always to the user) blocks on a TUI reply
   channel → labels joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**,
   compaction, `/init`, system prompt (+`AGENTS.md`); v4 `jev.go` **Jev decider** (v5: per-turn
   routing only, score 0/1/2 → easy/medium/hard, 10 s timeout/error/low confidence → session
   model, in-memory per-tier stats; v4 question auto-answer and risk screen removed); talks to:
-  provider, tools. (v1; v3: question, restore; v4: jev; v5: routing only)
+  provider, tools. (v1; v3: question, restore; v4: jev; v5: routing only; v7: no main limit)
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** (≤8, per-tab conversation/
   counters/history/pastes/queue/turn, global model/effort/mode); v4 bar exactly 1 row (`…`,
   current tab always visible), clickable `×`/`+`, tab keys only `Ctrl+T`/`Ctrl+W`; viewport
@@ -134,6 +134,9 @@ deferrals "session persistence"/"config writes"; v4 skills "custom slash command
   `hard`, v4 two-key routes still load; subagent runs up to 500 model calls (× `max_subagents`).
   C (v2): start mode `auto`; `atotto/clipboard` (clipboard.go) is the sole exec besides `bash.go`;
   history/pastes/queue memory-only except the v3 session file.
+- C (v7, money): main agent has no per-turn model-call limit (cost guard removed); `Esc` is the only
+  brake (no budget, no loop guard). Supervisor-owned `scripts/verify/v5/T401.sh`/`T799.sh` rewritten
+  for it; T799 drift checks rebased to `4f99ac0` (approval.go guard kept).
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/`api.typesafe.ai`/Brave only when
   the user runs `yip` by hand; a real host in tests or Makefile fails R18. No new modules; missing
   usage → chars/4 estimate. Testability: no teatest; TUI tests drive `Model.Update` + `View()`.
