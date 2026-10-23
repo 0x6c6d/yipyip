@@ -27,7 +27,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T199 | 1 | Phase 1 exit (no jev in code) | T101, T102, T103, T104 | supervisor | done | phase 1 exit passes |
 | T201 | 2 | Remove the jev block from the README Usage section | T000 | haiku | done | README jev block removed |
 | T202 | 2 | Remove jev from docs/usage.md | T000 | haiku | done | usage.md jev removed |
-| T203 | 2 | Remove jev from CLAUDE.md | T000 | haiku | todo | |
+| T203 | 2 | Remove jev from CLAUDE.md | T000 | haiku | done | CLAUDE.md jev removed |
 | T301 | 3 | Fetch HTTP client NewFetchHTTPClient | T199 | opus | todo | |
 | T401 | 4 | Gate web_fetch in approval.go (one line) | T000 | opus | todo | |
 | T402 | 4 | HTML-to-text converter (stdlib) | T000 | opus | todo | |
