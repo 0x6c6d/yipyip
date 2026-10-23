@@ -7,8 +7,11 @@ CMD
 expect_ok "R53: TestJevRouteMediumUnknown names jev.route.medium" <<'CMD'
 grep -q -F -e 'jev.route.medium' internal/config/jev_test.go
 CMD
-expect_ok "R54, R6: iteration limit tests by name" <<'CMD'
-go_tests ./internal/agent TestSubagentIterationLimit TestMainIterationLimit
+expect_ok "R54, R6 (v7: R64): iteration limit tests by name" <<'CMD'
+go_tests ./internal/agent TestSubagentIterationLimit TestMainNoIterationLimit
+CMD
+expect_ok "R64: main agent unlimited, subagent limit 500 (constants)" <<'CMD'
+grep -n 'const MaxIterations = 0' internal/agent/loop.go && grep -n 'const MaxSubagentIterations = 500' internal/agent/loop.go
 CMD
 expect_ok "R55: /jev route tests by name; README Usage has medium" <<'CMD'
 go_tests ./internal/tui TestJevCmdRoute TestJevCmdNoRoute && test "$(sed -n '/^## Usage/,$p' README.md | grep -c '"medium"')" -ge 1
@@ -19,9 +22,9 @@ CMD
 expect_ok "R49, R51: e2e tests by name (and TestJevE2E)" <<'CMD'
 go_tests ./e2e TestJevQuestionGoesToUser TestJevNoRiskScreen TestJevE2E
 CMD
-expect_ok "R51: approval.go equals its pre-v4 version" <<'CMD'
-git rev-parse -q --verify 'ba7d939^{commit}' >/dev/null || exit 125
-git diff --quiet ba7d939^ -- internal/agent/approval.go && test -z "$(git status --porcelain -- internal/agent/approval.go)"
+expect_ok "R51: approval.go unchanged since the v7 start (4f99ac0)" <<'CMD'
+git rev-parse -q --verify '4f99ac0^{commit}' >/dev/null || exit 125
+git diff --quiet 4f99ac0 -- internal/agent/approval.go && test -z "$(git status --porcelain -- internal/agent/approval.go)"
 CMD
 expect_ok "R52: fallback tests by name" <<'CMD'
 go_tests ./internal/agent TestRouteFallbackError TestRouteFallbackTimeout TestRouteFallbackLowConfidence
@@ -47,14 +50,17 @@ CMD
 expect_fail "negative: R48 QuestionTokens in internal" <<'CMD'
 no_match -rn -e 'QuestionTokens' internal
 CMD
-expect_fail "negative: protected-path diff against 0c3a7c5 is not empty" <<'CMD'
-git rev-parse -q --verify '0c3a7c5^{commit}' >/dev/null || exit 125
-paths="Plan.md prompts .claude scripts/verify/_lib.sh versions/v5/spec.md versions/v5/plan.md internal/provider/transport.go internal/tools internal/config/redact.go"
-out="$(git diff --stat 0c3a7c5 -- $paths && git status --porcelain --untracked-files=all -- $paths)" || exit 125
+expect_fail "negative: protected-path diff against 4f99ac0 is not empty" <<'CMD'
+git rev-parse -q --verify '4f99ac0^{commit}' >/dev/null || exit 125
+paths="prompts .claude scripts/verify/_lib.sh versions/v5/spec.md versions/v5/plan.md internal/provider/transport.go internal/tools internal/config/redact.go"
+out="$(git diff --stat 4f99ac0 -- $paths && git status --porcelain --untracked-files=all -- $paths)" || exit 125
 printf '%s' "$out" | no_match -e .
 CMD
-expect_fail "negative: README sections 1-9 changed" <<'CMD'
-! diff <(git show 0c3a7c5:README.md | sed '/^## Usage/,$d') <(sed '/^## Usage/,$d' README.md)
+expect_fail "negative: README sections 1-9 changed (v7: only the two R6 lines may differ from 4f99ac0)" <<'CMD'
+! diff <(git show 4f99ac0:README.md | sed '/^## Usage/,$d' | grep -v -e '^- R6\. ' -e '^- \[ \] Agent loop test with a scripted fake provider') <(sed '/^## Usage/,$d' README.md | grep -v -e '^- R6\. ' -e '^- \[ \] Agent loop test with a scripted fake provider')
+CMD
+expect_fail "negative: main 50 limit text in internal/agent" <<'CMD'
+no_match -n -F -e 'iteration limit (50)' internal/agent/*.go
 CMD
 expect_fail "negative: Delegation workflow section of CLAUDE.md changed" <<'CMD'
 ! diff <(git show 0c3a7c5:CLAUDE.md | sed -n '/^## Delegation workflow/,$p') <(sed -n '/^## Delegation workflow/,$p' CLAUDE.md)

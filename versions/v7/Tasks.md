@@ -23,7 +23,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T102 | 1 | Verify already-done R64/R66 files and v1 T403 | T000 | supervisor | done | verify-only, passes |
 | T201 | 2 | README R6 requirement and acceptance line | T000 | supervisor | done | README.md: R6 requirement and acceptance line |
 | T202 | 2 | Rewrite scripts/verify/v5/T401.sh for R64 | T000 | supervisor | done | v5 T401.sh: main-50 probes replaced by TestZZPosMainUnlimited |
-| T203 | 2 | Rewrite scripts/verify/v5/T799.sh for R64, rebase drift checks | T202 | supervisor | todo | |
+| T203 | 2 | Rewrite scripts/verify/v5/T799.sh for R64, rebase drift checks | T202 | supervisor | done | v5 T799.sh: main-50 dropped, drift checks rebased to 4f99ac0 |
 | T204 | 2 | Commit and Phase 2 exit (v5 scripts pass on the committed tree) | T101, T201, T202, T203 | supervisor | todo | |
 | T299 | 2 | Global Definition of Done | T102, T204 | supervisor | todo | |
 
