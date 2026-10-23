@@ -1,6 +1,6 @@
 // Package provider talks to OpenAI-compatible chat APIs. All of yipyip's
 // outgoing HTTP goes through the host-allowlist Transport defined here: the
-// provider/jev client (NewHTTPClient) and the separate search-only client
+// provider client (NewHTTPClient) and the separate search-only client
 // (NewSearchHTTPClient), whose allowlists never share the search host.
 package provider
 
@@ -182,7 +182,7 @@ func NewHTTPClient(baseURLs []string) (*http.Client, error) {
 // NewSearchHTTPClient returns a client for the web search service only: its
 // Transport allows exactly the canonical host:port of baseURL, redirects are
 // checked against that single host (at most 10), and every request is bounded
-// by SearchTimeout. The search host is never added to the provider/jev
+// by SearchTimeout. The search host is never added to the provider
 // client. An empty or invalid baseURL yields an error that does not contain
 // the URL.
 func NewSearchHTTPClient(baseURL string) (*http.Client, error) {

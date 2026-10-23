@@ -1,7 +1,6 @@
 package provider_test
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -45,8 +44,8 @@ func searchGet(c *http.Client, u string) error {
 	return nil
 }
 
-// searchConfig loads a real config with provider, jev and search configured.
-func searchConfig(t *testing.T, providerURL, jevURL, searchURL string) *config.Config {
+// searchConfig loads a real config with a provider and a search block.
+func searchConfig(t *testing.T, providerURL, searchURL string) *config.Config {
 	t.Helper()
 	home, dir := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Dir(config.GlobalPath(home)), 0o755); err != nil {
@@ -55,7 +54,7 @@ func searchConfig(t *testing.T, providerURL, jevURL, searchURL string) *config.C
 	if err := os.WriteFile(config.GlobalPath(home), []byte(providertest.ConfigJSON(providerURL+"/v1", "k", 8000)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	project := `{"jev":{"baseURL":"` + jevURL + `","apiKey":"k3"},"search":{"baseURL":"` + searchURL + `","apiKey":"k2"}}`
+	project := `{"search":{"baseURL":"` + searchURL + `","apiKey":"k2"}}`
 	if err := os.WriteFile(filepath.Join(dir, config.ProjectFile), []byte(project), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -100,50 +99,29 @@ func TestSearchTransportReachesSearchHost(t *testing.T) {
 
 func TestSearchTransportRefusesProviderHost(t *testing.T) {
 	prov, pn := countingServer(t, nil)
-	jev, jn := countingServer(t, nil)
 	s, _ := countingServer(t, nil)
 	c, err := provider.NewSearchHTTPClient(s.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, u := range []string{prov.URL + "/v1/chat/completions", jev.URL + "/v1/systemone"} {
-		if err := searchGet(c, u); !errors.Is(err, provider.ErrHostNotAllowed) {
-			t.Fatalf("%s: want ErrHostNotAllowed, got %v", u, err)
-		}
+	u := prov.URL + "/v1/chat/completions"
+	if err := searchGet(c, u); !errors.Is(err, provider.ErrHostNotAllowed) {
+		t.Fatalf("%s: want ErrHostNotAllowed, got %v", u, err)
 	}
-	if pn.Load() != 0 || jn.Load() != 0 {
-		t.Fatalf("refused hosts got requests: provider %d, jev %d", pn.Load(), jn.Load())
+	if got := pn.Load(); got != 0 {
+		t.Fatalf("refused provider host got %d requests", got)
 	}
 }
 
 func TestSearchHostRefusedForProviderClient(t *testing.T) {
 	prov, _ := countingServer(t, nil)
-	jev, _ := countingServer(t, nil)
 	s, sn := countingServer(t, nil)
-	cfg := searchConfig(t, prov.URL, jev.URL, s.URL)
-	hc, err := provider.NewHTTPClient(cfg.AllowedBaseURLs())
+	cfg := searchConfig(t, prov.URL, s.URL)
+	hc, err := provider.NewHTTPClient(cfg.BaseURLs())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := searchGet(hc, s.URL+"/res/v1/web/search?q=x"); !errors.Is(err, provider.ErrHostNotAllowed) {
-		t.Fatalf("want ErrHostNotAllowed, got %v", err)
-	}
-	if got := sn.Load(); got != 0 {
-		t.Fatalf("search server got %d requests", got)
-	}
-}
-
-func TestSearchHostRefusedForJevClient(t *testing.T) {
-	prov, _ := countingServer(t, nil)
-	jev, _ := countingServer(t, nil)
-	s, sn := countingServer(t, nil)
-	cfg := searchConfig(t, prov.URL, jev.URL, s.URL)
-	hc, err := provider.NewHTTPClient(cfg.AllowedBaseURLs())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = provider.NewJevClient(hc, s.URL, "k3", "jev-1").Ask(context.Background(), "s", jevQuestions())
-	if !errors.Is(err, provider.ErrHostNotAllowed) {
 		t.Fatalf("want ErrHostNotAllowed, got %v", err)
 	}
 	if got := sn.Load(); got != 0 {
