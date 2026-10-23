@@ -12,8 +12,9 @@ import (
 	"yipyip/internal/tools"
 )
 
-// MaxIterations bounds the model calls of one main-agent turn.
-const MaxIterations = 50
+// MaxIterations bounds the model calls of one main-agent turn; 0 means no
+// limit (the turn ends on a final answer, an error or a cancel).
+const MaxIterations = 0
 
 // MaxSubagentIterations bounds the model calls of one subagent run (one
 // spawn_agent task).
@@ -24,7 +25,8 @@ const MaxSubagentIterations = 500
 const CancelledMessage = "cancelled"
 
 // iterationLimit returns the number of model calls one run of agentID may
-// make: MaxIterations for the main agent, MaxSubagentIterations for subagents.
+// make: MaxIterations (0 = unlimited) for the main agent, MaxSubagentIterations
+// for subagents.
 func iterationLimit(agentID string) int {
 	if agentID == MainAgentID {
 		return MaxIterations
@@ -213,7 +215,7 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 		return out, "", err
 	}
 	limit := iterationLimit(agentID)
-	for i := 0; i < limit; i++ {
+	for i := 0; limit == 0 || i < limit; i++ {
 		if err := ctx.Err(); err != nil {
 			return out, "", err
 		}

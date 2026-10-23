@@ -221,8 +221,8 @@ time).
   `● a1 task (14s · 1.2k tokens)`.
 - `/agents` lists them, `/agents <id>` shows the subagent's transcript, and
   `/agents kill <id>` cancels one.
-- A subagent run stops after 500 model calls; the main agent stops after 50
-  per turn.
+- A subagent run stops after 500 model calls; the main agent has no limit per
+  turn (`Esc` cancels it).
 
 ## Undo, compaction and the status line
 

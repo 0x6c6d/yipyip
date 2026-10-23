@@ -2,7 +2,7 @@
 # Verification for T403 (supervisor-owned; workers never edit it). Exit 0 = pass.
 . "$(dirname "$0")/../_lib.sh"
 expect_ok "tests: agent loop" <<'CMD'
-go_tests ./internal/agent TestLoopToolCallThenAnswer TestIterationLimit TestCancelStopsTurn TestSubmitNoModel TestSubmitBusy TestTokenAccounting TestTokenEstimate TestProviderErrorShown TestEffortSent TestManualDenyRunsNothing
+go_tests ./internal/agent TestLoopToolCallThenAnswer TestMainNoIterationLimit TestCancelStopsTurn TestSubmitNoModel TestSubmitBusy TestTokenAccounting TestTokenEstimate TestProviderErrorShown TestEffortSent TestManualDenyRunsNothing
 CMD
 expect_ok "make check" <<'CMD'
 make check
@@ -28,7 +28,7 @@ CMD
 expect_fail "negative: Cancel ends a turn running sleep 30 within 2 s" <<'CMD'
 probe_rejects cancel
 CMD
-expect_fail "negative: endless tool calls stop after exactly 50 requests" <<'CMD'
+expect_fail "negative: main agent is not limited to 50 iterations" <<'CMD'
 probe_rejects limit
 CMD
 finish

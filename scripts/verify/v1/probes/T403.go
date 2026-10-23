@@ -164,11 +164,14 @@ func main() {
 		rejected("turn cancelled in %v", el)
 	case "limit":
 		srv := providertest.NewFunc(func(n int, req providertest.Request) R {
+			if n >= 60 {
+				return R{Text: "done"}
+			}
 			return R{ToolCalls: []TC{{ID: fmt.Sprintf("c%d", n), Name: "glob", Arguments: `{"pattern":"*.txt"}`}}}
 		})
 		defer srv.Close()
 		s, _ := session(providertest.ConfigJSON(srv.URL, "{env:FAKE_KEY}", 8000))
-		if err := s.Submit("loop forever"); err != nil {
+		if err := s.Submit("work long"); err != nil {
 			setup("Submit: %v", err)
 		}
 		if !wait(s, 90*time.Second) {
@@ -180,10 +183,10 @@ func main() {
 				limitErr = true
 			}
 		}
-		if n := len(srv.Requests()); n != agent.MaxIterations || agent.MaxIterations != 50 || !limitErr {
+		if n := len(srv.Requests()); n != 61 || agent.MaxIterations != 0 || limitErr {
 			accepted("requests=%d limit error shown=%v", n, limitErr)
 		}
-		rejected("stopped after 50 iterations")
+		rejected("main agent ran past 50 iterations without a limit")
 	case "error":
 		srv := providertest.New(R{Status: 500, Body: "boom"}, R{Text: "recovered"})
 		defer srv.Close()

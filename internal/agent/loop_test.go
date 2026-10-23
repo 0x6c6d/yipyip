@@ -159,38 +159,31 @@ func TestLoopToolCallThenAnswer(t *testing.T) {
 	}
 }
 
-func TestIterationLimit(t *testing.T) {
+func TestMainNoIterationLimit(t *testing.T) {
+	const calls = 120
 	srv := providertest.NewFunc(func(n int, _ providertest.Request) fakeResp {
-		return fakeResp{ToolCalls: []fakeCall{{ID: "c" + string(rune('a'+n%26)), Name: "glob", Arguments: `{"pattern":"*.txt"}`}}}
-	})
-	defer srv.Close()
-	s, _ := newLoopSession(t, srv)
-	evs := submitAndWait(t, s, "loop forever")
-	if n := len(srv.Requests()); n != MaxIterations || MaxIterations != 50 {
-		t.Fatalf("requests = %d, want 50", n)
-	}
-	if !findEvent(evs, EvError, "iteration limit (50) reached") {
-		t.Error("no iteration limit error")
-	}
-	// The history stays valid: every tool call has a result.
-	h := s.History()
-	if last := h[len(h)-1]; last.Role != "tool" {
-		t.Errorf("last message %+v", last)
-	}
-}
-
-func TestMainIterationLimit(t *testing.T) {
-	srv := providertest.NewFunc(func(n int, _ providertest.Request) fakeResp {
+		if n >= calls {
+			return fakeResp{Text: "finally done"}
+		}
 		return fakeResp{ToolCalls: []fakeCall{{ID: fmt.Sprintf("g%d", n), Name: "glob", Arguments: `{"pattern":"*.none"}`}}}
 	})
 	defer srv.Close()
 	s, _ := newLoopSession(t, srv)
-	evs := submitAndWait(t, s, "loop forever")
-	if n := len(srv.Requests()); n != 50 {
-		t.Fatalf("requests = %d, want 50", n)
+	evs := submitAndWait(t, s, "work long")
+	if n := len(srv.Requests()); n != calls+1 {
+		t.Fatalf("requests = %d, want %d", n, calls+1)
 	}
-	if !findEvent(evs, EvError, "iteration limit (50) reached") {
-		t.Error("no iteration limit (50) error")
+	if MaxIterations != 0 {
+		t.Errorf("MaxIterations = %d, want 0 (unlimited)", MaxIterations)
+	}
+	for _, ev := range evs {
+		if ev.Kind == EvError {
+			t.Errorf("unexpected error: %s", ev.Text)
+		}
+	}
+	h := s.History()
+	if last := h[len(h)-1]; last.Role != "assistant" || last.Content != "finally done" {
+		t.Errorf("last message %+v", last)
 	}
 }
 
