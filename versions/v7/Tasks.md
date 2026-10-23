@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Rewrite scripts/verify/v5/T401.sh for R64 | T000 | supervisor | done | v5 T401.sh: main-50 probes replaced by TestZZPosMainUnlimited |
 | T203 | 2 | Rewrite scripts/verify/v5/T799.sh for R64, rebase drift checks | T202 | supervisor | done | v5 T799.sh: main-50 dropped, drift checks rebased to 4f99ac0 |
 | T204 | 2 | Commit and Phase 2 exit (v5 scripts pass on the committed tree) | T101, T201, T202, T203 | supervisor | done | v5 T401.sh and T799.sh exit 0 on the committed tree |
-| T299 | 2 | Global Definition of Done | T102, T204 | supervisor | todo | |
+| T299 | 2 | Global Definition of Done | T102, T204 | supervisor | done | Global Definition of Done passes (15 checks) |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
