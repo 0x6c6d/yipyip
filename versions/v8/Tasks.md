@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T103 | 1 | Remove jev from internal/provider and providertest | T102 | opus | done | jev removed from provider |
 | T104 | 1 | Remove jev from internal/config (leftover key ignored) | T103 | opus | done | jev removed from config, leftover key ignored; row fixed: grep skips .yipyip |
 | T199 | 1 | Phase 1 exit (no jev in code) | T101, T102, T103, T104 | supervisor | done | phase 1 exit passes |
-| T201 | 2 | Remove the jev block from the README Usage section | T000 | haiku | todo | |
+| T201 | 2 | Remove the jev block from the README Usage section | T000 | haiku | done | README jev block removed |
 | T202 | 2 | Remove jev from docs/usage.md | T000 | haiku | todo | |
 | T203 | 2 | Remove jev from CLAUDE.md | T000 | haiku | todo | |
 | T301 | 3 | Fetch HTTP client NewFetchHTTPClient | T199 | opus | todo | |

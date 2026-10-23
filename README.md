@@ -140,21 +140,3 @@ Install with `make install`; the binary `yip` goes to `$(go env GOBIN)` or `$(go
 - Keys: Enter sends, Alt+Enter newline, Esc cancels, Ctrl+C twice quits, Tab completes, Ctrl+O expands tool results, PgUp/PgDn scroll.
 
 Full reference, including configuration fields, subagents, undo, compaction and security notes: [docs/usage.md](docs/usage.md).
-
-Optional jev turn routing (`/jev` toggles it) picks a model per user turn:
-
-```json
-"jev": {
-  "baseURL": "https://api.typesafe.ai",
-  "apiKey": "{env:TYPESAFE_API_KEY}",
-  "route": {
-    "easy": "openrouter/small-model",
-    "medium": "openrouter/mid-model",
-    "hard": "openrouter/big-model"
-  }
-}
-```
-
-- `easy`: questions, lookups, small local edits.
-- `medium`: changes across a few files.
-- `hard`: design, refactors, deep bugs. Only `hard` is required; a missing tier uses the `hard` model.
