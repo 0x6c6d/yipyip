@@ -1,6 +1,6 @@
 ---
 name: loop-coding
-description: "Supervisor/worker loop for coding work: one worker sub-agent per task (model tier chosen per task), the supervisor verifies the real result itself (tests/build/diff, never the worker's self-report), re-prompts with concrete feedback, blocks a task that keeps failing, and stops when a checkable definition-of-done holds. Works for a single task or for versions of a project (v1 from README.md, later versions from versions/vN/spec.md), each driven by spec → plan → Tasks.md. Use when the user asks to delegate or supervise work, build a project or a new version from a spec, run a Tasks.md, or invokes /loop-coding."
+description: "Supervisor/worker loop for coding work: one worker sub-agent per task (model tier chosen per task), the supervisor verifies the real result itself (tests/build/diff, never the worker's self-report), re-prompts with concrete feedback, escalates a task that keeps failing to a stronger model and blocks it if that fails too, and stops when a checkable definition-of-done holds. Works for a single task or for versions of a project (v1 from README.md, later versions from versions/vN/spec.md), each driven by spec → plan → Tasks.md. Use when the user asks to delegate or supervise work, build a project or a new version from a spec, run a Tasks.md, or invokes /loop-coding."
 ---
 
 # Supervise loop
@@ -94,6 +94,11 @@ working across turns; stop it with `/goal clear`. Don't build your own retry log
 - `opus`: architecture; security-sensitive code (auth, secrets, untrusted input, shell/SQL
   construction); concurrency; anything tied to a Consequential assumption
 
+**Base and escalation model.** The row's tier is its *base model*; the *escalation model* is the next
+rung of the ladder `haiku → sonnet → opus` (opus has none). A row starts on its base model and is
+escalated only by step 6 after consecutive failed rounds, never up front and never above the
+ladder. An opus row therefore never escalates.
+
 **Red first:** run the row's `scripts/verify/vN/<ID>.sh` once before dispatching. It must fail,
 and for the expected reason (the feature is missing, not a typo in the script). If it already
 passes, the row is vacuous or already satisfied: check which, then fix the row or close it
@@ -132,7 +137,15 @@ tree must be clean again before the next worker starts.
   Next task.
 - **Fail:** `SendMessage` to the same worker: the failing command, the relevant output lines,
   what to change. Never just "try again".
-- **Still failing after 3 rounds:** set the row `blocked` with what blocks it and what was tried
+- **Escalate after 2 consecutive failed rounds** on the base model (verification still red after the
+  first dispatch and one feedback message): discard the worker's changes
+  (`git restore --staged --worktree . && git clean -fd`, same safety as below), dispatch a **fresh**
+  worker on the escalation model with the same brief plus the failing command, its output lines and
+  one line of what the previous worker tried (never its transcript), and note
+  `escalated to <model> after 2 failed rounds` in the row. The new worker starts with its own round
+  count at 0. A row escalates at most once; a row already on opus is not escalated.
+- **Still failing after 3 rounds on the last model** (the escalation model, or the base model when it
+  cannot escalate): set the row `blocked` with what blocks it and what was tried
   (this note survives a restart), discard the task's changes
   (`git restore --staged --worktree . && git clean -fd`; the tree was clean before the worker
   started, so nothing else is lost), commit the `Tasks.md` update, and continue with every row
