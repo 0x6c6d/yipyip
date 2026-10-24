@@ -32,9 +32,10 @@ const (
 
 // Options configure a new Session.
 type Options struct {
-	Config     *config.Config
-	StartDir   string
-	HTTPClient *http.Client // nil -> provider.NewHTTPClient(Config.BaseURLs())
+	Config      *config.Config
+	StartDir    string
+	HTTPClient  *http.Client // nil -> provider.NewHTTPClient(Config.BaseURLs())
+	FetchClient *http.Client // test seam for web_fetch; nil = the tools default fetch client
 }
 
 // Tokens are the accumulated token counts of a session.
@@ -116,6 +117,7 @@ func NewSession(opts Options) (*Session, error) {
 		StripEnv:    cfg.EnvNames,
 		BeforeWrite: func(path string) { s.beforeWrite(path) },
 		Search:      search,
+		Fetch:       opts.FetchClient,
 	})
 	if err != nil {
 		return nil, &redactedError{msg: "agent: " + cfg.Redactor.Redact(err.Error()), err: err}
