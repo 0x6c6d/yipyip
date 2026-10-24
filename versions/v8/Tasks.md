@@ -39,7 +39,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T504 | 5 | e2e WebFetch tests | T404, T501 | opus | done | e2e/webfetch_test.go, envOpts.fetchClient |
 | T601 | 6 | docs/usage.md: web_fetch section and network line | T202, T404, T501 | haiku | done | docs/usage.md web_fetch section |
 | T602 | 6 | CLAUDE.md: web_fetch lines and traffic sentence | T203, T404, T501, T503 | haiku | done | CLAUDE.md web_fetch lines |
-| T799 | 7 | Global Definition of Done | T199, T201, T202, T203, T301, T401, T402, T403, T404, T501, T502, T503, T504, T601, T602 | supervisor | todo | |
+| T799 | 7 | Global Definition of Done | T199, T201, T202, T203, T301, T401, T402, T403, T404, T501, T502, T503, T504, T601, T602 | supervisor | done | Global DoD passes (74 checks) |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
