@@ -35,7 +35,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T404 | 4 | web_fetch tool: result (content types, 1 MiB, HTML, cut) | T402, T403 | opus | done | web_fetch result handling |
 | T501 | 5 | Agent wiring: FetchClient seam, gated and registered tests | T401, T403 | opus | done | FetchClient seam in session.go, webfetch_test.go |
 | T502 | 5 | System prompt web sentence | T403 | sonnet | done | prompt.go web sentences, prompt tests |
-| T503 | 5 | TUI approval prompt shows the web_fetch URL | T401, T403 | opus | todo | |
+| T503 | 5 | TUI approval prompt shows the web_fetch URL | T401, T403 | opus | done | argsSummary web_fetch url, approval_webfetch_test.go |
 | T504 | 5 | e2e WebFetch tests | T404, T501 | opus | todo | |
 | T601 | 6 | docs/usage.md: web_fetch section and network line | T202, T404, T501 | haiku | todo | |
 | T602 | 6 | CLAUDE.md: web_fetch lines and traffic sentence | T203, T404, T501, T503 | haiku | todo | |

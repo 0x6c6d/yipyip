@@ -86,7 +86,8 @@ func shortenText(s string, maxLines, maxRunes int) string {
 }
 
 // argsSummary returns the text shown for a request: the command for bash,
-// the path for file tools, otherwise the raw arguments.
+// the path for file tools, the query for web_search, the URL for web_fetch,
+// otherwise the raw arguments.
 func argsSummary(tool, args string) string {
 	var fields map[string]any
 	if json.Unmarshal([]byte(args), &fields) == nil {
@@ -98,6 +99,8 @@ func argsSummary(tool, args string) string {
 			key = "path"
 		case "web_search":
 			key = "query"
+		case "web_fetch":
+			key = "url"
 		}
 		if s, ok := fields[key].(string); ok && key != "" {
 			return s
