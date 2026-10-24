@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,9 +34,10 @@ func newEnv(t *testing.T, resps ...providertest.Response) *env {
 
 // envOpts tunes newEnvServer.
 type envOpts struct {
-	contextLimit int    // context limit of the fake model
-	projectJSON  string // content of the start directory's yipyip.json, "" = none
-	noModel      bool   // global config without providers: no model is configured
+	contextLimit int          // context limit of the fake model
+	projectJSON  string       // content of the start directory's yipyip.json, "" = none
+	noModel      bool         // global config without providers: no model is configured
+	fetchClient  *http.Client // web_fetch client seam (agent.Options.FetchClient), nil = default
 }
 
 // newEnvServer builds the environment around an already started fake srv
@@ -78,7 +80,7 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: dir})
+	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: dir, FetchClient: o.fetchClient})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
