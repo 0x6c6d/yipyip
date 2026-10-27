@@ -74,8 +74,10 @@ events → approval gate → `tools.Registry.Run` → results into history → r
   `/sessions` + v4 `/skills`, `/<skill>` (built-ins win; v8: `/jev` removed); save of every tab
   on exit; overlays: model picker, approval prompt (v6 `web_search`: the query; v8 `web_fetch`:
   the URL), resume picker; v4 question block inline in the transcript; settings persist on
-  change; only alt+enter newline (v4); text passes the redactor; talks to: agent, session,
-  config, skills. (v1; reworked v2; extended v3, v4; v8)
+  change; only alt+enter newline (v4); text passes the redactor; v9 `markdown.go`: own stdlib
+  renderer of assistant blocks (after redaction, before wrap; fences via chroma); v9 `resetTab`:
+  `/clear` in place, last-tab close → fresh tab; talks to: agent, session, config, skills. (v1;
+  reworked v2; extended v3, v4; v8; v9)
 - **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`,
   v3 `Session`, `Question`, `Retry`, v4 `Skills`, v8 `WebFetch`; talks to: agent, tui.
 
@@ -103,7 +105,7 @@ example.
   input, shell/SQL/command construction), concurrency, cross-cutting refactors, anything touching
   a Consequential assumption. Examples: host-allowlist Transport; PathGuard; Bash runner;
   approval gate; Redactor/`{env:}` errors; subagent manager, turn cancellation; undo journal;
-  v8 fetch client and `web_fetch`.
+  v8 fetch client and `web_fetch`; v9 `markdown.go` (untrusted model text, secret guard), `resetTab`.
 - **Shared-code rule:** security-critical logic lives only in shared, opus-built code:
   `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go` (sole
   `os/exec` site), `internal/agent/approval.go`, `internal/config/redact.go`. Modules that only
@@ -129,7 +131,10 @@ deferrals "session persistence"/"config writes"; v4 skills "custom slash command
 - C (v3): session files keep tool results un-redacted; interrupted turns stored as finished; queue
   → draft on resume. Retries: 10 attempts, 1→60 s, pre-first-byte only. Settings write atomic.
 - C (v3/v4): tabs: one global model/effort/mode; `Ctrl+W`/`×` save then move left (else right);
-  last-tab close = `/exit`; 8-tab limit; v4 drops `Ctrl+Tab`/`Alt+N`/Shift+Enter (breaking).
+  last-tab close = `/exit` (v9: fresh empty tab, no save, no quit); 8-tab limit; v4 drops
+  `Ctrl+Tab`/`Alt+N`/Shift+Enter (breaking).
+- C (v9): a render that un-splits a secret (stripped output redacts differently) falls back to the
+  redacted source; `/clear` (resets approvals like `/new`) and last-tab close write no session file.
 - C (v5): subagent runs up to 500 model calls (× `max_subagents`). C (v2): start mode `auto`; `atotto/clipboard` (clipboard.go) is the sole exec besides `bash.go`;
   history/pastes/queue memory-only except the v3 session file.
 - C (v7, money): main agent has no per-turn model-call limit (cost guard removed); `Esc` is the only
