@@ -30,7 +30,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T204 | 2 | Blockquotes and horizontal rules | T101 | opus | done | quote and rule rules, tests |
 | T205 | 2 | Inline italic, strike, code, links, escapes | T102 | opus | done | inline pass: emphasis, code, links, escapes |
 | T206 | 2 | Incomplete input, fence isolation, robustness, fuzz seeds | T102 T202 T203 T204 T205 | opus | done | linear inline index, depth cap, fuzz seeds |
-| T301 | 3 | resetTab helper | T000 | opus | todo | |
+| T301 | 3 | resetTab helper | T000 | opus | done | resetTab in tabs.go, reset_test.go |
 | T302 | 3 | /clear in place and its /help entry | T301 | opus | todo | |
 | T401 | 4 | Closing the last tab leaves one fresh tab | T301 | opus | todo | |
 | T501 | 5 | e2e Markdown tests: table view and copy | T102 T202 | sonnet | todo | |

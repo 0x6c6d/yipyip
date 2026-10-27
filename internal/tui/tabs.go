@@ -251,6 +251,46 @@ func (m Model) closeTab() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// resetTab replaces the live current tab in place by a fresh tab with a new agent session
+// (global model, effort and mode) and an empty transcript. The old tab is torn down like a
+// close, without a save: pending approvals are denied, pending questions cancelled, its
+// session (running turn and subagents) cancelled and its event pump stopped, so its late
+// events find no tab and are dropped. With keepHistory the input history, the pastes and the
+// input draft stay; without it they start empty too. On error (no new session) nothing
+// changes. The tab count and m.cur never change; the caller starts the new event pump
+// (m.waitEvent) and adds any transcript line.
+func (m *Model) resetTab(keepHistory bool) error {
+	sess, err := m.newSession()
+	if err != nil {
+		return err
+	}
+	model, effort, mode := m.globals()
+	if sess != nil {
+		sess.RestoreModelEffortMode(model, effort, agent.Mode(mode))
+	}
+	m.denyPending()
+	m.cancelQuestions()
+	if old := m.sess; old != nil {
+		old.Cancel()
+	}
+	if m.stopPump != nil {
+		m.stopPump()
+	}
+	nt := newTab(m.ctx, sess)
+	if keepHistory {
+		nt.hist, nt.pastes = m.hist, m.pastes
+	}
+	m.tab = nt
+	m.tabs = slices.Clone(m.tabs)
+	m.tabs[m.cur] = nt
+	m.sel = selection{}
+	if !keepHistory {
+		m.input.Reset()
+	}
+	m.refreshTo(true)
+	return nil
+}
+
 // openTab adds a tab for Ctrl+T and the "+" click; at the limit it adds the
 // limit line instead.
 func (m Model) openTab() (Model, tea.Cmd) {
