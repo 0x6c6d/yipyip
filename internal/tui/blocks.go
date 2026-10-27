@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"yipyip/internal/agent"
 )
@@ -139,7 +140,13 @@ func (m *Model) renderBlock(b block, width int) string {
 		if strings.TrimSpace(text) == "" {
 			return ""
 		}
-		return "● " + indentContinuation(highlightFences(text))
+		out := renderMarkdown(text, width-2)
+		// Secret guard: rendering may join pieces into a secret (for example
+		// "**SEC**RET123"); then the redacted source is shown unrendered.
+		if s := ansi.Strip(out); m.redact(s) != s {
+			out = text
+		}
+		return "● " + indentContinuation(out)
 	case blockError:
 		return errorStyle.Render(text)
 	case blockInfo:

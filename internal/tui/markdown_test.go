@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+
+	"yipyip/internal/agent"
 )
 
 // mdStrip renders src at width 80 and strips the ANSI styling.
@@ -139,5 +141,61 @@ func TestMarkdownSkeletonPassThrough(t *testing.T) {
 	}
 	for _, src := range []string{"**\xff**", "# \xff", "`\xff", "__\xff__", "**", "__", "***", "****"} {
 		_ = renderMarkdown(src, 80) // must not panic
+	}
+}
+
+func TestMarkdownSkeletonView(t *testing.T) {
+	m := feed(newBlockModel(), agent.Event{Kind: agent.EvText, AgentID: "main", Text: "# Big Title\n\nplain **bold** words"}).(Model)
+	v := plainView(m)
+	var title, body bool
+	for _, line := range strings.Split(v, "\n") {
+		title = title || strings.HasPrefix(line, "● Big Title")
+		body = body || strings.TrimRight(line, " ") == "  plain bold words"
+	}
+	if !title || !body {
+		t.Errorf("rendered assistant block missing (title %v, body %v):\n%s", title, body, v)
+	}
+	if strings.Contains(v, "**") || strings.Contains(v, "# Big") {
+		t.Errorf("markup left in the view:\n%s", v)
+	}
+}
+
+func TestMarkdownSkeletonOtherBlocksRaw(t *testing.T) {
+	m, _ := newSessionModel(t, answerServer(t, "ok"))
+	m = tabTurn(t, m, "**mine**")
+	m = feed(m,
+		agent.Event{Kind: agent.EvToolCall, AgentID: "main", Tool: "read_file", Args: `{"path":"a.md"}`},
+		agent.Event{Kind: agent.EvToolResult, AgentID: "main", Tool: "read_file", Text: "# tool **raw**"},
+		agent.Event{Kind: agent.EvInfo, Text: "info **raw**"}).(Model)
+	v := plainView(m)
+	for _, want := range []string{"# tool **raw**", "info **raw**", "> **mine**"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view lacks the raw markup %q:\n%s", want, v)
+		}
+	}
+}
+
+func TestMarkdownSecretReassembly(t *testing.T) {
+	cases := []struct {
+		name, answer string
+		want         []string
+	}{
+		{"joined secret falls back", "joined **SEC**RET123 here", []string{"joined **SEC**RET123 here"}},
+		{"redacted then rendered", "key SECRET123 and **bold**", []string{"key [redacted] and bold"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m, _ := newSessionModel(t, answerServer(t, c.answer))
+			m = tabTurn(t, m, "q")
+			v := plainView(m)
+			if strings.Contains(v, "SECRET123") {
+				t.Fatalf("the secret reached the view:\n%s", v)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(v, want) {
+					t.Errorf("view lacks %q:\n%s", want, v)
+				}
+			}
+		})
 	}
 }
