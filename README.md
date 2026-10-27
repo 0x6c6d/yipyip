@@ -136,7 +136,7 @@ Install with `make install`; the binary `yip` goes to `$(go env GOBIN)` or `$(go
 
 - Config: `~/.config/yipyip/config.json`, merged key by key with `yipyip.json` in the start directory. API keys come from environment variables via `{env:NAME}`; see `config.example.json`.
 - Modes: manual (approve `bash`, `write_file`, `edit_file`, `spawn_agent` with `y` / `n` / `a`) or auto; toggle with `Shift+Tab` or `/mode`.
-- Commands: `/model`, `/effort`, `/mode`, `/agents`, `/init`, `/compact`, `/undo`, `/new` (`/clear`), `/exit` (`/quit`), `/help`.
+- Commands: `/model`, `/effort`, `/mode`, `/agents`, `/init`, `/compact`, `/undo`, `/new`, `/clear`, `/exit` (`/quit`), `/help`.
 - Keys: Enter sends, Alt+Enter newline, Esc cancels, Ctrl+C twice quits, Tab completes, Ctrl+O expands tool results, PgUp/PgDn scroll.
 
 Full reference, including configuration fields, subagents, undo, compaction and security notes: [docs/usage.md](docs/usage.md).

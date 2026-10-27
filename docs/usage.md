@@ -105,7 +105,7 @@ colour.
 | `/compact` | summarize the conversation to free context |
 | `/undo` | undo the last turn's file changes |
 | `/new` | open a fresh session in a new tab |
-| `/clear` | alias of `/new` |
+| `/clear` | clear the current tab in place: empty conversation, fresh session, same tab |
 | `/sessions [id \| rm id]` | list saved sessions, load one into this tab, or remove one |
 | `/skills` | list the loaded skills with their source (see [Skills](#skills)) |
 | `/<skill> [args]` | run a skill |
@@ -144,7 +144,7 @@ while you type a command (see [Input](#input)).
 | Esc | cancel the running turn (queued messages return to the input); deny a pending approval |
 | Shift+Tab | toggle auto/manual mode (auto is the default) |
 | Ctrl+T | open a new tab (see [Tabs](#tabs)) |
-| Ctrl+W | close the current tab (saved first) |
+| Ctrl+W | close the current tab (saved first); the last tab is replaced by an empty one |
 | Ctrl+C | twice: quit (the first press cancels the running turn) |
 | Tab / Right | accept a suggestion or complete a command |
 | Up / Down | input history (Up first restores queued messages) |
@@ -169,6 +169,7 @@ while you type a command (see [Input](#input)).
 - yip captures the mouse, so the terminal cannot select text on its own. Hold
   `Shift` while dragging to use the terminal's own selection.
 - Copied text is the redacted screen text. Secrets are never copied.
+- A selection copies the rendered text as shown, with secrets as `[redacted]`.
 
 ## Conversation
 
@@ -181,6 +182,31 @@ while you type a command (see [Input](#input)).
   `✻ Working…` while a tool runs.
 - Each turn ends with a finished marker: `✻ Worked for 1m 15s`, or
   `✻ Interrupted after 12s` when you cancelled it.
+
+### Markdown rendering
+
+Assistant replies are shown rendered from markdown:
+
+- Tables, with box borders, padded columns, a bold header and alignment from
+  `:---`, `---:` and `:---:`. A table wider than the window wraps its cells and
+  never overflows.
+- Headings (bold, without `#`), bold, italic, `inline code`, ~~strikethrough~~.
+- Bullet lists, shown with `•` with nesting kept, and numbered lists.
+- Blockquotes, shown with a `│` bar, and horizontal rules.
+- Links, shown as `text (url)`.
+
+Fenced code blocks keep syntax highlighting. Text inside fences and inline code
+is shown as written.
+
+While a reply streams, unfinished markdown (a table without its separator line
+yet, an unclosed `**` or fence) is shown as plain text until it is complete.
+Only assistant text is rendered: your input, tool results and subagent blocks
+are shown as before.
+
+Not supported: images, HTML, footnotes, task-list checkboxes, reference-style
+links, clickable links, and a raw-mode switch. Secrets appear as `[redacted]`.
+If rendering would join pieces of text into a secret, the reply is shown
+unrendered instead.
 
 ## Subagents
 
@@ -230,7 +256,8 @@ hex characters derived from the SHA-256 of the saved content.
 
 - **When saved**: every open tab with a conversation is saved when yip exits
   (`/exit`, `/quit`, or Ctrl+C twice) and when a tab is closed with `Ctrl+W`.
-  An empty tab saves nothing. A failed save prints
+  An empty tab saves nothing. Closing the last tab and `/clear` save nothing.
+  A failed save prints
   `could not save session: <err>` and yip still exits with status 0.
 - **What is stored**: the conversation as the agent holds it, which is already
   redacted: a resolved secret (an API key or an `{env:NAME}` value) appears as
@@ -256,7 +283,8 @@ a `+` after the last one (not shown at 8 tabs). A tab's title is its first
 user message. The bar always fits one row.
 
 - Click a title to switch to that tab, `×` to close it (saved first) and `+`
-  to open a new tab.
+  to open a new tab. On the last tab, `×` works the same way as `Ctrl+W`: it
+  discards the tab without saving and leaves one new empty tab.
 
 - Each tab has its own conversation, input history, queue and pasted text. The
   model, effort and mode are global: a change applies to all tabs.
@@ -264,10 +292,16 @@ user message. The bar always fits one row.
   instead.
 - `Ctrl+W` closes the current tab. It saves the tab first, then selects the
   tab on its left, or the one on its right if there is none. Closing the last
-  tab is the same as `/exit`.
+  tab (`Ctrl+W` or `×`) discards it without saving and leaves one new empty tab; yip keeps running.
 - The only tab hotkeys are `Ctrl+T` and `Ctrl+W`; use the mouse to switch.
-- `/new` (and `/clear`) opens a fresh session in a new tab. The saved file of
-  the old tab is kept.
+- `/new` opens a fresh session in a new tab. The saved file of the old tab is
+  kept.
+- `/clear` empties the current tab in place: the transcript is emptied and the
+  tab gets a fresh session with the same model, effort and mode. A running turn
+  and its subagents are cancelled, pending approvals are denied and questions
+  cancelled. The tab count, the input history and the tab's saved session file
+  stay, and nothing is saved. It prints `cleared`. It works while idle and while
+  a turn runs.
 - Plain `Tab` (completion) and `Shift+Tab` (mode toggle) are unchanged.
 
 ## Questions
