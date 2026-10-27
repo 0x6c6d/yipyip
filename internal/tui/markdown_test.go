@@ -199,3 +199,140 @@ func TestMarkdownSecretReassembly(t *testing.T) {
 		})
 	}
 }
+
+// mdTableLines renders src at natural width and returns the ANSI-stripped
+// lines with trailing spaces trimmed.
+func mdTableLines(src string) []string {
+	var out []string
+	for _, l := range strings.Split(ansi.Strip(renderMarkdown(src, 0)), "\n") {
+		out = append(out, strings.TrimRight(l, " "))
+	}
+	return out
+}
+
+// mdCheckLines reports a mismatch between the rendered lines and want.
+func mdCheckLines(t *testing.T, src string, want []string) {
+	t.Helper()
+	got := strings.Join(mdTableLines(src), "\n")
+	if w := strings.Join(want, "\n"); got != w {
+		t.Errorf("renderMarkdown(%q):\n%s\nwant:\n%s", src, got, w)
+	}
+}
+
+func TestMarkdownTableBasic(t *testing.T) {
+	src := "intro\n| Name | Qty | Mid |\n|:-----|----:|:---:|\n| apple | 3 | a |\n| kiwi | 12 | bbbbb |\noutro"
+	mdCheckLines(t, src, []string{
+		"intro",
+		"┌───────┬─────┬───────┐",
+		"│ Name  │ Qty │  Mid  │",
+		"├───────┼─────┼───────┤",
+		"│ apple │   3 │   a   │",
+		"│ kiwi  │  12 │ bbbbb │",
+		"└───────┴─────┴───────┘",
+		"outro",
+	})
+	// A blank line ends the table; the end of the input does too.
+	mdCheckLines(t, "a | b\n--|--\nc | d\n\nafter", []string{
+		"┌───┬───┐",
+		"│ a │ b │",
+		"├───┼───┤",
+		"│ c │ d │",
+		"└───┴───┘",
+		"",
+		"after",
+	})
+	mdCheckLines(t, "| h |\n|---|", []string{
+		"┌───┐",
+		"│ h │",
+		"├───┤",
+		"└───┘",
+	})
+}
+
+func TestMarkdownTableAlign(t *testing.T) {
+	src := "| left | right | center | plain |\n|:---|---:|:---:|---|\n| a | b | c | d |\n| xx | yy | zz | ww |"
+	mdCheckLines(t, src, []string{
+		"┌──────┬───────┬────────┬───────┐",
+		"│ left │ right │ center │ plain │",
+		"├──────┼───────┼────────┼───────┤",
+		"│ a    │     b │   c    │ d     │",
+		"│ xx   │    yy │   zz   │ ww    │",
+		"└──────┴───────┴────────┴───────┘",
+	})
+	// Alignment applies to the header cells as well.
+	mdCheckLines(t, "| r | c |\n|--:|:-:|\n| long | wider |", []string{
+		"┌──────┬───────┐",
+		"│    r │   c   │",
+		"├──────┼───────┤",
+		"│ long │ wider │",
+		"└──────┴───────┘",
+	})
+}
+
+func TestMarkdownTableCells(t *testing.T) {
+	mdCheckLines(t, "| A | B |\n|---|---|\n| a \\| b | `p|q` |\n| **b** |\n| 1 | 2 | 3 |", []string{
+		"┌───────┬───────┐",
+		"│ A     │ B     │",
+		"├───────┼───────┤",
+		"│ a | b │ `p|q` │",
+		"│ b     │       │",
+		"│ 1     │ 2     │",
+		"└───────┴───────┘",
+	})
+	cases := map[string][]string{
+		"a\\|b":      {`a|b`},
+		"| a | b |":  {"a", "b"},
+		"a | b":      {"a", "b"},
+		"|a||b|":     {"a", "", "b"},
+		"| `x|y` |":  {"`x|y`"},
+		"| `x |":     {"`x"},
+		"|":          {""},
+		"||":         {""},
+		"a \\| b |":  {"a | b"},
+		"| ``a|`` |": {"``a|``"},
+	}
+	for src, want := range cases {
+		got, _ := mdSplitRow(src)
+		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+			t.Errorf("mdSplitRow(%q) = %q, want %q", src, got, want)
+		}
+	}
+}
+
+func TestMarkdownTableNotATable(t *testing.T) {
+	for _, src := range []string{
+		"| a | b |\n| c | d |",
+		"| a | b |",
+		"| a | b |\n|---|---|---|",
+		"| a | b |\n|---|",
+		"| a | b |\n|---|-x-|",
+		"| a | b |\n|---|- -|",
+		"| a | b |\n|---|::|",
+		"a | b\n---",
+		"a | b\n--- | --- | ---",
+		"a | b\n\n|---|---|",
+		"no pipe\n|---|",
+		"| a | `b |` |\n|---|---|---|",
+	} {
+		if got := renderMarkdown(src, 80); got != src {
+			t.Errorf("renderMarkdown(%q) = %q, want it unchanged", src, got)
+		}
+	}
+}
+
+func TestMarkdownTableHeaderBold(t *testing.T) {
+	withColorProfile(t, termenv.ANSI256)
+	lines := strings.Split(renderMarkdown("| Head | Er |\n|---|---|\n| x | y |", 0), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("want 5 table lines, got %d: %q", len(lines), lines)
+	}
+	if lines[1] == ansi.Strip(lines[1]) {
+		t.Errorf("header row not styled: %q", lines[1])
+	}
+	if lines[3] != ansi.Strip(lines[3]) {
+		t.Errorf("body row styled: %q", lines[3])
+	}
+	if !strings.Contains(ansi.Strip(lines[1]), "│ Head │ Er │") {
+		t.Errorf("header row = %q", ansi.Strip(lines[1]))
+	}
+}

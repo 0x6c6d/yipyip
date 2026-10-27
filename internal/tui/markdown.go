@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Markdown styles. Tabs are never converted so unstyled bytes stay intact.
@@ -23,6 +24,7 @@ type mdBlockRule func(lines []string, i, width int) (out []string, next int, ok 
 // mdBlockRules are tried in order for every block; the last one always applies.
 var mdBlockRules = []mdBlockRule{
 	mdFenceRule,
+	mdTableRule,
 	mdHeadingRule,
 	mdParagraphRule,
 }
@@ -63,6 +65,174 @@ func mdFenceRule(lines []string, i, _ int) ([]string, int, bool) {
 		return lines[i:], len(lines), true
 	}
 	return highlightFenceBody(lines[i+1:end], lang), end + 1, true
+}
+
+// mdAlign is the alignment of a table column.
+type mdAlign int
+
+// Table column alignments.
+const (
+	mdAlignLeft mdAlign = iota
+	mdAlignRight
+	mdAlignCenter
+)
+
+// mdTableRule renders a table: a header row with at least one cell separator,
+// directly followed by a separator row with the same cell count, then every
+// following row that has a cell separator. Without a valid separator row the
+// lines are left to the other rules (a half-streamed table stays plain text).
+func mdTableRule(lines []string, i, _ int) ([]string, int, bool) {
+	if i+1 >= len(lines) {
+		return nil, i, false
+	}
+	header, seps := mdSplitRow(lines[i])
+	if seps == 0 {
+		return nil, i, false
+	}
+	aligns, ok := mdParseSeparator(lines[i+1], len(header))
+	if !ok {
+		return nil, i, false
+	}
+	n := len(header)
+	cells := [][]string{make([]string, n)}
+	for c, text := range header {
+		cells[0][c] = renderInlineWith(text, &mdBold)
+	}
+	next := i + 2
+	for ; next < len(lines); next++ {
+		row, seps := mdSplitRow(lines[next])
+		if seps == 0 {
+			break
+		}
+		r := make([]string, n) // missing cells stay empty, extra cells are dropped
+		for c := 0; c < n && c < len(row); c++ {
+			r[c] = renderInline(row[c])
+		}
+		cells = append(cells, r)
+	}
+	widths := make([]int, n)
+	for _, r := range cells {
+		for c, cell := range r {
+			widths[c] = max(widths[c], ansi.StringWidth(cell))
+		}
+	}
+	// Natural width only: shrinking columns and wrapping cells when the
+	// table is wider than width hooks in here, before the layout.
+	return mdTableLayout(cells, aligns, widths), next, true
+}
+
+// mdParseSeparator parses a table separator row with n cells and returns the
+// column alignments; ok is false when line is not such a row.
+func mdParseSeparator(line string, n int) ([]mdAlign, bool) {
+	if !strings.Contains(line, "|") || strings.Trim(line, "|-: ") != "" {
+		return nil, false
+	}
+	cells, _ := mdSplitRow(line)
+	if len(cells) != n {
+		return nil, false
+	}
+	aligns := make([]mdAlign, n)
+	for c, cell := range cells {
+		left, right := strings.HasPrefix(cell, ":"), strings.HasSuffix(cell, ":")
+		dashes := strings.TrimSuffix(strings.TrimPrefix(cell, ":"), ":")
+		if dashes == "" || strings.Trim(dashes, "-") != "" {
+			return nil, false
+		}
+		switch {
+		case left && right:
+			aligns[c] = mdAlignCenter
+		case right:
+			aligns[c] = mdAlignRight
+		default:
+			aligns[c] = mdAlignLeft
+		}
+	}
+	return aligns, true
+}
+
+// mdSplitRow splits a table row into trimmed cells and returns them with the
+// number of cell separators found. One leading and one trailing '|' are
+// dropped; a '|' preceded by a backslash or inside a code span does not
+// split, and "\|" becomes "|" in the cell text.
+func mdSplitRow(line string) (cells []string, seps int) {
+	s := strings.TrimSpace(line)
+	var cell strings.Builder
+	closed := false
+	split := func() {
+		cells = append(cells, strings.TrimSpace(strings.ReplaceAll(cell.String(), `\|`, "|")))
+		cell.Reset()
+	}
+	for i := 0; i < len(s); {
+		switch c := s[i]; {
+		case c == '`':
+			n := mdRunLen(s, i, '`')
+			end := mdCodeSpanEnd(s, i, n)
+			if end < 0 {
+				end = i + n
+			}
+			cell.WriteString(s[i:end])
+			i = end
+		case c == '\\' && i+1 < len(s) && s[i+1] == '|':
+			cell.WriteString(s[i : i+2])
+			i += 2
+		case c == '|':
+			seps++
+			if i > 0 { // a leading '|' opens the first cell
+				split()
+				closed = i == len(s)-1
+			}
+			i++
+		default:
+			cell.WriteByte(c)
+			i++
+		}
+	}
+	if !closed {
+		split() // the last cell, unless a trailing '|' already closed it
+	}
+	return cells, seps
+}
+
+// mdTableLayout draws a table of rendered cells (the first row is the
+// header) with box-drawing borders; widths are the column widths and every
+// cell is padded to its column's width with that column's alignment.
+func mdTableLayout(cells [][]string, aligns []mdAlign, widths []int) []string {
+	rule := func(left, mid, right string) string {
+		parts := make([]string, len(widths))
+		for c, w := range widths {
+			parts[c] = strings.Repeat("─", w+2)
+		}
+		return left + strings.Join(parts, mid) + right
+	}
+	row := func(r []string) string {
+		parts := make([]string, len(widths))
+		for c, w := range widths {
+			parts[c] = " " + mdPad(r[c], w, aligns[c]) + " "
+		}
+		return "│" + strings.Join(parts, "│") + "│"
+	}
+	out := make([]string, 0, len(cells)+3)
+	out = append(out, rule("┌", "┬", "┐"))
+	for k, r := range cells {
+		out = append(out, row(r))
+		if k == 0 {
+			out = append(out, rule("├", "┼", "┤"))
+		}
+	}
+	return append(out, rule("└", "┴", "┘"))
+}
+
+// mdPad pads the rendered cell to width w with the given alignment.
+func mdPad(cell string, w int, align mdAlign) string {
+	gap := max(w-ansi.StringWidth(cell), 0)
+	switch align {
+	case mdAlignRight:
+		return strings.Repeat(" ", gap) + cell
+	case mdAlignCenter:
+		return strings.Repeat(" ", gap/2) + cell + strings.Repeat(" ", gap-gap/2)
+	default:
+		return cell + strings.Repeat(" ", gap)
+	}
 }
 
 // mdHeadingRule renders an ATX heading (up to 3 leading spaces, 1 to 6 '#',
