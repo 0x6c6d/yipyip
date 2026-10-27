@@ -50,29 +50,44 @@ func highlightFences(text string) string {
 	lines := strings.Split(text, "\n")
 	var out []string
 	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if !strings.HasPrefix(trimmed, "```") {
+		lang, end, ok := scanFence(lines, i)
+		if !ok {
 			out = append(out, lines[i])
 			continue
-		}
-		lang := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
-		if f := strings.Fields(lang); len(f) > 0 {
-			lang = f[0]
-		}
-		end := -1
-		for j := i + 1; j < len(lines); j++ {
-			if strings.TrimSpace(lines[j]) == "```" {
-				end = j
-				break
-			}
 		}
 		if end < 0 { // unclosed: plain text
 			out = append(out, lines[i:]...)
 			break
 		}
-		code := strings.Join(lines[i+1:end], "\n")
-		out = append(out, strings.Split(Highlight(code, lang), "\n")...)
+		out = append(out, highlightFenceBody(lines[i+1:end], lang)...)
 		i = end
 	}
 	return strings.Join(out, "\n")
+}
+
+// scanFence reports whether lines[i] opens a fenced code block (its trimmed
+// text starts with three backticks). lang is the first word after the
+// backticks; end is the index of the closing line (trimmed text exactly three
+// backticks) or -1 when the fence is still unclosed.
+func scanFence(lines []string, i int) (lang string, end int, ok bool) {
+	trimmed := strings.TrimSpace(lines[i])
+	if !strings.HasPrefix(trimmed, "```") {
+		return "", -1, false
+	}
+	lang = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+	if f := strings.Fields(lang); len(f) > 0 {
+		lang = f[0]
+	}
+	for j := i + 1; j < len(lines); j++ {
+		if strings.TrimSpace(lines[j]) == "```" {
+			return lang, j, true
+		}
+	}
+	return lang, -1, true
+}
+
+// highlightFenceBody highlights the code lines of one closed fence for lang
+// and returns the result split into lines.
+func highlightFenceBody(code []string, lang string) []string {
+	return strings.Split(Highlight(strings.Join(code, "\n"), lang), "\n")
 }
