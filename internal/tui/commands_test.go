@@ -24,7 +24,7 @@ func TestHelpCommand(t *testing.T) {
 }
 
 func TestNewClearsSession(t *testing.T) {
-	for _, name := range []string{"/new", "/clear"} {
+	for _, name := range []string{"/new"} {
 		srv := providertest.New(providertest.Response{
 			Text:  "an answer to forget",
 			Usage: &providertest.Usage{Prompt: 10, Completion: 5},

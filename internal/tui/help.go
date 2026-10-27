@@ -21,7 +21,7 @@ var commands = []CommandInfo{
 	{Name: "/sessions", Args: "[id | rm id]", Help: "list, load or remove saved sessions"},
 	{Name: "/skills", Help: "list the loaded skills"},
 	{Name: "/new", Help: "open a fresh session in a new tab"},
-	{Name: "/clear", Help: "alias of /new"},
+	{Name: "/clear", Help: "clear this tab's conversation (fresh session, same tab)"},
 	{Name: "/exit", Help: "quit"},
 	{Name: "/quit", Help: "alias of /exit"},
 	{Name: "/help", Help: "show this help"},

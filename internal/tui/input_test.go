@@ -288,7 +288,7 @@ func TestHistoryMultilineMovesCursor(t *testing.T) {
 func TestHistorySurvivesNew(t *testing.T) {
 	// v3: /new opens a new tab with its own (empty) history; the old tab
 	// keeps its history.
-	for _, cmd := range []string{"/new", "/clear"} {
+	for _, cmd := range []string{"/new"} {
 		t.Run(cmd, func(t *testing.T) {
 			m, sess, _ := histModel(t)
 			m = histSend(t, m, sess, cmd)

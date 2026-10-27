@@ -18,7 +18,7 @@ type commandFunc func(m Model, args string) (Model, tea.Cmd)
 var slashCommands = map[string]commandFunc{
 	"/help":     cmdHelp,
 	"/new":      cmdNew,
-	"/clear":    cmdNew,
+	"/clear":    cmdClear,
 	"/exit":     cmdQuit,
 	"/quit":     cmdQuit,
 	"/effort":   cmdEffort,
@@ -57,9 +57,9 @@ func cmdQuit(m Model, _ string) (Model, tea.Cmd) {
 	return m, m.quit()
 }
 
-// cmdNew is /new and /clear: the fresh session opens in a new tab; the old
-// tab (and any saved file of it) stays as it is. At the tab limit nothing
-// changes but one info line.
+// cmdNew is /new: the fresh session opens in a new tab; the old tab (and any
+// saved file of it) stays as it is. At the tab limit nothing changes but one
+// info line.
 func cmdNew(m Model, _ string) (Model, tea.Cmd) {
 	switch err := m.addTab(); {
 	case errors.Is(err, errTabLimit):
@@ -70,6 +70,20 @@ func cmdNew(m Model, _ string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.add(blockInfo, "new session")
+	return m, m.waitEvent()
+}
+
+// cmdClear is /clear: the current tab is emptied in place (see resetTab): a
+// fresh session with the global model, effort and mode, an empty transcript
+// but the kept input history; a running turn of the old session is cancelled.
+// The tab count and index stay, nothing is saved and any saved file of the old
+// conversation stays as it is. On error nothing changes but one error line.
+func cmdClear(m Model, _ string) (Model, tea.Cmd) {
+	if err := m.resetTab(true); err != nil {
+		m.add(blockError, "error: "+err.Error())
+		return m, nil
+	}
+	m.add(blockInfo, "cleared")
 	return m, m.waitEvent()
 }
 
