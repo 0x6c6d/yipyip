@@ -391,6 +391,7 @@ func mdParseSeparator(line string, n int) ([]mdAlign, bool) {
 // split, and "\|" becomes "|" in the cell text.
 func mdSplitRow(line string) (cells []string, seps int) {
 	s := strings.TrimSpace(line)
+	var code []int
 	var cell strings.Builder
 	closed := false
 	split := func() {
@@ -400,10 +401,12 @@ func mdSplitRow(line string) (cells []string, seps int) {
 	for i := 0; i < len(s); {
 		switch c := s[i]; {
 		case c == '`':
-			n := mdRunLen(s, i, '`')
-			end := mdCodeSpanEnd(s, i, n)
+			if code == nil {
+				code = mdCodeEnds(s)
+			}
+			end := code[i]
 			if end < 0 {
-				end = i + n
+				end = i + mdRunLen(s, i, '`')
 			}
 			cell.WriteString(s[i:end])
 			i = end
@@ -651,18 +654,41 @@ var mdCode = lipgloss.NewStyle().Foreground(mdCodeColor).TabWidth(lipgloss.NoTab
 // mdPlain is the base style that emphasis adds to outside any other style.
 var mdPlain = lipgloss.NewStyle().TabWidth(lipgloss.NoTabConversion)
 
+// mdMaxInlineDepth is the deepest nesting of emphasis and link text that is
+// rendered; text nested deeper is copied with the style around it, so the
+// recursion (and the rescanning of nested text) stays bounded.
+const mdMaxInlineDepth = 16
+
 // renderInlineWith renders the inline markdown of s; plain text is rendered
 // with base (copied unchanged when base is nil) and every styled form with
 // base plus its own style. The text is scanned left to right and at each
 // position the first matching form wins: backslash escape, code span, image
 // (kept literally), link, autolink, emphasis.
 func renderInlineWith(s string, base *lipgloss.Style) string {
+	return mdInline(s, base, 0)
+}
+
+// mdInline is renderInlineWith for text nested in depth emphasis or link
+// spans. Every lookup ahead (code span ends, link brackets, emphasis
+// closers) uses a linear index or a memo, so each nesting level scans s a
+// bounded number of times.
+func mdInline(s string, base *lipgloss.Style, depth int) string {
+	if depth >= mdMaxInlineDepth {
+		return mdStyled(s, base)
+	}
 	var out, lit strings.Builder
 	flush := func() {
 		if lit.Len() > 0 {
 			out.WriteString(mdStyled(lit.String(), base))
 			lit.Reset()
 		}
+	}
+	var ix *mdInlineIndex // built on the first lookup that needs it
+	index := func() *mdInlineIndex {
+		if ix == nil {
+			ix = newMdInlineIndex(s)
+		}
+		return ix
 	}
 	// Once no closer exists after an opener, none exists for later openers
 	// of the same marker (the closer search range only shrinks).
@@ -680,7 +706,7 @@ func renderInlineWith(s string, base *lipgloss.Style) string {
 			i++
 		case '`':
 			n := mdRunLen(s, i, '`')
-			if end := mdCodeSpanEnd(s, i, n); end > 0 {
+			if end := index().code[i]; end > 0 {
 				flush()
 				out.WriteString(mdStyled(mdCodeContent(s[i+n:end-n]), mdCodeOf(base)))
 				i = end
@@ -689,17 +715,19 @@ func renderInlineWith(s string, base *lipgloss.Style) string {
 			lit.WriteString(s[i : i+n])
 			i += n
 		case '!':
-			if end, _, _, ok := mdParseLink(s, i+1); ok {
-				lit.WriteString(s[i:end]) // images are not supported: all characters stay
-				i = end
-				continue
+			if i+1 < len(s) && s[i+1] == '[' {
+				if end, _, _, ok := index().link(i + 1); ok {
+					lit.WriteString(s[i:end]) // images are not supported: all characters stay
+					i = end
+					continue
+				}
 			}
 			lit.WriteByte(c)
 			i++
 		case '[':
-			if end, text, url, ok := mdParseLink(s, i); ok {
+			if end, text, url, ok := index().link(i); ok {
 				flush()
-				out.WriteString(mdRenderLink(text, url, base))
+				out.WriteString(mdRenderLink(text, url, base, depth+1))
 				i = end
 				continue
 			}
@@ -725,9 +753,9 @@ func renderInlineWith(s string, base *lipgloss.Style) string {
 				continue
 			}
 			if !noCloser[marker] && mdCanOpen(s, i, c, n) {
-				if j := mdFindCloser(s, i+n, c, n); j >= 0 {
+				if j := mdFindCloser(s, index().code, i+n, c, n); j >= 0 {
 					flush()
-					out.WriteString(renderInlineWith(s[i+n:j], mdEmphasisOf(base, c, n)))
+					out.WriteString(mdInline(s[i+n:j], mdEmphasisOf(base, c, n), depth+1))
 					i = j + n
 					continue
 				}
@@ -797,58 +825,126 @@ func mdCodeContent(content string) string {
 	return content
 }
 
-// mdParseLink parses a link "[text](url)" starting at s[i]: '[' up to the
-// matching ']' (nested brackets balanced; escapes and code spans skipped),
-// directly followed by '(', a non-empty url without whitespace and ')'. It
-// returns the index just past the ')' and the text and url.
-func mdParseLink(s string, i int) (end int, text, url string, ok bool) {
+// mdInlineIndex holds the lookups ahead of one string of the inline pass,
+// each built in one linear pass, so no lookup rescans the rest of the string.
+type mdInlineIndex struct {
+	s     string
+	code  []int // per backtick: mdCodeEnds
+	close []int // per '[': the index of its matching ']' or -1
+	stop  []int // per index (and len(s)): the first index >= it with ')' or a space, or len(s)
+}
+
+// newMdInlineIndex indexes s for the inline pass.
+//
+// A link scan from a '[' walks tokens left to right (an escape is its
+// backslash and the next byte, a code span or an unclosed backtick run is
+// one token, any other byte is one token), counts '[' up and ']' down and
+// stops when the count returns to zero. Every position has exactly one
+// next token, so the walks of all '[' form a tree towards len(s): up[p] is
+// the first node after p on its walk whose count is one higher (relative
+// to p's walk), and the ']' matching a '[' at j sits just before
+// up[j+1]. Nodes are filled from the end, as every node's successor lies
+// after it.
+func newMdInlineIndex(s string) *mdInlineIndex {
+	n := len(s)
+	ix := &mdInlineIndex{s: s, code: mdCodeEnds(s), close: make([]int, n), stop: make([]int, n+1)}
+	up := make([]int, n+1)
+	up[n] = -1
+	ix.stop[n] = n
+	runEnd := n // the end of the backtick run containing p
+	for p := n - 1; p >= 0; p-- {
+		if c := s[p]; c == ')' || unicode.IsSpace(rune(c)) {
+			ix.stop[p] = p
+		} else {
+			ix.stop[p] = ix.stop[p+1]
+		}
+		if s[p] != '`' {
+			runEnd = p
+		}
+		next := p + 1
+		switch s[p] {
+		case '\\':
+			next = min(p+2, n)
+		case '`':
+			if next = ix.code[p]; next < 0 {
+				next = runEnd
+			}
+		}
+		switch s[p] {
+		case ']':
+			up[p] = next
+		case '[':
+			if up[next] >= 0 {
+				up[p] = up[up[next]]
+			} else {
+				up[p] = -1
+			}
+		default:
+			up[p] = up[next]
+		}
+	}
+	for p := 0; p < n; p++ {
+		ix.close[p] = -1
+		if s[p] == '[' && up[p+1] >= 0 {
+			ix.close[p] = up[p+1] - 1
+		}
+	}
+	return ix
+}
+
+// mdCodeEnds returns, for every index i of s holding a backtick, the index
+// just past the run of exactly as many backticks as the run starting at
+// s[i] has that closes the code span opened there, or -1 (any other index:
+// unspecified). Built in one pass from the end.
+func mdCodeEnds(s string) []int {
+	ends := make([]int, len(s))
+	later := map[int]int{} // run length → start of the nearest run after the current one
+	for b := len(s); b > 0; {
+		if s[b-1] != '`' {
+			b--
+			continue
+		}
+		a := b - 1
+		for a > 0 && s[a-1] == '`' {
+			a--
+		}
+		for k := a; k < b; k++ {
+			ends[k] = -1
+			if start, ok := later[b-k]; ok {
+				ends[k] = start + b - k
+			}
+		}
+		later[b-a] = a
+		b = a
+	}
+	return ends
+}
+
+// link parses a link "[text](url)" starting at s[i]: '[' up to the matching
+// ']' (nested brackets balanced; escapes and code spans skipped), directly
+// followed by '(', a non-empty url without whitespace and ')'. It returns
+// the index just past the ')' and the text and url.
+func (ix *mdInlineIndex) link(i int) (end int, text, url string, ok bool) {
+	s := ix.s
 	if i >= len(s) || s[i] != '[' {
 		return 0, "", "", false
 	}
-	depth, k := 0, i
-	for k < len(s) {
-		switch s[k] {
-		case '\\':
-			k += 2
-			continue
-		case '`':
-			n := mdRunLen(s, k, '`')
-			if e := mdCodeSpanEnd(s, k, n); e > 0 {
-				k = e
-			} else {
-				k += n
-			}
-			continue
-		case '[':
-			depth++
-		case ']':
-			depth--
-		}
-		if depth == 0 {
-			break
-		}
-		k++
-	}
-	if k >= len(s) || depth != 0 || k+1 >= len(s) || s[k+1] != '(' {
+	k := ix.close[i]
+	if k < 0 || k+1 >= len(s) || s[k+1] != '(' {
 		return 0, "", "", false
 	}
-	u := k + 2
-	for u < len(s) && s[u] != ')' {
-		if unicode.IsSpace(rune(s[u])) {
-			return 0, "", "", false
-		}
-		u++
-	}
-	if u >= len(s) || u == k+2 {
+	u := ix.stop[k+2]
+	if u >= len(s) || s[u] != ')' || u == k+2 {
 		return 0, "", "", false
 	}
 	return u + 1, s[i+1 : k], s[k+2 : u], true
 }
 
-// mdRenderLink renders a link as its inline-rendered text followed by the
-// url in parentheses, or as the url alone when the text shows the url.
-func mdRenderLink(text, url string, base *lipgloss.Style) string {
-	rendered := renderInlineWith(text, base)
+// mdRenderLink renders a link as its inline-rendered text (nested depth
+// spans deep) followed by the url in parentheses, or as the url alone when
+// the text shows the url.
+func mdRenderLink(text, url string, base *lipgloss.Style, depth int) string {
+	rendered := mdInline(text, base, depth)
 	if ansi.Strip(rendered) == url {
 		return mdStyled(url, base)
 	}
@@ -890,23 +986,6 @@ func mdRunLen(s string, i int, c byte) int {
 		n++
 	}
 	return n
-}
-
-// mdCodeSpanEnd returns the index just past the run of exactly n backticks
-// that closes the code span opened by the n backticks at s[i], or -1.
-func mdCodeSpanEnd(s string, i, n int) int {
-	for j := i + n; j < len(s); {
-		if s[j] != '`' {
-			j++
-			continue
-		}
-		m := mdRunLen(s, j, '`')
-		if m == n {
-			return j + m
-		}
-		j += m
-	}
-	return -1
 }
 
 // mdAlnumAt reports whether the rune before s[i] (before: true) or at s[i]
@@ -965,18 +1044,18 @@ func mdIsMarker(s string, j int, c byte, n int) bool {
 
 // mdFindCloser returns the index of the nearest marker c repeated n times
 // that closes an emphasis span whose content starts at s[from] (content
-// non-empty; code spans and backslash escapes skipped), or -1.
-func mdFindCloser(s string, from int, c byte, n int) int {
+// non-empty; code spans, ends from mdCodeEnds(s), and backslash escapes
+// skipped), or -1.
+func mdFindCloser(s string, code []int, from int, c byte, n int) int {
 	for j := from; j < len(s); {
 		switch {
 		case s[j] == '\\' && j+1 < len(s) && strings.IndexByte(mdEscapable, s[j+1]) >= 0:
 			j += 2
 		case s[j] == '`':
-			k := mdRunLen(s, j, '`')
-			if end := mdCodeSpanEnd(s, j, k); end > 0 {
+			if end := code[j]; end > 0 {
 				j = end
 			} else {
-				j += k
+				j += mdRunLen(s, j, '`')
 			}
 		case j > from && mdIsMarker(s, j, c, n) && mdCanClose(s, j, c, n):
 			return j

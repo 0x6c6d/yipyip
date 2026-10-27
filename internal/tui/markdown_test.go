@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -767,4 +769,216 @@ func TestMarkdownRuleNotRule(t *testing.T) {
 	for _, src := range []string{"--", "a --- b", "-- -", "-*-", "**"} {
 		mdCheckLinesAt(t, src, 30, []string{src})
 	}
+}
+
+func TestMarkdownIncomplete(t *testing.T) {
+	for _, src := range []string{
+		"| a | b |",
+		"| a | b |\n| c",
+		"| a | b |\n|",
+		"| a | b |\n|-",
+		"| a | b |\n|---|",
+		"some **unclosed",
+		"some __unclosed",
+		"an `unclosed code",
+		"an ``unclosed ` code",
+		"a [link](http://x",
+		"a <http://x",
+		"```",
+		"```go",
+		"```go\n| x | y |\n|---|---|\n# not\n**b**",
+		"text\n```\n> q\n- i\n`x`",
+		"```nosuch\n**b** _i_ ~~s~~ [l](u)",
+	} {
+		if got := mdStrip(src); got != src {
+			t.Errorf("incomplete %q rendered as %q", src, got)
+		}
+	}
+	done := mdStrip("| a | b |\n|---|---|\n| c | d |")
+	if !strings.Contains(done, "┌") || strings.Contains(done, "|---") {
+		t.Errorf("finished table not rendered: %q", done)
+	}
+	if got := mdStrip("some **closed**"); got != "some closed" {
+		t.Errorf("finished bold = %q", got)
+	}
+	if got := mdStrip("```go\nx := 1\n```"); got != "x := 1" {
+		t.Errorf("finished fence = %q", got)
+	}
+}
+
+func TestMarkdownFenceUntouched(t *testing.T) {
+	body := []string{"|---|", "| x |", "# h", "**b**", "> q", "- i", "| a | b |\n|---|---|\n| c | d |"}
+	for _, lang := range []string{"", "go", "nosuch", "text"} {
+		for _, b := range body {
+			src := "before\n```" + lang + "\n" + b + "\n```\nafter"
+			got := mdStrip(src)
+			if want := "before\n" + b + "\nafter"; got != want {
+				t.Errorf("fence %q: got %q, want %q", src, got, want)
+			}
+		}
+	}
+	// Inline code content is never interpreted.
+	for _, code := range []string{"**b**", "# x | y |", "[a](b)", "_i_", "~~s~~", `\*`, "<http://x>"} {
+		if got := mdStrip("a `" + code + "` b"); got != "a "+code+" b" {
+			t.Errorf("inline code %q rendered as %q", code, got)
+		}
+	}
+	// Inline code in a table cell is not split or interpreted.
+	tbl := mdStrip("| h |\n|---|\n| `a | **b**` |")
+	if !strings.Contains(tbl, "a | **b**") {
+		t.Errorf("table code cell interpreted: %q", tbl)
+	}
+}
+
+func TestMarkdownNoWidth(t *testing.T) {
+	src := "| a | b |\n|---|---|\n| " + strings.Repeat("x", 120) + " | y |\n\n---"
+	for _, w := range []int{0, -1} {
+		lines := strings.Split(ansi.Strip(renderMarkdown(src, w)), "\n")
+		if len(lines) != 7 {
+			t.Fatalf("width %d: lines %q", w, lines)
+		}
+		if got := ansi.StringWidth(lines[0]); got != 120+3*2+1+1 {
+			t.Errorf("width %d: table not at natural width (%d): %q", w, got, lines[0])
+		}
+		if lines[6] != strings.Repeat("─", 40) {
+			t.Errorf("width %d: rule %q", w, lines[6])
+		}
+	}
+}
+
+// mdRobustInputs are the inputs every width of TestMarkdownNoPanic renders.
+func mdRobustInputs() []string {
+	return []string{
+		"", "|", "||", "|-|", "| a |\n|-|-|-|", "**", "*", "_", "~~", "`", "``", "```", "[", "](", "[a](",
+		"<http", "> ", "- ", "1.", "#", "######", "\x00", "\x00\xff\xfe", "a\xffb **\xfe** `\xff`",
+		"| 漢字 | 😀 |\n|---|---|\n| 😀😀😀😀😀😀😀😀😀😀 | x |",
+		"| 👩‍👩‍👧 | é |\n|---|---|\n| 中文中文中文 | 🇩🇪🇩🇪 |",
+		strings.Repeat(">", 5000) + " deep",
+		strings.Repeat("> ", 5000) + "deep **b**",
+		strings.Repeat("**a", 2000),
+		strings.Repeat("`", 3000),
+		strings.Repeat("` ``", 1500),
+		strings.Repeat("[", 3000) + strings.Repeat("]", 10),
+		strings.Repeat("[a](", 2000),
+		strings.Repeat("*_~~", 1000) + "x" + strings.Repeat("~~_*", 1000),
+		strings.Repeat("- ", 2000) + "x",
+		strings.Repeat("  ", 2000) + "- x",
+		strings.Repeat("| x ", 300) + "|\n" + strings.Repeat("|-", 300) + "|\n" + strings.Repeat("| y ", 300) + "|",
+		"| a |\n|---|\n" + strings.Repeat("| b |\n", 2000),
+		"\x1b[31mred\x1b[0m | \x1b[\n|---|---|\n| \x1b[1m | x |",
+	}
+}
+
+func TestMarkdownNoPanic(t *testing.T) {
+	for _, src := range mdRobustInputs() {
+		for _, w := range []int{-1, 0, 1, 2, 5, 40} {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("panic for %.60q at width %d: %v", src, w, r)
+					}
+				}()
+				if a, b := renderMarkdown(src, w), renderMarkdown(src, w); a != b {
+					t.Errorf("not deterministic for %.60q at width %d", src, w)
+				}
+			}()
+		}
+	}
+}
+
+func TestMarkdownLargeInput(t *testing.T) {
+	unit := "# Title **b**\n\n| a **b** `c` | [d](e) |\n|---|---|\n| x | y |\n\n- item _i_\n  - sub *s*\n1. one ~~z~~\n" +
+		"> q ~~z~~ <https://x.y>\n> > deeper `code`\n\n---\n\n```go\nx := 1 // **no**\n```\npara \\* text [l](u) ` `` `\n\n"
+	big := strings.Repeat(unit, 100*1024/len(unit)+1)
+	for _, w := range []int{80, 0} {
+		start := time.Now()
+		out := renderMarkdown(big, w)
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("%d bytes at width %d took %v", len(big), w, d)
+		}
+		if !strings.Contains(out, "┌") {
+			t.Errorf("width %d: no table rendered", w)
+		}
+	}
+	// Pathological lines stay fast too: no rescans per character.
+	for _, src := range []string{
+		strings.Repeat("`", 50000),
+		strings.Repeat("` ``", 12000),
+		strings.Repeat("[", 50000),
+		strings.Repeat("[a](", 12000),
+		strings.Repeat("**a", 16000),
+		strings.Repeat("_a ", 16000),
+		strings.Repeat("~~a ", 12000),
+		strings.Repeat("<http://", 6000),
+		strings.Repeat("| `", 16000),
+		strings.Repeat("[", 10000) + "a" + strings.Repeat("](u)", 10000),
+		strings.Repeat("**[a _", 5000) + "x" + strings.Repeat("_](u)**", 5000),
+	} {
+		start := time.Now()
+		_ = renderMarkdown(src, 80)
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("%.20q (%d bytes) took %v", src, len(src), d)
+		}
+	}
+}
+
+func TestMarkdownStreamingView(t *testing.T) {
+	const width = 40
+	m, _ := newBlockModel().Update(tea.WindowSizeMsg{Width: width, Height: 40})
+	answer := "Result:\n\n| Name | Value | Note |\n|---|---:|:---:|\n| alpha | 1 | **bold** text here |\n" +
+		"| beta | 22 | `code | pipe` |\n| gamma | 333 | " + strings.Repeat("long ", 10) + "|\n\nDone."
+	for i := 0; i < len(answer); i += 3 {
+		delta := answer[i:min(i+3, len(answer))]
+		m = feed(m, agent.Event{Kind: agent.EvText, AgentID: "main", Text: delta})
+		v := plainView(m.(Model))
+		// The two status rows keep every field by design and may be wider
+		// than a narrow terminal (see TestMarkdownTableView).
+		lines := strings.Split(v, "\n")
+		for _, l := range lines[:len(lines)-2] {
+			if w := ansi.StringWidth(strings.TrimRight(l, " ")); w > width {
+				t.Fatalf("after %q: view line %d wide: %q", answer[:i+len(delta)], w, l)
+			}
+		}
+	}
+	v := plainView(m.(Model))
+	if !strings.Contains(v, "┌") || !strings.Contains(v, "└") || strings.Contains(v, "|---") {
+		t.Fatalf("final view has no table:\n%s", v)
+	}
+}
+
+func FuzzMarkdown(f *testing.F) {
+	seeds := []string{
+		"# Title\n\nSome **bold**, _italic_, ~~strike~~ and `code`.",
+		"| a | b |\n|---|:---:|\n| c | d |",
+		"- one\n  - two\n1. three\n\n> quote **b**\n\n---",
+		"```go\nfunc main() {}\n```\n\n[link](http://x) <https://y> \\*",
+		"| a | b |\n| c",
+		"```go\n| x |\n# h",
+		"| 漢字 | 😀 |\n|---|---|\n| 😀😀😀 | x |",
+		strings.Repeat(">", 200) + " deep",
+		strings.Repeat("**a", 200),
+		strings.Repeat("| x ", 60) + "|\n" + strings.Repeat("|-", 60) + "|\n" + strings.Repeat("| y ", 60) + "|",
+	}
+	for _, s := range seeds {
+		f.Add(s, 40)
+	}
+	for _, s := range []string{"", "|", "||", "|-|", "**", "*", "_", "~~", "`", "```", "[", "](", "[a](",
+		"<http", "> ", "- ", "1.", "#", "######", "\x00\xff\xfe"} {
+		f.Add(s, 5)
+	}
+	f.Add("| a |\n|---|\n| b |", -1)
+	f.Add("---", 0)
+	f.Fuzz(func(t *testing.T, src string, width int) {
+		if len(src) > 1<<16 {
+			return
+		}
+		width %= 400
+		a := renderMarkdown(src, width)
+		if b := renderMarkdown(src, width); a != b {
+			t.Fatalf("not deterministic for %q at width %d", src, width)
+		}
+		if utf8.ValidString(src) && !utf8.ValidString(a) {
+			t.Fatalf("invalid UTF-8 output for %q at width %d: %q", src, width, a)
+		}
+	})
 }
