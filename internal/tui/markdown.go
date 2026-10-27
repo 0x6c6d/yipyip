@@ -81,7 +81,9 @@ const (
 // directly followed by a separator row with the same cell count, then every
 // following row that has a cell separator. Without a valid separator row the
 // lines are left to the other rules (a half-streamed table stays plain text).
-func mdTableRule(lines []string, i, _ int) ([]string, int, bool) {
+// A table wider than width (> 0) gets narrower columns with wrapped cells; a
+// table that cannot fit even then is emitted as its unchanged source lines.
+func mdTableRule(lines []string, i, width int) ([]string, int, bool) {
 	if i+1 >= len(lines) {
 		return nil, i, false
 	}
@@ -116,9 +118,159 @@ func mdTableRule(lines []string, i, _ int) ([]string, int, bool) {
 			widths[c] = max(widths[c], ansi.StringWidth(cell))
 		}
 	}
-	// Natural width only: shrinking columns and wrapping cells when the
-	// table is wider than width hooks in here, before the layout.
-	return mdTableLayout(cells, aligns, widths), next, true
+	if width <= 0 || mdTableWidth(widths) <= width {
+		return mdTableLayout(cells, 1, aligns, widths), next, true
+	}
+	if !mdShrinkColumns(widths, width) {
+		return lines[i:next], next, true
+	}
+	wrapped, headerRows, ok := mdWrapCells(cells, widths)
+	if !ok {
+		return lines[i:next], next, true
+	}
+	return mdTableLayout(wrapped, headerRows, aligns, widths), next, true
+}
+
+// mdTableWidth is the width of every rendered table line for the given
+// column content widths: the cells, one space of padding on each side and
+// a border before, between and after the columns.
+func mdTableWidth(widths []int) int {
+	total := 3*len(widths) + 1
+	for _, w := range widths {
+		total += w
+	}
+	return total
+}
+
+// mdShrinkColumns narrows the natural column widths in place until the table
+// fits width: the currently widest column (the leftmost on a tie) loses one
+// column at a time, never going below min(3, its natural width). It reports
+// false, leaving widths unchanged, when even the minimum widths do not fit.
+func mdShrinkColumns(widths []int, width int) bool {
+	mins := make([]int, len(widths))
+	for c, w := range widths {
+		mins[c] = min(3, w)
+	}
+	if mdTableWidth(mins) > width {
+		return false
+	}
+	// One column at a time is equivalent to lowering the widest level as a
+	// whole: every column at the top level M (all above their minimum, as
+	// min <= 3 < M) drops to the next level below, and a partial level ends
+	// with its leftmost columns one lower. This keeps long cells cheap.
+	excess := mdTableWidth(widths) - width
+	for excess > 0 {
+		top, next := 0, 3
+		for _, w := range widths {
+			top = max(top, w)
+		}
+		var at []int
+		for c, w := range widths {
+			if w == top {
+				at = append(at, c)
+			} else {
+				next = max(next, w)
+			}
+		}
+		k := len(at)
+		if full := k * (top - next); excess >= full {
+			for _, c := range at {
+				widths[c] = next
+			}
+			excess -= full
+			continue
+		}
+		for j, c := range at {
+			widths[c] = top - excess/k
+			if j < excess%k {
+				widths[c]--
+			}
+		}
+		excess = 0
+	}
+	return true
+}
+
+// mdWrapCells wraps every rendered cell to its column width and splits each
+// row into physical rows: a row becomes as many rows as its tallest cell has
+// lines, shorter cells get empty lines. Styles open at a line break are closed
+// at the end of the line and reopened on the next one, so each physical line
+// is styled on its own. ok is false if a line is still wider than its column
+// (a grapheme wider than the column), so the caller never overflows. header
+// is the number of physical rows of the header row.
+func mdWrapCells(cells [][]string, widths []int) (out [][]string, header int, ok bool) {
+	for k, r := range cells {
+		parts := make([][]string, len(r))
+		height := 1
+		for c, cell := range r {
+			parts[c] = strings.Split(mdCarryStyles(ansi.Wrap(cell, widths[c], "")), "\n")
+			for _, l := range parts[c] {
+				if ansi.StringWidth(l) > widths[c] {
+					return nil, 0, false
+				}
+			}
+			height = max(height, len(parts[c]))
+		}
+		for line := 0; line < height; line++ {
+			phys := make([]string, len(r))
+			for c := range r {
+				if line < len(parts[c]) {
+					phys[c] = parts[c][line]
+				}
+			}
+			out = append(out, phys)
+		}
+		if k == 0 {
+			header = height
+		}
+	}
+	return out, header, true
+}
+
+// mdCarryStyles makes every line of s carry its own SGR styling: at each
+// newline the SGR sequences still in effect (since the last reset) are
+// closed with a reset and repeated at the start of the next line.
+func mdCarryStyles(s string) string {
+	if !strings.Contains(s, "\x1b[") || !strings.Contains(s, "\n") {
+		return s
+	}
+	var out, active strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == '\n':
+			if active.Len() > 0 {
+				out.WriteString("\x1b[0m\n")
+				out.WriteString(active.String())
+			} else {
+				out.WriteByte('\n')
+			}
+			i++
+		case s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[':
+			j := i + 2
+			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+				j++
+			}
+			if j == len(s) {
+				out.WriteString(s[i:])
+				return out.String()
+			}
+			seq := s[i : j+1]
+			out.WriteString(seq)
+			if s[j] == 'm' {
+				if params := s[i+2 : j]; params == "" || params == "0" || strings.HasPrefix(params, "0;") {
+					active.Reset()
+				}
+				if params := s[i+2 : j]; params != "" && params != "0" {
+					active.WriteString(seq)
+				}
+			}
+			i = j + 1
+		default:
+			out.WriteByte(s[i])
+			i++
+		}
+	}
+	return out.String()
 }
 
 // mdParseSeparator parses a table separator row with n cells and returns the
@@ -193,10 +345,10 @@ func mdSplitRow(line string) (cells []string, seps int) {
 	return cells, seps
 }
 
-// mdTableLayout draws a table of rendered cells (the first row is the
-// header) with box-drawing borders; widths are the column widths and every
-// cell is padded to its column's width with that column's alignment.
-func mdTableLayout(cells [][]string, aligns []mdAlign, widths []int) []string {
+// mdTableLayout draws a table of rendered cells (the first header rows are
+// the header) with box-drawing borders; widths are the column widths and
+// every cell is padded to its column's width with that column's alignment.
+func mdTableLayout(cells [][]string, header int, aligns []mdAlign, widths []int) []string {
 	rule := func(left, mid, right string) string {
 		parts := make([]string, len(widths))
 		for c, w := range widths {
@@ -215,7 +367,7 @@ func mdTableLayout(cells [][]string, aligns []mdAlign, widths []int) []string {
 	out = append(out, rule("┌", "┬", "┐"))
 	for k, r := range cells {
 		out = append(out, row(r))
-		if k == 0 {
+		if k == header-1 {
 			out = append(out, rule("├", "┼", "┤"))
 		}
 	}

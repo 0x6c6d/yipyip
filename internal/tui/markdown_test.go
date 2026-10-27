@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
@@ -334,5 +336,202 @@ func TestMarkdownTableHeaderBold(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(lines[1]), "│ Head │ Er │") {
 		t.Errorf("header row = %q", ansi.Strip(lines[1]))
+	}
+}
+
+// mdCheckFits reports a table line wider than width or of a different width
+// than the first line; lines are ANSI-stripped.
+func mdCheckFits(t *testing.T, out string, width int) []string {
+	t.Helper()
+	lines := strings.Split(ansi.Strip(out), "\n")
+	w0 := ansi.StringWidth(lines[0])
+	for _, l := range lines {
+		if w := ansi.StringWidth(l); w > width || w != w0 {
+			t.Errorf("line width %d (first %d, limit %d): %q", w, w0, width, l)
+		}
+	}
+	return lines
+}
+
+func TestMarkdownTableWrap(t *testing.T) {
+	src := "| Column one | Column two | Column three |\n|---|---|---|\n| " +
+		strings.TrimSpace(strings.Repeat("word ", 12)) + " | short | " + strings.Repeat("x", 50) + " |"
+	out := ansi.Strip(renderMarkdown(src, 40))
+	lines := mdCheckFits(t, out, 40)
+	if !strings.HasPrefix(lines[0], "┌") || !strings.HasPrefix(lines[len(lines)-1], "└") {
+		t.Fatalf("not a box:\n%s", out)
+	}
+	if n := strings.Count(out, "word"); n != 12 {
+		t.Errorf("%d words, want 12:\n%s", n, out)
+	}
+	if n := strings.Count(out, "x"); n != 50 {
+		t.Errorf("%d x characters, want 50:\n%s", n, out)
+	}
+	for _, w := range []string{"Column", "one", "two", "three", "short"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q:\n%s", w, out)
+		}
+	}
+	// The header separator follows the last header line, not the first.
+	if !strings.HasPrefix(lines[1], "│") || !strings.HasPrefix(lines[2], "│") {
+		t.Errorf("wrapped header lines missing:\n%s", out)
+	}
+	if strings.Count(out, "├") != 1 {
+		t.Errorf("want exactly one header separator:\n%s", out)
+	}
+}
+
+func TestMarkdownTableWrapAlign(t *testing.T) {
+	src := "| name | amount |\n|---|---:|\n| " + strings.Repeat("a", 30) + " | 1 22 333 4444 55555 |"
+	out := ansi.Strip(renderMarkdown(src, 30))
+	lines := mdCheckFits(t, out, 30)
+	body := 0
+	for _, l := range lines[3 : len(lines)-1] {
+		cols := strings.Split(l, "│")
+		if len(cols) != 4 {
+			t.Fatalf("bad row %q", l)
+		}
+		cell := cols[2]
+		if strings.TrimSpace(cell) == "" {
+			continue
+		}
+		body++
+		if !strings.HasSuffix(cell, " ") || strings.HasSuffix(cell, "  ") {
+			t.Errorf("cell %q not right-aligned:\n%s", cell, out)
+		}
+	}
+	if body < 2 {
+		t.Errorf("right-aligned cell not wrapped (%d lines):\n%s", body, out)
+	}
+}
+
+func TestMarkdownTableFitsUnchanged(t *testing.T) {
+	src := "| Name | Qty |\n|:---|---:|\n| apple | 3 |\n| **kiwi** | 12 |"
+	if a, b := renderMarkdown(src, 0), renderMarkdown(src, 80); a != b {
+		t.Errorf("a fitting table differs at width 0 and 80:\n%s\n%s", a, b)
+	}
+	// Exactly fitting is still the natural layout.
+	natural := renderMarkdown(src, 0)
+	w := ansi.StringWidth(strings.Split(natural, "\n")[0])
+	if got := renderMarkdown(src, w); got != natural {
+		t.Errorf("a table exactly %d wide changed:\n%s", w, got)
+	}
+}
+
+func TestMarkdownTableTooNarrow(t *testing.T) {
+	src := "|a|b|c|d|e|f|g|h|i|j|\n|-|-|-|-|-|-|-|-|-|-|\n|1|2|3|4|5|6|7|8|9|0|"
+	if got := renderMarkdown(src, 20); got != src {
+		t.Errorf("renderMarkdown at width 20 = %q, want the source", got)
+	}
+	// Only the table falls back; the text around it is rendered as usual.
+	got := renderMarkdown("**x**\n"+src+"\nafter", 20)
+	if want := "x\n" + src + "\nafter"; ansi.Strip(got) != want {
+		t.Errorf("got %q, want %q", ansi.Strip(got), want)
+	}
+}
+
+func TestMarkdownTableWideChars(t *testing.T) {
+	src := "| 名前 | 説明 |\n|---|---|\n| 日本語のテキスト | 😀😀😀 絵文字 😀😀😀 と 漢字 の 説明文 |"
+	out := renderMarkdown(src, 30)
+	lines := mdCheckFits(t, out, 30)
+	if !strings.HasPrefix(lines[0], "┌") {
+		t.Errorf("not a box:\n%s", ansi.Strip(out))
+	}
+	plain := strings.ReplaceAll(ansi.Strip(out), " ", "")
+	for _, s := range []string{"名前", "説明", "😀😀😀", "漢字"} {
+		if !strings.Contains(strings.ReplaceAll(strings.ReplaceAll(plain, "│", ""), "\n", ""), s) {
+			t.Errorf("lost %q:\n%s", s, ansi.Strip(out))
+		}
+	}
+}
+
+func TestMarkdownTableWrapHeaderBold(t *testing.T) {
+	withColorProfile(t, termenv.ANSI256)
+	src := "| alpha beta gamma delta | b |\n|---|---|\n| x | y |"
+	lines := strings.Split(renderMarkdown(src, 16), "\n")
+	header := 0
+	for _, l := range lines {
+		if strings.HasPrefix(ansi.Strip(l), "├") {
+			break
+		}
+		if strings.HasPrefix(ansi.Strip(l), "│") {
+			header++
+			cell := strings.Split(l, "│")[1]
+			if !strings.Contains(cell, "\x1b[") || strings.Count(cell, "\x1b[0m") < 1 {
+				t.Errorf("header line not bold on its own: %q", l)
+			}
+			if !strings.HasSuffix(strings.TrimRight(cell, " "), "m") {
+				t.Errorf("header style not closed in its cell: %q", l)
+			}
+		}
+	}
+	if header < 2 {
+		t.Errorf("header not wrapped: %q", lines)
+	}
+}
+
+func TestMarkdownTableView(t *testing.T) {
+	m, _ := newBlockModel().Update(tea.WindowSizeMsg{Width: 40, Height: 40})
+	text := "Here:\n\n| Column one | Column two | Column three |\n|---|---:|---|\n| " +
+		strings.TrimSpace(strings.Repeat("word ", 12)) + " | short | " + strings.Repeat("x", 50) + " |"
+	m = feed(m, agent.Event{Kind: agent.EvText, AgentID: "main", Text: text})
+	v := plainView(m.(Model))
+	if !strings.Contains(v, "┌") || !strings.Contains(v, "└") {
+		t.Fatalf("no table in the view:\n%s", v)
+	}
+	// The two status rows keep every field by design (README) and may be
+	// wider than a narrow terminal; the view pads the other lines to them
+	// with trailing spaces, so those are trimmed before measuring.
+	lines := strings.Split(v, "\n")
+	for _, l := range lines[:len(lines)-2] {
+		if w := ansi.StringWidth(strings.TrimRight(l, " ")); w > 40 {
+			t.Errorf("view line %d wide: %q", w, l)
+		}
+	}
+}
+
+// TestMarkdownTableShrinkOrder checks the shrinking against its definition:
+// the widest column (the leftmost on a tie) loses one column at a time,
+// never below min(3, natural width).
+func TestMarkdownTableShrinkOrder(t *testing.T) {
+	reference := func(widths []int, width int) []int {
+		w := append([]int(nil), widths...)
+		for mdTableWidth(w) > width {
+			widest := 0
+			for c := range w {
+				if w[c] > w[widest] {
+					widest = c
+				}
+			}
+			w[widest]--
+		}
+		return w
+	}
+	seed := uint32(7)
+	rnd := func(n int) int {
+		seed = seed*1664525 + 1013904223
+		return int(seed>>8) % n
+	}
+	for range 2000 {
+		widths := make([]int, 1+rnd(6))
+		for c := range widths {
+			widths[c] = rnd(40)
+		}
+		width := rnd(mdTableWidth(widths) + 5)
+		got := append([]int(nil), widths...)
+		mins := make([]int, len(widths))
+		for c, w := range widths {
+			mins[c] = min(3, w)
+		}
+		fits := mdTableWidth(mins) <= width
+		if ok := mdShrinkColumns(got, width); ok != fits {
+			t.Fatalf("mdShrinkColumns(%v, %d) = %v, want %v", widths, width, ok, fits)
+		}
+		if !fits {
+			continue
+		}
+		if want := reference(widths, width); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("mdShrinkColumns(%v, %d) = %v, want %v", widths, width, got, want)
+		}
 	}
 }
