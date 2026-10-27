@@ -199,22 +199,6 @@ func TestCloseTabSwitchesLeftNeighbour(t *testing.T) {
 	}
 }
 
-func TestCloseLastTabQuitsAndSaves(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "saved answer"))
-	m = tabTurn(t, m, "keep me")
-	_, cmd := m.closeTab()
-	if cmd == nil {
-		t.Fatal("closing the last tab returned no command")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("closing the last tab did not quit")
-	}
-	_, raw := readSavedFile(t, sess.StartDir())
-	if !strings.Contains(raw, "keep me") || !strings.Contains(raw, "saved answer") {
-		t.Errorf("saved file lacks the conversation:\n%s", raw)
-	}
-}
-
 func TestCloseTabSavesSession(t *testing.T) {
 	m, sess := newSessionModel(t, answerServer(t, "tab zero answer"))
 	m = tabTurn(t, m, "tab zero question")

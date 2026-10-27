@@ -39,7 +39,7 @@ var keys = []struct{ Key, Help string }{
 	{"PgUp/PgDn, Mouse wheel", "scroll (the wheel scrolls 3 lines)"},
 	{"Ctrl+Home/Ctrl+End", "scroll to the first/last line (Home/End with an empty input)"},
 	{"Mouse drag", "select text; releasing copies it (in the input, a click moves the cursor)"},
-	{"Ctrl+T / Ctrl+W", "new tab (up to 8) / close the tab (saves it first)"},
+	{"Ctrl+T / Ctrl+W", "new tab (up to 8) / close the tab (saved first; the last tab is discarded and replaced by an empty one)"},
 	{"Click tab / × / +", "switch tab / close it / new tab"},
 }
 

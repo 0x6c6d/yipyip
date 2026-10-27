@@ -72,22 +72,6 @@ func TestTabButtons(t *testing.T) {
 	}
 }
 
-func TestTabButtonsLastTab(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "hello"))
-	m = tabTurn(t, m, "only question")
-	m, cmd := clickBar(m, zoneCol(t, m, tabZoneClose, 0))
-	if cmd == nil {
-		t.Fatal("closing the last tab returned no quit command")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("closing the last tab did not quit")
-	}
-	doc, _ := readSavedFile(t, sess.StartDir())
-	if title, _ := doc["title"].(string); title != "only question" {
-		t.Errorf("saved title = %q", doc["title"])
-	}
-}
-
 func TestTabClickSwitch(t *testing.T) {
 	var got []string
 	m, _ := newSessionModelOpts(t, answerServer(t, "hello"), "start", func(o *Options) {

@@ -229,12 +229,18 @@ func (m *Model) switchTab(i int) {
 }
 
 // closeTab saves the current tab through the exit save path and removes it;
-// the left neighbour becomes current, else the right one. Closing the last
-// tab is the /exit path: save, then quit.
+// the left neighbour becomes current, else the right one. The last tab is not
+// saved and the app keeps running: resetTab discards it and puts one empty tab
+// in its place (an earlier saved file of it stays as it is), and the new event
+// pump starts. If no new session can be made, an error line is added and the
+// tab stays.
 func (m Model) closeTab() (Model, tea.Cmd) {
 	if len(m.tabs) <= 1 {
-		m = m.saveTabs()
-		return m, m.quit()
+		if err := m.resetTab(false); err != nil {
+			m.add(blockError, "error: "+err.Error())
+			return m, nil
+		}
+		return m, m.waitEvent()
 	}
 	m.saveTab()
 	m.denyPending()

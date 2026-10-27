@@ -132,23 +132,14 @@ func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
 	}
 }
 
-func TestCtrlWLastTabExitsLikeExit(t *testing.T) {
+func TestCtrlWLastTabLeavesFreshTab(t *testing.T) {
 	m, sess := newSessionModel(t, answerServer(t, "hello"))
 	m = tabTurn(t, m, "only question")
 
 	m, cmd := sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})
-	if cmd == nil {
-		t.Fatal("Ctrl+W on the last tab returned no quit command")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("Ctrl+W on the last tab did not quit")
-	}
-	doc, _ := readSavedFile(t, sess.StartDir())
-	if title, _ := doc["title"].(string); title != "only question" {
-		t.Errorf("saved title = %q", doc["title"])
-	}
-	if len(m.tabs) != 1 {
-		t.Errorf("tabs = %d, want 1 kept", len(m.tabs))
+	checkFreshLastTab(t, m, cmd, sess)
+	if got := tabBarLine(m); strings.Contains(got, "only question") {
+		t.Errorf("tab bar after the close = %q", got)
 	}
 }
 
