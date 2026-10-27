@@ -632,15 +632,30 @@ func mdParagraphRule(lines []string, i, _ int) ([]string, int, bool) {
 	return []string{renderInline(lines[i])}, i + 1, true
 }
 
-// renderInline renders the inline markdown of one line: code spans are kept
-// verbatim, **bold** and __bold__ are styled, everything else is copied.
+// renderInline renders the inline markdown of one line: backslash escapes,
+// code spans, links, autolinks and bold, italic and strikethrough emphasis
+// are rendered without their markup; everything else is copied.
 func renderInline(s string) string {
 	return renderInlineWith(s, nil)
 }
 
+// mdEscapable lists the characters a backslash escapes.
+const mdEscapable = "\\`*_{}[]()#+-.!|~<>"
+
+// mdCodeColor is the foreground colour of inline code spans.
+var mdCodeColor = lipgloss.Color("#B1B9F9")
+
+// mdCode is the style of an inline code span outside any other style.
+var mdCode = lipgloss.NewStyle().Foreground(mdCodeColor).TabWidth(lipgloss.NoTabConversion)
+
+// mdPlain is the base style that emphasis adds to outside any other style.
+var mdPlain = lipgloss.NewStyle().TabWidth(lipgloss.NoTabConversion)
+
 // renderInlineWith renders the inline markdown of s; plain text is rendered
-// with base (copied unchanged when base is nil) and bold spans with base
-// made bold.
+// with base (copied unchanged when base is nil) and every styled form with
+// base plus its own style. The text is scanned left to right and at each
+// position the first matching form wins: backslash escape, code span, image
+// (kept literally), link, autolink, emphasis.
 func renderInlineWith(s string, base *lipgloss.Style) string {
 	var out, lit strings.Builder
 	flush := func() {
@@ -649,32 +664,77 @@ func renderInlineWith(s string, base *lipgloss.Style) string {
 			lit.Reset()
 		}
 	}
-	// Once no closer exists after an opener, none exists for later openers.
-	noCloser := map[byte]bool{}
+	// Once no closer exists after an opener, none exists for later openers
+	// of the same marker (the closer search range only shrinks).
+	noCloser := map[string]bool{}
 	for i := 0; i < len(s); {
 		c := s[i]
-		switch {
-		case c == '`':
+		switch c {
+		case '\\':
+			if i+1 < len(s) && strings.IndexByte(mdEscapable, s[i+1]) >= 0 {
+				lit.WriteByte(s[i+1])
+				i += 2
+				continue
+			}
+			lit.WriteByte(c)
+			i++
+		case '`':
 			n := mdRunLen(s, i, '`')
 			if end := mdCodeSpanEnd(s, i, n); end > 0 {
-				lit.WriteString(s[i:end])
+				flush()
+				out.WriteString(mdStyled(mdCodeContent(s[i+n:end-n]), mdCodeOf(base)))
 				i = end
 				continue
 			}
 			lit.WriteString(s[i : i+n])
 			i += n
-		case (c == '*' || c == '_') && i+1 < len(s) && s[i+1] == c:
-			if !noCloser[c] && mdCanOpen(s, i, c) {
-				if j := mdFindCloser(s, i+2, c); j >= 0 {
+		case '!':
+			if end, _, _, ok := mdParseLink(s, i+1); ok {
+				lit.WriteString(s[i:end]) // images are not supported: all characters stay
+				i = end
+				continue
+			}
+			lit.WriteByte(c)
+			i++
+		case '[':
+			if end, text, url, ok := mdParseLink(s, i); ok {
+				flush()
+				out.WriteString(mdRenderLink(text, url, base))
+				i = end
+				continue
+			}
+			lit.WriteByte(c)
+			i++
+		case '<':
+			if end, url, ok := mdParseAutolink(s, i); ok {
+				lit.WriteString(url)
+				i = end
+				continue
+			}
+			lit.WriteByte(c)
+			i++
+		case '*', '_', '~':
+			n := 1
+			if i+1 < len(s) && s[i+1] == c {
+				n = 2
+			}
+			marker := s[i : i+n]
+			if c == '~' && n == 1 {
+				lit.WriteByte(c)
+				i++
+				continue
+			}
+			if !noCloser[marker] && mdCanOpen(s, i, c, n) {
+				if j := mdFindCloser(s, i+n, c, n); j >= 0 {
 					flush()
-					out.WriteString(renderInlineWith(s[i+2:j], mdBoldOf(base)))
-					i = j + 2
+					out.WriteString(renderInlineWith(s[i+n:j], mdEmphasisOf(base, c, n)))
+					i = j + n
 					continue
 				}
-				noCloser[c] = true
+				noCloser[marker] = true
 			}
-			lit.WriteString(s[i : i+2])
-			i += 2
+			lit.WriteString(marker)
+			i += n
 		default:
 			lit.WriteByte(c)
 			i++
@@ -699,6 +759,128 @@ func mdBoldOf(base *lipgloss.Style) *lipgloss.Style {
 	}
 	b := base.Bold(true)
 	return &b
+}
+
+// mdEmphasisOf returns base with the style of the emphasis marker c repeated
+// n times: "**"/"__" bold, "*"/"_" italic, "~~" strikethrough.
+func mdEmphasisOf(base *lipgloss.Style, c byte, n int) *lipgloss.Style {
+	if c != '~' && n == 2 {
+		return mdBoldOf(base)
+	}
+	s := mdPlain
+	if base != nil {
+		s = *base
+	}
+	if c == '~' {
+		s = s.Strikethrough(true)
+	} else {
+		s = s.Italic(true)
+	}
+	return &s
+}
+
+// mdCodeOf returns base with the code span colour (mdCode for a nil base).
+func mdCodeOf(base *lipgloss.Style) *lipgloss.Style {
+	if base == nil {
+		return &mdCode
+	}
+	s := base.Foreground(mdCodeColor)
+	return &s
+}
+
+// mdCodeContent returns the text of a code span: one leading and one
+// trailing space are stripped when both exist and it is not all spaces.
+func mdCodeContent(content string) string {
+	if len(content) >= 2 && content[0] == ' ' && content[len(content)-1] == ' ' && strings.Trim(content, " ") != "" {
+		return content[1 : len(content)-1]
+	}
+	return content
+}
+
+// mdParseLink parses a link "[text](url)" starting at s[i]: '[' up to the
+// matching ']' (nested brackets balanced; escapes and code spans skipped),
+// directly followed by '(', a non-empty url without whitespace and ')'. It
+// returns the index just past the ')' and the text and url.
+func mdParseLink(s string, i int) (end int, text, url string, ok bool) {
+	if i >= len(s) || s[i] != '[' {
+		return 0, "", "", false
+	}
+	depth, k := 0, i
+	for k < len(s) {
+		switch s[k] {
+		case '\\':
+			k += 2
+			continue
+		case '`':
+			n := mdRunLen(s, k, '`')
+			if e := mdCodeSpanEnd(s, k, n); e > 0 {
+				k = e
+			} else {
+				k += n
+			}
+			continue
+		case '[':
+			depth++
+		case ']':
+			depth--
+		}
+		if depth == 0 {
+			break
+		}
+		k++
+	}
+	if k >= len(s) || depth != 0 || k+1 >= len(s) || s[k+1] != '(' {
+		return 0, "", "", false
+	}
+	u := k + 2
+	for u < len(s) && s[u] != ')' {
+		if unicode.IsSpace(rune(s[u])) {
+			return 0, "", "", false
+		}
+		u++
+	}
+	if u >= len(s) || u == k+2 {
+		return 0, "", "", false
+	}
+	return u + 1, s[i+1 : k], s[k+2 : u], true
+}
+
+// mdRenderLink renders a link as its inline-rendered text followed by the
+// url in parentheses, or as the url alone when the text shows the url.
+func mdRenderLink(text, url string, base *lipgloss.Style) string {
+	rendered := renderInlineWith(text, base)
+	if ansi.Strip(rendered) == url {
+		return mdStyled(url, base)
+	}
+	return rendered + mdStyled(" ("+url+")", base)
+}
+
+// mdParseAutolink parses an autolink "<http://…>" or "<https://…>" starting
+// at s[i] (no whitespace, '<' or '>' inside the url) and returns the index
+// just past the '>' and the url.
+func mdParseAutolink(s string, i int) (end int, url string, ok bool) {
+	rest := s[i+1:]
+	var scheme int
+	switch {
+	case strings.HasPrefix(rest, "http://"):
+		scheme = len("http://")
+	case strings.HasPrefix(rest, "https://"):
+		scheme = len("https://")
+	default:
+		return 0, "", false
+	}
+	for k := scheme; k < len(rest); k++ {
+		switch c := rest[k]; {
+		case c == '>':
+			if k == scheme {
+				return 0, "", false
+			}
+			return i + 1 + k + 1, rest[:k], true
+		case c == '<' || unicode.IsSpace(rune(c)):
+			return 0, "", false
+		}
+	}
+	return 0, "", false
 }
 
 // mdRunLen returns the length of the run of byte c starting at s[i].
@@ -727,53 +909,76 @@ func mdCodeSpanEnd(s string, i, n int) int {
 	return -1
 }
 
-// mdCanOpen reports whether the doubled marker c at s[i] can open a bold span.
-func mdCanOpen(s string, i int, c byte) bool {
-	next, _ := utf8.DecodeRuneInString(s[i+2:])
-	if i+2 >= len(s) || unicode.IsSpace(next) {
-		return false
-	}
-	if c == '_' && i > 0 {
-		prev, _ := utf8.DecodeLastRuneInString(s[:i])
-		if unicode.IsLetter(prev) || unicode.IsDigit(prev) {
+// mdAlnumAt reports whether the rune before s[i] (before: true) or at s[i]
+// is a letter or digit.
+func mdAlnumAt(s string, i int, before bool) bool {
+	var r rune
+	if before {
+		if i <= 0 {
 			return false
 		}
+		r, _ = utf8.DecodeLastRuneInString(s[:i])
+	} else {
+		if i >= len(s) {
+			return false
+		}
+		r, _ = utf8.DecodeRuneInString(s[i:])
 	}
-	return true
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
-// mdCanClose reports whether the doubled marker c at s[j] can close a bold span.
-func mdCanClose(s string, j int, c byte) bool {
+// mdCanOpen reports whether the marker c repeated n times at s[i] can open
+// an emphasis span: it is followed by a non-space and, for '_', not
+// preceded by a letter or digit.
+func mdCanOpen(s string, i int, c byte, n int) bool {
+	if i+n >= len(s) {
+		return false
+	}
+	if next, _ := utf8.DecodeRuneInString(s[i+n:]); unicode.IsSpace(next) {
+		return false
+	}
+	return c != '_' || !mdAlnumAt(s, i, true)
+}
+
+// mdCanClose reports whether the marker c repeated n times at s[j] can close
+// an emphasis span: it is preceded by a non-space and, for '_', not followed
+// by a letter or digit.
+func mdCanClose(s string, j int, c byte, n int) bool {
 	if j == 0 {
 		return false
 	}
-	prev, _ := utf8.DecodeLastRuneInString(s[:j])
-	if unicode.IsSpace(prev) {
+	if prev, _ := utf8.DecodeLastRuneInString(s[:j]); unicode.IsSpace(prev) {
 		return false
 	}
-	if c == '_' && j+2 < len(s) {
-		next, _ := utf8.DecodeRuneInString(s[j+2:])
-		if unicode.IsLetter(next) || unicode.IsDigit(next) {
-			return false
-		}
-	}
-	return true
+	return c != '_' || !mdAlnumAt(s, j+n, false)
 }
 
-// mdFindCloser returns the index of the doubled marker c that closes a bold
-// span whose content starts at s[from] (content non-empty, code spans
-// skipped), or -1.
-func mdFindCloser(s string, from int, c byte) int {
+// mdIsMarker reports whether s[j:] starts the marker c repeated n times; a
+// single marker must not be next to another c, so it never matches half
+// of a doubled one.
+func mdIsMarker(s string, j int, c byte, n int) bool {
+	if n == 2 {
+		return j+1 < len(s) && s[j] == c && s[j+1] == c
+	}
+	return s[j] == c && (j+1 >= len(s) || s[j+1] != c) && (j == 0 || s[j-1] != c)
+}
+
+// mdFindCloser returns the index of the nearest marker c repeated n times
+// that closes an emphasis span whose content starts at s[from] (content
+// non-empty; code spans and backslash escapes skipped), or -1.
+func mdFindCloser(s string, from int, c byte, n int) int {
 	for j := from; j < len(s); {
 		switch {
+		case s[j] == '\\' && j+1 < len(s) && strings.IndexByte(mdEscapable, s[j+1]) >= 0:
+			j += 2
 		case s[j] == '`':
-			n := mdRunLen(s, j, '`')
-			if end := mdCodeSpanEnd(s, j, n); end > 0 {
+			k := mdRunLen(s, j, '`')
+			if end := mdCodeSpanEnd(s, j, k); end > 0 {
 				j = end
 			} else {
-				j += n
+				j += k
 			}
-		case j > from && s[j] == c && j+1 < len(s) && s[j+1] == c && mdCanClose(s, j, c):
+		case j > from && mdIsMarker(s, j, c, n) && mdCanClose(s, j, c, n):
 			return j
 		default:
 			j++

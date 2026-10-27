@@ -64,10 +64,10 @@ func TestMarkdownSkeletonBold(t *testing.T) {
 		"snake__case__x":         "snake__case__x",
 		"** x**":                 "** x**",
 		"**x **":                 "**x **",
-		"`**x**`":                "`**x**`",
-		"a `**x**` **y**":        "a `**x**` y",
-		"**a `**` b**":           "a `**` b",
-		"``code ` **x**`` **y**": "``code ` **x**`` y",
+		"`**x**`":                "**x**",
+		"a `**x**` **y**":        "a **x** y",
+		"**a `**` b**":           "a ** b",
+		"``code ` **x**`` **y**": "code ` **x** y",
 		"`unclosed **y**":        "`unclosed y",
 	}
 	for src, want := range cases {
@@ -80,7 +80,7 @@ func TestMarkdownSkeletonBold(t *testing.T) {
 	if raw == "b" || ansi.Strip(raw) != "b" {
 		t.Errorf("bold not styled: %q", raw)
 	}
-	if raw := renderMarkdown("`**x**`", 80); raw != "`**x**`" {
+	if raw := renderMarkdown("`**x**`", 80); ansi.Strip(raw) != "**x**" || strings.Count(raw, "\x1b[1m") > 0 {
 		t.Errorf("code span interpreted: %q", raw)
 	}
 }
@@ -183,6 +183,8 @@ func TestMarkdownSecretReassembly(t *testing.T) {
 	}{
 		{"joined secret falls back", "joined **SEC**RET123 here", []string{"joined **SEC**RET123 here"}},
 		{"redacted then rendered", "key SECRET123 and **bold**", []string{"key [redacted] and bold"}},
+		{"code span joins", "SEC`RET`123", []string{"SEC`RET`123"}},
+		{"strike joins", "SEC~~RET~~123", []string{"SEC~~RET~~123"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -199,6 +201,100 @@ func TestMarkdownSecretReassembly(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mdCheckInline reports every case whose ANSI-stripped rendering differs
+// from the wanted text.
+func mdCheckInline(t *testing.T, cases map[string]string) {
+	t.Helper()
+	for src, want := range cases {
+		if got := mdStrip(src); got != want {
+			t.Errorf("renderMarkdown(%q) = %q, want %q", src, got, want)
+		}
+	}
+}
+
+func TestMarkdownInlineEmphasis(t *testing.T) {
+	mdCheckInline(t, map[string]string{
+		"*it* and _it2_":        "it and it2",
+		"~~gone~~ text":         "gone text",
+		"__b__ x":               "b x",
+		"snake_case_name stays": "snake_case_name stays",
+		"2 * 3 * 4":             "2 * 3 * 4",
+		"**unclosed and *also":  "**unclosed and *also",
+		"in*tra*word":           "intraword",
+		"a ~single~ b":          "a ~single~ b",
+		"a * x*":                "a * x*",
+		"_x _":                  "_x _",
+		"*a **b** c*":           "a b c",
+		"file_name_here.go":     "file_name_here.go",
+		"snake__double__name":   "snake__double__name",
+		"~~a *b* c~~":           "a b c",
+	})
+	for _, src := range []string{"*\xff*", "[*](*)", "![", "[", "<", "<https://", "\\"} {
+		_ = renderMarkdown(src, 80) // must not panic
+	}
+	markers := strings.NewReplacer("*", "", "_", "", "~", "")
+	for _, src := range []string{"***x***", "a ***x*** b", "x *", "_", "~~", "a ~~~ b", "_*_*", "**a*b**c*"} {
+		if got := mdStrip(src); markers.Replace(got) != markers.Replace(src) {
+			t.Errorf("renderMarkdown(%q) = %q lost characters other than markers", src, got)
+		}
+	}
+	withColorProfile(t, termenv.ANSI256)
+	for _, src := range []string{"*it*", "_it_", "~~gone~~"} {
+		if raw := renderMarkdown(src, 80); raw == ansi.Strip(raw) {
+			t.Errorf("%q not styled: %q", src, raw)
+		}
+	}
+}
+
+func TestMarkdownInlineCode(t *testing.T) {
+	mdCheckInline(t, map[string]string{
+		"`a **b** [l](u)` code": "a **b** [l](u) code",
+		"``a ` b`` two":         "a ` b two",
+		"` x `":                 "x",
+		"`  `":                  "  ",
+		"`\\*x*`":               "\\*x*",
+		"`_y_ <https://a.b>`":   "_y_ <https://a.b>",
+		"`unclosed *it*":        "`unclosed it",
+	})
+	withColorProfile(t, termenv.ANSI256)
+	raw := renderMarkdown("`code`", 80)
+	if raw == ansi.Strip(raw) || ansi.Strip(raw) != "code" {
+		t.Errorf("code span not styled: %q", raw)
+	}
+}
+
+func TestMarkdownInlineLinks(t *testing.T) {
+	mdCheckInline(t, map[string]string{
+		"see [docs](https://x.io/a) now": "see docs (https://x.io/a) now",
+		"[https://x.io](https://x.io)":   "https://x.io",
+		"<https://x.io/p>":               "https://x.io/p",
+		"![img](a.png)":                  "![img](a.png)",
+		"[no link]":                      "[no link]",
+		"[**b** x](u)":                   "b x (u)",
+		"[a [b] c](u)":                   "a [b] c (u)",
+		"[a](has space)":                 "[a](has space)",
+		"[a]()":                          "[a]()",
+		"[a] (u)":                        "[a] (u)",
+		"<http://a b>":                   "<http://a b>",
+		"<ftp://x>":                      "<ftp://x>",
+		"a < b > c":                      "a < b > c",
+		"![*x*](y) !":                    "![*x*](y) !",
+	})
+}
+
+func TestMarkdownInlineEscapes(t *testing.T) {
+	mdCheckInline(t, map[string]string{
+		"\\*lit\\* and \\_u\\_": "*lit* and _u_",
+		"C:\\path":              "C:\\path",
+		"\\[a](b)":              "[a](b)",
+		"\\`x`":                 "`x`",
+		"a\\\\b":                "a\\b",
+		"\\~~x~~":               "~~x~~",
+		"*a \\* b*":             "a * b",
+		"end\\":                 "end\\",
+	})
 }
 
 // mdTableLines renders src at natural width and returns the ANSI-stripped
@@ -272,13 +368,13 @@ func TestMarkdownTableAlign(t *testing.T) {
 
 func TestMarkdownTableCells(t *testing.T) {
 	mdCheckLines(t, "| A | B |\n|---|---|\n| a \\| b | `p|q` |\n| **b** |\n| 1 | 2 | 3 |", []string{
-		"┌───────┬───────┐",
-		"│ A     │ B     │",
-		"├───────┼───────┤",
-		"│ a | b │ `p|q` │",
-		"│ b     │       │",
-		"│ 1     │ 2     │",
-		"└───────┴───────┘",
+		"┌───────┬─────┐",
+		"│ A     │ B   │",
+		"├───────┼─────┤",
+		"│ a | b │ p|q │",
+		"│ b     │     │",
+		"│ 1     │ 2   │",
+		"└───────┴─────┘",
 	})
 	cases := map[string][]string{
 		"a\\|b":      {`a|b`},
@@ -312,11 +408,14 @@ func TestMarkdownTableNotATable(t *testing.T) {
 		"a | b\n--- | --- | ---",
 		"a | b\n\n|---|---|",
 		"no pipe\n|---|",
-		"| a | `b |` |\n|---|---|---|",
 	} {
 		if got := renderMarkdown(src, 80); got != src {
 			t.Errorf("renderMarkdown(%q) = %q, want it unchanged", src, got)
 		}
+	}
+	// A '|' inside a code span does not split, so this is no table either.
+	if got := mdStrip("| a | `b |` |\n|---|---|---|"); got != "| a | b | |\n|---|---|---|" {
+		t.Errorf("code span row rendered as %q", got)
 	}
 	// A lone "---" under a row is a horizontal rule, not a separator row.
 	mdCheckLines(t, "a | b\n---", []string{"a | b", strings.Repeat("─", 40)})
@@ -538,7 +637,7 @@ func TestMarkdownTableShrinkOrder(t *testing.T) {
 
 func TestMarkdownListBullets(t *testing.T) {
 	mdCheckLines(t, "intro\n- a **b**\n* `c **d**`\n+ e __f__\n-   wide\nafter",
-		[]string{"intro", "• a b", "• `c **d**`", "• e f", "• wide", "after"})
+		[]string{"intro", "• a b", "• c **d**", "• e f", "• wide", "after"})
 	mdCheckLines(t, "- ", []string{"•"})
 	withColorProfile(t, termenv.ANSI256)
 	if raw := renderMarkdown("- **b**", 80); raw == ansi.Strip(raw) || ansi.Strip(raw) != "• b" {
