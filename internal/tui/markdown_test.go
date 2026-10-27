@@ -129,7 +129,7 @@ func TestMarkdownSkeletonPassThrough(t *testing.T) {
 		"under_score_name and a__b__c",
 		"emoji ✓ and ünïcödé",
 		"invalid \xff utf8",
-		"1. one\n- two\n> quote\n---",
+		"> quote\n---",
 	}
 	for _, src := range plain {
 		for _, w := range []int{0, -1, 80} {
@@ -532,6 +532,65 @@ func TestMarkdownTableShrinkOrder(t *testing.T) {
 		}
 		if want := reference(widths, width); fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Fatalf("mdShrinkColumns(%v, %d) = %v, want %v", widths, width, got, want)
+		}
+	}
+}
+
+func TestMarkdownListBullets(t *testing.T) {
+	mdCheckLines(t, "intro\n- a **b**\n* `c **d**`\n+ e __f__\n-   wide\nafter",
+		[]string{"intro", "• a b", "• `c **d**`", "• e f", "• wide", "after"})
+	mdCheckLines(t, "- ", []string{"•"})
+	withColorProfile(t, termenv.ANSI256)
+	if raw := renderMarkdown("- **b**", 80); raw == ansi.Strip(raw) || ansi.Strip(raw) != "• b" {
+		t.Errorf("bold inside an item not styled: %q", raw)
+	}
+}
+
+func TestMarkdownListNested(t *testing.T) {
+	mdCheckLines(t, "- one\n  more of one\n- two **b**\n  - nested\n    - deeper\n* star\n+ plus\n\n1. first\n2) second\n10. tenth",
+		[]string{"• one", "  more of one", "• two b", "  • nested", "    • deeper", "• star", "• plus", "", "1. first", "2) second", "10. tenth"})
+	mdCheckLines(t, "- a\n    - b\n        - c", []string{"• a", "  • b", "    • c"})
+	mdCheckLines(t, "- a\n\t- b\n\t\t- c", []string{"• a", "  • b", "    • c"})
+	mdCheckLines(t, "1. a\n   - b\n   - c\n2. d", []string{"1. a", "  • b", "  • c", "2. d"})
+	mdCheckLines(t, "- a\n - b", []string{"• a", "• b"})
+}
+
+func TestMarkdownListNumbered(t *testing.T) {
+	mdCheckLines(t, "1. first **b**\n2) second\n10. tenth\n123456789. big",
+		[]string{"1. first b", "2) second", "10. tenth", "123456789. big"})
+	mdCheckLines(t, "1234567890. too long", []string{"1234567890. too long"})
+	mdCheckLines(t, "1.\n2)x\n3:  no", []string{"1.", "2)x", "3:  no"})
+}
+
+func TestMarkdownListContinuation(t *testing.T) {
+	mdCheckLines(t, "- item\n  cont **b**\n\n  after blank\nnot cont",
+		[]string{"• item", "  cont b", "", "  after blank", "not cont"})
+	mdCheckLines(t, "10. x\n    more\n   less", []string{"10. x", "    more", "   less"})
+	mdCheckLines(t, "- a\n  - b\n    more\n  back", []string{"• a", "  • b", "    more", "  back"})
+	mdCheckLines(t, "- a\n    - b\n      more", []string{"• a", "  • b", "    more"})
+	mdCheckLines(t, "- a\n b", []string{"• a", " b"})
+	mdCheckLines(t, "- a\n\n\npara", []string{"• a", "", "", "para"})
+	mdCheckLines(t, "- a\n\n- b", []string{"• a", "", "• b"})
+	out := mdTableLines("1. Run:\n   ```sh\n   make **x**\n   ```\n2. Done")
+	if got := strings.Join(out, "\n"); strings.Contains(got, "```") || !strings.Contains(got, "make **x**") ||
+		out[0] != "1. Run:" || out[len(out)-1] != "2. Done" {
+		t.Errorf("fence inside a list item not highlighted:\n%s", got)
+	}
+}
+
+func TestMarkdownListNotItems(t *testing.T) {
+	for src, want := range map[string]string{
+		"-no space":      "-no space",
+		"1.5 apples":     "1.5 apples",
+		"+1 vote":        "+1 vote",
+		"**bold** start": "bold start",
+		"---":            "---",
+		"***":            "***",
+		"___":            "___",
+		"a\n-no space":   "a\n-no space",
+	} {
+		if got := mdStrip(src); got != want {
+			t.Errorf("renderMarkdown(%q) = %q, want %q", src, got, want)
 		}
 	}
 }

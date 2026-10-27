@@ -26,6 +26,7 @@ var mdBlockRules = []mdBlockRule{
 	mdFenceRule,
 	mdTableRule,
 	mdHeadingRule,
+	mdListRule,
 	mdParagraphRule,
 }
 
@@ -425,6 +426,123 @@ func parseATXHeading(line string) (level int, text string, ok bool) {
 		text = strings.TrimRight(k, " \t")
 	}
 	return level, text, true
+}
+
+// mdListItem is one parsed bullet or numbered list item line.
+type mdListItem struct {
+	indent  int    // leading columns (a tab counts as 4)
+	marker  string // rendered marker: "•", or the number and its '.' or ')' as written
+	text    string // the text after the marker and its spaces
+	textCol int    // source column of the text: indent + marker + spaces
+}
+
+// mdListRule renders a bullet or numbered list starting at an item line: the
+// maximal run of item lines, continuation lines (indented at least to the
+// text column of the item above) and blank lines followed by another item or
+// continuation line. A non-item line that opens a code fence ends the list,
+// so the fence rule still highlights code inside list items. Items are nested
+// by indent: the first item with an indent > 0 sets the unit (2 below 4
+// columns, else 4) and each level is rendered two columns deeper.
+func mdListRule(lines []string, i, _ int) ([]string, int, bool) {
+	first, ok := mdParseListItem(lines[i])
+	if !ok {
+		return nil, i, false
+	}
+	end, col := i+1, first.textCol
+	for j := end; j < len(lines); {
+		k := j
+		for k < len(lines) && strings.TrimSpace(lines[k]) == "" {
+			k++
+		}
+		if k == len(lines) {
+			break // trailing blank lines belong to what follows
+		}
+		if it, ok := mdParseListItem(lines[k]); ok {
+			col = it.textCol
+		} else if indent, _ := mdIndent(lines[k]); indent < col {
+			break
+		} else if _, _, fence := scanFence(lines, k); fence {
+			break
+		}
+		end, j = k+1, k+1
+	}
+	unit := 0
+	for _, l := range lines[i:end] {
+		if it, ok := mdParseListItem(l); ok && it.indent > 0 {
+			unit = 2
+			if it.indent >= 4 {
+				unit = 4
+			}
+			break
+		}
+	}
+	out := make([]string, 0, end-i)
+	textCol := 0 // rendered text column of the current item
+	for _, l := range lines[i:end] {
+		if strings.TrimSpace(l) == "" {
+			out = append(out, "")
+			continue
+		}
+		it, ok := mdParseListItem(l)
+		if !ok {
+			out = append(out, strings.Repeat(" ", textCol)+renderInline(strings.TrimSpace(l)))
+			continue
+		}
+		level := 0
+		if unit > 0 {
+			level = it.indent / unit
+		}
+		prefix := strings.Repeat(" ", 2*level) + it.marker + " "
+		textCol = ansi.StringWidth(prefix)
+		out = append(out, prefix+renderInline(it.text))
+	}
+	return out, end, true
+}
+
+// mdParseListItem parses a list item line: an indent, then a bullet marker
+// ('-', '*' or '+') or 1 to 9 digits followed by '.' or ')', then at least
+// one space and the item text.
+func mdParseListItem(line string) (mdListItem, bool) {
+	indent, p := mdIndent(line)
+	rest := line[p:]
+	if rest == "" {
+		return mdListItem{}, false
+	}
+	n := 0
+	marker := "•"
+	if c := rest[0]; c == '-' || c == '*' || c == '+' {
+		n = 1
+	} else {
+		for n < len(rest) && n <= 9 && rest[n] >= '0' && rest[n] <= '9' {
+			n++
+		}
+		if n == 0 || n > 9 || n >= len(rest) || (rest[n] != '.' && rest[n] != ')') {
+			return mdListItem{}, false
+		}
+		n++
+		marker = rest[:n]
+	}
+	spaces := mdRunLen(rest, n, ' ')
+	if spaces == 0 {
+		return mdListItem{}, false
+	}
+	return mdListItem{indent: indent, marker: marker, text: rest[n+spaces:], textCol: indent + n + spaces}, true
+}
+
+// mdIndent returns the indent of line in columns (a space counts as 1, a tab
+// as 4) and the number of leading whitespace bytes.
+func mdIndent(line string) (cols, n int) {
+	for ; n < len(line); n++ {
+		switch line[n] {
+		case ' ':
+			cols++
+		case '\t':
+			cols += 4
+		default:
+			return cols, n
+		}
+	}
+	return cols, n
 }
 
 // mdParagraphRule renders any other line through the inline pass.
