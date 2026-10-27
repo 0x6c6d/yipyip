@@ -35,7 +35,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T401 | 4 | Closing the last tab leaves one fresh tab | T301 | opus | done | closeTab last-tab branch uses resetTab(false), closelast_test.go |
 | T501 | 5 | e2e Markdown tests: table view and copy | T102 T202 | sonnet | done | e2e/markdown_test.go, envOpts.clipboard |
 | T502 | 5 | docs/usage.md and README Usage line | T206 T302 T401 | haiku | done | docs/usage.md, README Usage line |
-| T503 | 5 | CLAUDE.md tui and e2e notes | T206 T302 T401 | haiku | todo | |
+| T503 | 5 | CLAUDE.md tui and e2e notes | T206 T302 T401 | haiku | done | CLAUDE.md tui and e2e bullets |
 | T599 | 5 | Global Definition of Done | T501 T502 T503 | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
