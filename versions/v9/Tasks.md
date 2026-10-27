@@ -21,7 +21,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | preflight passes |
 | T101 | 1 | Markdown renderer skeleton: block pass, fences, headings, bold | T000 | opus | todo | |
 | T102 | 1 | Assistant blocks through renderMarkdown with the secret guard | T101 | opus | todo | |
 | T201 | 2 | Tables at natural width | T101 | opus | todo | |
