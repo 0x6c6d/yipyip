@@ -14,6 +14,7 @@ var (
 	mdBold = lipgloss.NewStyle().Bold(true).TabWidth(lipgloss.NoTabConversion)
 	mdH1   = lipgloss.NewStyle().Bold(true).Underline(true).TabWidth(lipgloss.NoTabConversion)
 	mdH    = lipgloss.NewStyle().Bold(true).TabWidth(lipgloss.NoTabConversion)
+	mdDim  = lipgloss.NewStyle().Faint(true)
 )
 
 // mdBlockRule tries to render the block starting at lines[i]. It returns the
@@ -21,24 +22,42 @@ var (
 // it applied at all. width is the available column count (<= 0: unknown).
 type mdBlockRule func(lines []string, i, width int) (out []string, next int, ok bool)
 
-// mdBlockRules are tried in order for every block; the last one always applies.
-var mdBlockRules = []mdBlockRule{
-	mdFenceRule,
-	mdTableRule,
-	mdHeadingRule,
-	mdListRule,
-	mdParagraphRule,
+// mdMaxQuoteDepth is the deepest quote nesting rendered with block rules;
+// the text inside the innermost quote becomes plain paragraph lines.
+const mdMaxQuoteDepth = 32
+
+// mdRuleWidth is the width of a horizontal rule when the width is unknown.
+const mdRuleWidth = 40
+
+// mdBlockRulesAt returns the block rules for text nested in depth quotes,
+// tried in order for every block; the last one always applies.
+func mdBlockRulesAt(depth int) []mdBlockRule {
+	return []mdBlockRule{
+		mdFenceRule,
+		mdTableRule,
+		mdHeadingRule,
+		mdHRuleRule,
+		mdQuoteRuleAt(depth),
+		mdListRule,
+		mdParagraphRule,
+	}
 }
 
 // renderMarkdown renders assistant markdown (already redacted) as styled terminal text.
 func renderMarkdown(src string, width int) string {
+	return mdRender(src, width, 0)
+}
+
+// mdRender renders src as markdown nested in depth quotes.
+func mdRender(src string, width, depth int) string {
 	lines := strings.Split(src, "\n")
 	for i, l := range lines {
 		lines[i] = strings.TrimSuffix(l, "\r")
 	}
+	rules := mdBlockRulesAt(depth)
 	out := make([]string, 0, len(lines))
 	for i := 0; i < len(lines); {
-		for _, rule := range mdBlockRules {
+		for _, rule := range rules {
 			rendered, next, ok := rule(lines, i, width)
 			if !ok {
 				continue
@@ -52,6 +71,69 @@ func renderMarkdown(src string, width int) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// mdHRuleRule renders a horizontal rule: a line that is, apart from leading
+// and trailing whitespace, three or more of one of '-', '*' or '_' and
+// nothing else. It spans width columns (mdRuleWidth when width <= 0).
+func mdHRuleRule(lines []string, i, width int) ([]string, int, bool) {
+	s := strings.TrimSpace(lines[i])
+	if len(s) < 3 || (s[0] != '-' && s[0] != '*' && s[0] != '_') || mdRunLen(s, 0, s[0]) != len(s) {
+		return nil, i, false
+	}
+	if width <= 0 {
+		width = mdRuleWidth
+	}
+	return []string{mdDim.Render(strings.Repeat("─", width))}, i + 1, true
+}
+
+// mdQuoteRuleAt returns the blockquote rule for text nested in depth quotes:
+// the maximal run of lines starting, after up to 3 spaces, with '>'. The '>'
+// and one following space are stripped, the inner text is rendered as
+// markdown two columns narrower and every line gets a "│ " bar. The quote at
+// mdMaxQuoteDepth renders its inner text as plain paragraph lines, so the
+// recursion stays bounded.
+func mdQuoteRuleAt(depth int) mdBlockRule {
+	return func(lines []string, i, width int) ([]string, int, bool) {
+		var inner []string
+		next := i
+		for ; next < len(lines); next++ {
+			text, ok := mdQuoteLine(lines[next])
+			if !ok {
+				break
+			}
+			inner = append(inner, text)
+		}
+		if next == i {
+			return nil, i, false
+		}
+		if width > 0 {
+			width = max(width-2, 1)
+		}
+		var body []string
+		if depth+1 >= mdMaxQuoteDepth {
+			for _, l := range inner {
+				body = append(body, renderInline(l))
+			}
+		} else {
+			body = strings.Split(mdRender(strings.Join(inner, "\n"), width, depth+1), "\n")
+		}
+		bar := mdDim.Render("│") + " "
+		for k, l := range body {
+			body[k] = bar + l
+		}
+		return body, next, true
+	}
+}
+
+// mdQuoteLine reports whether line is a quote line (up to 3 spaces, then
+// '>') and returns its text without the '>' and one following space.
+func mdQuoteLine(line string) (string, bool) {
+	p := mdRunLen(line, 0, ' ')
+	if p > 3 || p >= len(line) || line[p] != '>' {
+		return "", false
+	}
+	return strings.TrimPrefix(line[p+1:], " "), true
 }
 
 // mdFenceRule renders a fenced code block: a closed fence is replaced by its

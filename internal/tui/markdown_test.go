@@ -129,7 +129,6 @@ func TestMarkdownSkeletonPassThrough(t *testing.T) {
 		"under_score_name and a__b__c",
 		"emoji ✓ and ünïcödé",
 		"invalid \xff utf8",
-		"> quote\n---",
 	}
 	for _, src := range plain {
 		for _, w := range []int{0, -1, 80} {
@@ -310,7 +309,6 @@ func TestMarkdownTableNotATable(t *testing.T) {
 		"| a | b |\n|---|-x-|",
 		"| a | b |\n|---|- -|",
 		"| a | b |\n|---|::|",
-		"a | b\n---",
 		"a | b\n--- | --- | ---",
 		"a | b\n\n|---|---|",
 		"no pipe\n|---|",
@@ -320,6 +318,8 @@ func TestMarkdownTableNotATable(t *testing.T) {
 			t.Errorf("renderMarkdown(%q) = %q, want it unchanged", src, got)
 		}
 	}
+	// A lone "---" under a row is a horizontal rule, not a separator row.
+	mdCheckLines(t, "a | b\n---", []string{"a | b", strings.Repeat("─", 40)})
 }
 
 func TestMarkdownTableHeaderBold(t *testing.T) {
@@ -584,13 +584,88 @@ func TestMarkdownListNotItems(t *testing.T) {
 		"1.5 apples":     "1.5 apples",
 		"+1 vote":        "+1 vote",
 		"**bold** start": "bold start",
-		"---":            "---",
-		"***":            "***",
-		"___":            "___",
+		"---":            strings.Repeat("─", 80),
+		"***":            strings.Repeat("─", 80),
+		"___":            strings.Repeat("─", 80),
 		"a\n-no space":   "a\n-no space",
 	} {
 		if got := mdStrip(src); got != want {
 			t.Errorf("renderMarkdown(%q) = %q, want %q", src, got, want)
 		}
+	}
+}
+
+// mdLinesAt renders src at width and returns the ANSI-stripped lines with
+// trailing spaces trimmed.
+func mdLinesAt(src string, width int) []string {
+	var out []string
+	for _, l := range strings.Split(ansi.Strip(renderMarkdown(src, width)), "\n") {
+		out = append(out, strings.TrimRight(l, " "))
+	}
+	return out
+}
+
+// mdCheckLinesAt reports a mismatch between the lines rendered at width and want.
+func mdCheckLinesAt(t *testing.T, src string, width int, want []string) {
+	t.Helper()
+	got := strings.Join(mdLinesAt(src, width), "\n")
+	if w := strings.Join(want, "\n"); got != w {
+		t.Errorf("renderMarkdown(%q, %d):\n%s\nwant:\n%s", src, width, got, w)
+	}
+}
+
+func TestMarkdownQuote(t *testing.T) {
+	rule := strings.Repeat("─", 30)
+	mdCheckLinesAt(t, "> quoted **x**\n> > nested\n> back\n\n---\n***\n___\n--", 30,
+		[]string{"│ quoted x", "│ │ nested", "│ back", "", rule, rule, rule, "--"})
+	mdCheckLinesAt(t, "> - item", 30, []string{"│ • item"})
+	mdCheckLinesAt(t, "   >no space\n    > code-like", 30, []string{"│ no space", "    > code-like"})
+	mdCheckLinesAt(t, "> a\nlazy", 30, []string{"│ a", "lazy"})
+	mdCheckLinesAt(t, "> ---", 30, []string{"│ " + strings.Repeat("─", 28)})
+	if got := mdStrip("> a\n> > b"); strings.Contains(got, ">") {
+		t.Errorf("quote marker shown: %q", got)
+	}
+}
+
+func TestMarkdownQuoteInner(t *testing.T) {
+	mdCheckLinesAt(t, "> # Title **b**\n>\n> body **bold**\n> | a | b |\n> |---|---|\n> | 1 | 2 |", 30,
+		[]string{"│ Title b", "│", "│ body bold", "│ ┌───┬───┐", "│ │ a │ b │", "│ ├───┼───┤", "│ │ 1 │ 2 │", "│ └───┴───┘"})
+	withColorProfile(t, termenv.ANSI256)
+	if raw := renderMarkdown("> **b**", 30); raw == ansi.Strip(raw) || ansi.Strip(raw) != "│ b" {
+		t.Errorf("bold inside a quote not styled: %q", raw)
+	}
+}
+
+func TestMarkdownQuoteDeep(t *testing.T) {
+	deep := strings.Repeat(">", 5000) + " deep text"
+	for _, w := range []int{80, 0} {
+		out := mdLinesAt(deep, w)
+		if len(out) != 1 || !strings.Contains(out[0], "deep text") {
+			t.Fatalf("deep quote at width %d lost its text: %q", w, out)
+		}
+		if bars := strings.Count(out[0], "│"); bars != mdMaxQuoteDepth {
+			t.Errorf("deep quote at width %d has %d bars, want %d", w, bars, mdMaxQuoteDepth)
+		}
+	}
+	spaced := strings.Repeat("> ", 3000) + "x\n" + strings.Repeat("> ", 3000) + "y"
+	if out := mdLinesAt(spaced, 80); len(out) != 2 || !strings.HasSuffix(out[0], "x") || !strings.HasSuffix(out[1], "y") {
+		t.Errorf("spaced deep quote = %q", out)
+	}
+}
+
+func TestMarkdownRule(t *testing.T) {
+	rule := strings.Repeat("─", 30)
+	for _, src := range []string{"---", "***", "___", "-----", "  ***  ", "______"} {
+		mdCheckLinesAt(t, src, 30, []string{rule})
+	}
+	mdCheckLinesAt(t, "para\n---\nafter", 30, []string{"para", rule, "after"})
+	for _, w := range []int{0, -1} {
+		mdCheckLinesAt(t, "---", w, []string{strings.Repeat("─", 40)})
+	}
+}
+
+func TestMarkdownRuleNotRule(t *testing.T) {
+	for _, src := range []string{"--", "a --- b", "-- -", "-*-", "**"} {
+		mdCheckLinesAt(t, src, 30, []string{src})
 	}
 }

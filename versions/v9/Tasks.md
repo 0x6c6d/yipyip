@@ -27,7 +27,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | Tables at natural width | T101 | opus | done | mdTableRule, tests |
 | T202 | 2 | Tables wrapped to the width | T201 | opus | done | table wrapping in markdown.go, tests |
 | T203 | 2 | Bullet and numbered lists | T101 | opus | done | mdListRule, tests; fence ends a list |
-| T204 | 2 | Blockquotes and horizontal rules | T101 | opus | todo | |
+| T204 | 2 | Blockquotes and horizontal rules | T101 | opus | done | quote and rule rules, tests |
 | T205 | 2 | Inline italic, strike, code, links, escapes | T102 | opus | todo | |
 | T206 | 2 | Incomplete input, fence isolation, robustness, fuzz seeds | T102 T202 T203 T204 T205 | opus | todo | |
 | T301 | 3 | resetTab helper | T000 | opus | todo | |
