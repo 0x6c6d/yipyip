@@ -34,10 +34,11 @@ func newEnv(t *testing.T, resps ...providertest.Response) *env {
 
 // envOpts tunes newEnvServer.
 type envOpts struct {
-	contextLimit int          // context limit of the fake model
-	projectJSON  string       // content of the start directory's yipyip.json, "" = none
-	noModel      bool         // global config without providers: no model is configured
-	fetchClient  *http.Client // web_fetch client seam (agent.Options.FetchClient), nil = default
+	contextLimit int                // context limit of the fake model
+	projectJSON  string             // content of the start directory's yipyip.json, "" = none
+	noModel      bool               // global config without providers: no model is configured
+	fetchClient  *http.Client       // web_fetch client seam (agent.Options.FetchClient), nil = default
+	clipboard    func(string) error // clipboard writer (tui.Options.Clipboard), nil = default
 }
 
 // newEnvServer builds the environment around an already started fake srv
@@ -89,7 +90,7 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 		sess.Cancel()
 		waitSession(t, sess)
 	})
-	next, _ := tui.New(tui.Options{StartDir: dir, Home: home, Session: sess}).Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	next, _ := tui.New(tui.Options{StartDir: dir, Home: home, Session: sess, Clipboard: o.clipboard}).Update(tea.WindowSizeMsg{Width: 160, Height: 50})
 	return &env{Model: next.(tui.Model), Session: sess, Server: srv, Dir: dir, Home: home}
 }
 
