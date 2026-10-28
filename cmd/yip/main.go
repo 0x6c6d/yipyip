@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -128,6 +129,9 @@ func runUI(f flags, d deps, stderr io.Writer, cs *crashState) int {
 			SessionID: func() string { return "" }, // the UI does not expose it yet
 		})
 		crashlog.SetDefault(cs.logger)
+		ctx, stop := context.WithCancel(context.Background())
+		defer stop()
+		go cs.logger.Watch(ctx, crashlog.WatchInterval)
 	}
 	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
 	if err != nil {
