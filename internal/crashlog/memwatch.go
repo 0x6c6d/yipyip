@@ -18,9 +18,9 @@ import (
 // when the Go heap crosses a limit or the machine runs low on memory. The
 // record names the largest processes, so a runaway child shows up too.
 const (
-	WatchInterval = 5 * time.Second
+	WatchInterval = 2 * time.Second
 	HeapLimit     = 1 << 30 // first heap record; each next one needs double
-	LowAvailable  = 1 << 30 // MemAvailable + SwapFree below this counts as low
+	LowAvailable  = 2 << 30 // MemAvailable (RAM only, swap excluded) below this counts as low
 	maxProcs      = 6       // processes listed in a record
 	heapProfRel   = ".yipyip/heap.pprof"
 )
@@ -116,13 +116,14 @@ func (l *Logger) Resolve(rel string) (string, error) {
 	return l.o.Resolve(rel)
 }
 
-// availableBytes returns MemAvailable + SwapFree from /proc/meminfo.
+// availableBytes returns MemAvailable from /proc/meminfo. Swap is left out on
+// purpose: once RAM is gone the machine thrashes and a record may never be written.
 func availableBytes() (uint64, bool) {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return 0, false
 	}
-	var avail, swap uint64
+	var avail uint64
 	var have bool
 	for _, ln := range strings.Split(string(data), "\n") {
 		f := strings.Fields(ln)
@@ -136,11 +137,9 @@ func availableBytes() (uint64, bool) {
 		switch f[0] {
 		case "MemAvailable:":
 			avail, have = v<<10, true
-		case "SwapFree:":
-			swap = v << 10
 		}
 	}
-	return avail + swap, have
+	return avail, have
 }
 
 type procInfo struct {
