@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,9 @@ import (
 
 	"yipyip/internal/agent"
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 	"yipyip/internal/session"
+	"yipyip/internal/tools"
 	"yipyip/internal/tui"
 )
 
@@ -48,13 +51,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 // runWith parses args and, unless a flag finished the run (--version,
-// --help, a usage error), starts the UI through d.
-func runWith(args []string, stdout, stderr io.Writer, d deps) int {
+// --help, a usage error), starts the UI through d. A panic anywhere in the
+// run is written to the crash log (see crashExit) and gives exit code 2.
+func runWith(args []string, stdout, stderr io.Writer, d deps) (code int) {
+	prev := crashlog.Default()
+	defer crashlog.SetDefault(prev)
+	cs := &crashState{}
+	defer crashExit(cs, stderr, &code)
 	f, code, done := parseArgs(args, stdout, stderr)
 	if done {
 		return code
 	}
-	return runUI(f, d, stderr)
+	return runUI(f, d, stderr, cs)
 }
 
 // parseArgs parses the command line. done reports that the run is over with
@@ -88,8 +96,10 @@ func parseArgs(args []string, stdout, stderr io.Writer) (f flags, code int, done
 }
 
 // runUI loads the configuration, builds the session and the UI options
-// (including what to resume) and runs the UI through d.launch.
-func runUI(f flags, d deps, stderr io.Writer) int {
+// (including what to resume) and runs the UI through d.launch. Once the
+// configuration is loaded, cs gets the crash logger (also the package default).
+func runUI(f flags, d deps, stderr io.Writer, cs *crashState) int {
+	forcePanic("main")
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
@@ -109,6 +119,15 @@ func runUI(f flags, d deps, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "yip: %v\n", err)
 		return 1
+	}
+	if guard, gerr := tools.NewPathGuard(startDir); gerr == nil {
+		cs.logger = crashlog.New(crashlog.Options{
+			Version:   version,
+			Redact:    cfg.Redactor.Redact,
+			Resolve:   guard.Resolve,
+			SessionID: func() string { return "" }, // the UI does not expose it yet
+		})
+		crashlog.SetDefault(cs.logger)
 	}
 	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
 	if err != nil {
@@ -166,12 +185,29 @@ func applyResume(opts *tui.Options, f flags) error {
 
 // launchUI runs the Bubble Tea program for opts.
 func launchUI(opts tui.Options, stderr io.Writer) int {
-	p := tea.NewProgram(tui.New(opts), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(stderr, "yip: %v\n", err)
-		return 1
+	return launchWith(opts, stderr, func(m tea.Model) error {
+		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+		_, err := p.Run()
+		return err
+	})
+}
+
+// launchWith runs the guarded UI model of opts through runProgram. Bubble
+// Tea keeps catching panics (and restores the terminal); a panic it reports
+// gives exit code 2 with one crash record (the guard's, or a fallback).
+// Other errors print "yip: <err>" and give exit code 1.
+func launchWith(opts tui.Options, stderr io.Writer, runProgram func(tea.Model) error) int {
+	forcePanic("launch", "leak")
+	m := tui.Guard(tui.New(opts), recordGuardPanic)
+	err := runProgram(m)
+	if err == nil {
+		return 0
 	}
-	return 0
+	if errors.Is(err, tea.ErrProgramPanic) {
+		return programPanicExit(err, stderr)
+	}
+	fmt.Fprintf(stderr, "yip: %v\n", err)
+	return 1
 }
 
 // stdinIsTTY reports whether stdin is a character device.
