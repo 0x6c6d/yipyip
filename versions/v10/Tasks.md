@@ -35,7 +35,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T501 | 5 | e2e: Crash, Autosave, Retention | T102 T201 T202 T302 T303 | sonnet | done | e2e crash/autosave/retention tests, helpers additive (tuiOpts); sonnet first round |
 | T502 | 5 | docs/usage.md and README Usage line | T402 T501 | haiku | done | docs/usage.md section + Security bullet fix + README Usage line; haiku, 1 feedback round |
 | T503 | 5 | CLAUDE.md notes | T402 T501 | haiku | done | CLAUDE.md architecture notes; haiku first round |
-| T599 | 5 | Global Definition of Done | T401 T402 T501 T502 T503 | supervisor | todo | |
+| T599 | 5 | Global Definition of Done | T401 T402 T501 T502 T503 | supervisor | done | Global DoD passes (10/10) |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
