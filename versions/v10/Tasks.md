@@ -29,7 +29,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T202 | 2 | Main-agent history checkpoints and EvCheckpoint | T000 | opus | done | checkpoint() + EvCheckpoint + roundHook in agent; opus first round |
 | T301 | 3 | Store.Prune | T000 | opus | done | Store.Prune + prune_test.go; opus first round; ignores symlinked session files (stricter than List) |
 | T302 | 3 | TUI autosave, exit-save coordination, prune after save | T202 T301 | opus | done | tui autosave.go, save.go, model.go; opus first round; 10 existing tests got noAutosave, e2e secret_test allows session files; NOTE pre-existing agent bug: runTurn cancel() before deferred ctx.Err() marks every turn interrupted (out of v10 scope) |
-| T303 | 3 | Startup prune protecting the resumed id | T301 | opus | todo | |
+| T303 | 3 | Startup prune protecting the resumed id | T301 | opus | done | pruneSessions in cmd/yip/main.go + prune_test.go; opus first round |
 | T401 | 4 | Subagent panic leaves the parent turn alive | T201 | sonnet | todo | |
 | T402 | 4 | Per-block render guard | T201 | sonnet | todo | |
 | T501 | 5 | e2e: Crash, Autosave, Retention | T102 T201 T202 T302 T303 | sonnet | todo | |

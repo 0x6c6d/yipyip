@@ -150,7 +150,28 @@ func runUI(f flags, d deps, stderr io.Writer, cs *crashState) int {
 		fmt.Fprintf(stderr, "unknown session %s\n", f.resumeID)
 		return 1
 	}
+	pruneSessions(startDir, f)
 	return d.launch(opts, stderr)
+}
+
+// keepSessions is how many sessions a start keeps in its sessions directory.
+const keepSessions = 25
+
+// pruneSessions trims the sessions of startDir to the newest keepSessions
+// (session.Store.Prune), protecting the session reopened by --resume <id>.
+// It runs synchronously before the UI exists, after applyResume loaded the
+// resumed session. A store that cannot be created skips it; a prune error
+// is ignored. A resume picker (--resume without id) protects nothing.
+func pruneSessions(startDir string, f flags) {
+	store, err := session.NewStore(startDir)
+	if err != nil {
+		return
+	}
+	var protect []string
+	if f.resume && f.resumeID != "" {
+		protect = append(protect, f.resumeID)
+	}
+	_ = store.Prune(keepSessions, protect...)
 }
 
 // applyResume adds what --resume asks for to opts. With an id the session
