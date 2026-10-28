@@ -101,8 +101,15 @@ func (s *Session) redactPanics(run RunFunc) RunFunc {
 	}
 }
 
+// subHook, when set (tests only), runs at the start of every subagent run
+// with the task text; nil in production.
+var subHook func(task string)
+
 // runSubagent runs one subagent's loop on a fresh history.
 func (s *Session) runSubagent(ctx context.Context, gen uint64, a *Subagent, task, model string) (string, error) {
+	if subHook != nil {
+		subHook(task)
+	}
 	sys := s.SystemPrompt() + "\n\nYou are subagent " + a.ID() + "; finish with a short summary. You cannot ask the user questions."
 	hist := []provider.Message{
 		{Role: "system", Content: sys},

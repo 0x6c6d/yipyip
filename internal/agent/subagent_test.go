@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"yipyip/internal/provider/providertest"
 )
 
 const subTimeout = 3 * time.Second
@@ -338,4 +340,108 @@ func TestSubagentPanicRecoveredLogged(t *testing.T) {
 		t.Errorf("info = %+v", info)
 	}
 	checkRecovered(t, readLog(), "subagent", "agent.crashSubRun")
+}
+
+// panicSubHook makes subagents whose task is BOOM panic.
+func panicSubHook(task string) {
+	if task == "BOOM" {
+		panic("subagent exploded SECRET123")
+	}
+}
+
+// twoSubMain spawns the given tasks, waits for a1 and a2, then answers.
+func twoSubMain(tasks [2]string, req providertest.Request) fakeResp {
+	switch countTools(req) {
+	case 0:
+		return fakeResp{ToolCalls: []fakeCall{
+			{ID: "s1", Name: "spawn_agent", Arguments: `{"task":"` + tasks[0] + `"}`},
+			{ID: "s2", Name: "spawn_agent", Arguments: `{"task":"` + tasks[1] + `"}`}}}
+	case 2:
+		return fakeResp{ToolCalls: []fakeCall{
+			{ID: "w1", Name: "wait_agent", Arguments: `{"id":"a1"}`},
+			{ID: "w2", Name: "wait_agent", Arguments: `{"id":"a2"}`}}}
+	}
+	return fakeResp{Text: "main done"}
+}
+
+func TestSubagentPanicParentFinishes(t *testing.T) {
+	srv := providertest.NewFunc(func(n int, req providertest.Request) fakeResp {
+		if isSub(req) {
+			return fakeResp{Text: "sub done"}
+		}
+		return spawnWaitMain("BOOM", req)
+	})
+	defer srv.Close()
+	s := newSubSession(t, srv, "")
+	readLog := useCrashLog(t, s.Redact)
+	subHook = panicSubHook
+	t.Cleanup(func() { subHook = nil })
+	s.SetMode(ModeAuto)
+	evs := submitAndWait(t, s, mainPrompt)
+
+	w := toolResults(evs, "wait_agent")
+	if len(w) != 1 || !w[0].IsError || !strings.Contains(w[0].Text, "subagent a1 failed: subagent panic: subagent exploded") {
+		t.Fatalf("wait results %+v", w)
+	}
+	if !findEvent(evs, EvTurnDone, "") {
+		t.Errorf("no EvTurnDone: %+v", evs)
+	}
+	if findEvent(evs, EvError, "") {
+		t.Errorf("unexpected EvError: %+v", evs)
+	}
+	checkRecovered(t, readLog(), "subagent", "agent.panicSubHook")
+}
+
+func TestSubagentPanicOtherSubagentUnaffected(t *testing.T) {
+	srv := providertest.NewFunc(func(n int, req providertest.Request) fakeResp {
+		if isSub(req) {
+			if firstUser(req) == "OK" {
+				time.Sleep(100 * time.Millisecond)
+			}
+			return fakeResp{Text: "ok result"}
+		}
+		return twoSubMain([2]string{"BOOM", "OK"}, req)
+	})
+	defer srv.Close()
+	s := newSubSession(t, srv, "")
+	useCrashLog(t, s.Redact)
+	subHook = panicSubHook
+	t.Cleanup(func() { subHook = nil })
+	s.SetMode(ModeAuto)
+	evs := submitAndWait(t, s, mainPrompt)
+
+	w := toolResults(evs, "wait_agent")
+	if len(w) != 2 || !w[0].IsError || w[1].IsError || w[1].Text != "ok result" {
+		t.Fatalf("wait results %+v", w)
+	}
+	if !findEvent(evs, EvTurnDone, "") {
+		t.Errorf("no EvTurnDone: %+v", evs)
+	}
+	subs := s.Subagents()
+	if len(subs) != 2 || subs[0].Status != SubFailed || subs[1].Status != SubDone {
+		t.Fatalf("Subagents = %+v", subs)
+	}
+}
+
+func TestSubagentPanicNextSubmitWorks(t *testing.T) {
+	srv := providertest.NewFunc(func(n int, req providertest.Request) fakeResp {
+		if isSub(req) {
+			return fakeResp{Text: "sub done"}
+		}
+		if strings.Contains(firstUser(req), "AGAIN") {
+			return fakeResp{Text: "second answer"}
+		}
+		return spawnWaitMain("BOOM", req)
+	})
+	defer srv.Close()
+	s := newSubSession(t, srv, "")
+	useCrashLog(t, s.Redact)
+	subHook = panicSubHook
+	t.Cleanup(func() { subHook = nil })
+	s.SetMode(ModeAuto)
+	submitAndWait(t, s, mainPrompt)
+	evs := submitAndWait(t, s, "AGAIN")
+	if !findEvent(evs, EvTurnDone, "") || findEvent(evs, EvError, "") {
+		t.Errorf("second turn events: %+v", evs)
+	}
 }
