@@ -71,6 +71,10 @@ type Session struct {
 	journal          []*turnRecord // undo journal, one record per turn (memory only)
 
 	jmu sync.Mutex // guards the snapshots and bash lists of the journal records
+
+	// roundHook, when set (tests only), is called at the top of every loop
+	// iteration of runLoop with the agent id and the round index.
+	roundHook func(agentID string, round int)
 }
 
 // NewSession returns a session for opts.StartDir with the defaults: the

@@ -22,6 +22,10 @@ const (
 	EvSubagent
 	EvQuestion // the question tool waits for the user's answer; see Event.Question
 	EvRetry    // a provider request is retried after a wait; see Event.Retry (status only, not history)
+
+	// EvCheckpoint: the main agent's history was checkpointed after a
+	// completed model round (no text).
+	EvCheckpoint
 )
 
 // Event is one thing that happened in a session, reported to the UI.

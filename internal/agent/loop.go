@@ -216,6 +216,9 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 	}
 	limit := iterationLimit(agentID)
 	for i := 0; limit == 0 || i < limit; i++ {
+		if s.roundHook != nil {
+			s.roundHook(agentID, i)
+		}
 		if err := ctx.Err(); err != nil {
 			return out, "", err
 		}
@@ -240,6 +243,9 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 		out = append(out, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
 		if len(calls) == 0 {
 			s.subLog(ts.sub, "final: "+text)
+			if agentID == MainAgentID {
+				s.checkpoint(gen, out)
+			}
 			return out, text, nil
 		}
 		for _, tc := range calls {
@@ -288,8 +294,28 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 				return out, "", err
 			}
 		}
+		// Every call of the round has its result: the round is complete.
+		if agentID == MainAgentID {
+			s.checkpoint(gen, out)
+		}
 	}
 	return out, "", errIterationLimit(limit)
+}
+
+// checkpoint stores a copy of out, the main agent's working history after a
+// completed model round, as the session history (unless the session was reset
+// since generation gen) and emits EvCheckpoint. A turn that later panics thus
+// keeps every round completed before the panic. out must hold a result for
+// every tool call.
+func (s *Session) checkpoint(gen uint64, out []provider.Message) {
+	s.mu.Lock()
+	if s.gen != gen {
+		s.mu.Unlock()
+		return
+	}
+	s.history = copyHistory(out)
+	s.mu.Unlock()
+	s.emit(Event{Kind: EvCheckpoint, AgentID: MainAgentID})
 }
 
 // streamReply sends req and collects the reply, emitting text deltas. It
