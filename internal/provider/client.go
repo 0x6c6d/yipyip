@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 )
 
 // ToolCall is one complete function call requested by the model.
@@ -143,10 +144,21 @@ func (c *Client) Stream(ctx context.Context, req Request) <-chan Event {
 	out := make(chan Event)
 	go func() {
 		defer close(out)
+		defer func() {
+			if p := recover(); p != nil {
+				crashlog.Recovered("stream", p)
+				msg := c.redact(fmt.Sprintf("internal error: %v", p))
+				final(ctx, out, Event{Kind: EventError, Err: &redactedError{msg: msg, err: errors.New(msg)}})
+			}
+		}()
 		c.run(ctx, req, out)
 	}()
 	return out
 }
+
+// sseEventHook, when set (tests only), is called with every SSE payload before
+// it is handled.
+var sseEventHook func(data string)
 
 // finalGrace bounds how long the final event waits for a reader once ctx is
 // cancelled, so an abandoned stream never leaves its goroutine blocked.
@@ -441,6 +453,9 @@ func (c *Client) attempt(ctx context.Context, payload []byte, out chan<- Event) 
 	alive, done, finished := true, false, false
 	var chunkErr error
 	err = readSSE(body, func(data string) bool {
+		if sseEventHook != nil {
+			sseEventHook(data)
+		}
 		if strings.TrimSpace(data) == "[DONE]" {
 			done = true
 			return false

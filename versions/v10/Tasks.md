@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T000 | 0 | Preflight | — | supervisor | done | preflight passed |
 | T101 | 1 | internal/crashlog: records, redaction, cap, perms | T000 | opus | done | internal/crashlog (crashlog.go + test); opus first round |
 | T102 | 1 | Fatal panic path: cmd/yip exit 2, tui panic guard | T101 | opus | done | cmd/yip crash.go+main.go, tui/crashguard.go; opus first round |
-| T201 | 2 | Log recovered panics (tool, turn, subagent, stream) | T101 | opus | todo | |
+| T201 | 2 | Log recovered panics (tool, turn, subagent, stream) | T101 | opus | done | Recovered() at tool/turn/subagent/stream sites; opus first round |
 | T202 | 2 | Main-agent history checkpoints and EvCheckpoint | T000 | opus | todo | |
 | T301 | 3 | Store.Prune | T000 | opus | todo | |
 | T302 | 3 | TUI autosave, exit-save coordination, prune after save | T202 T301 | opus | todo | |

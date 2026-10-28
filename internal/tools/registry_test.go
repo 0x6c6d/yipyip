@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 )
 
 func newTestRegistry(t *testing.T, opts Options) *Registry {
@@ -216,5 +218,46 @@ func TestBashToolStripEnv(t *testing.T) {
 		json.RawMessage(`{"command":"echo \"s=${YIP_TEST_STRIP:-unset} k=${YIP_TEST_KEEP:-unset}\""}`))
 	if res.IsError || !strings.Contains(res.Output, "s=unset k=kept") {
 		t.Errorf("StripEnv not applied: %+v", res)
+	}
+}
+
+// crashPanicTool panics with a value that holds the test secret; the crash
+// stack must name it.
+func crashPanicTool(context.Context, json.RawMessage) Result {
+	panic("tool exploded SECRET123")
+}
+
+func TestRegistryPanicRecoveredLogged(t *testing.T) {
+	red := config.NewRedactor("SECRET123")
+	dir := t.TempDir()
+	crashlog.SetDefault(crashlog.New(crashlog.Options{
+		Version: "v-test",
+		Redact:  red.Redact,
+		Resolve: func(rel string) (string, error) { return filepath.Join(dir, rel), nil },
+	}))
+	t.Cleanup(func() { crashlog.SetDefault(nil) })
+
+	r := newTestRegistry(t, Options{Redactor: red})
+	r.register(Tool{Name: "X", Parameters: json.RawMessage(`{"type":"object"}`)}, crashPanicTool)
+	res := r.Run(context.Background(), "X", nil)
+	if !res.IsError || res.Output != "tool X failed: panic: tool exploded [redacted]" {
+		t.Errorf("panic result = %+v", res)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".yipyip", "crash.log"))
+	if err != nil {
+		t.Fatalf("read crash.log: %v", err)
+	}
+	log := string(b)
+	if n := strings.Count(log, " recovered ===\n"); n != 1 {
+		t.Errorf("recovered records = %d, want 1:\n%s", n, log)
+	}
+	if !strings.Contains(log, "where: tool X\n") {
+		t.Errorf("crash.log lacks where: tool X:\n%s", log)
+	}
+	if !strings.Contains(log, "tools.crashPanicTool") {
+		t.Errorf("crash.log stack does not name the panicking func:\n%s", log)
+	}
+	if strings.Contains(log, "SECRET123") {
+		t.Errorf("crash.log contains the secret:\n%s", log)
 	}
 }

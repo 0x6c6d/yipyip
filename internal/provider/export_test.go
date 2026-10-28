@@ -23,3 +23,11 @@ func init() {
 	// No test of this package ever waits for a real retry delay.
 	retryWait = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 }
+
+// SetSSEEventHook installs a hook called with every SSE payload for one test
+// and returns the restore function.
+func SetSSEEventHook(f func(data string)) (restore func()) {
+	old := sseEventHook
+	sseEventHook = f
+	return func() { sseEventHook = old }
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 	"yipyip/internal/provider/providertest"
 )
 
@@ -580,4 +581,66 @@ func TestResetDuringTurn(t *testing.T) {
 	if evs := s.PollEvents(); len(evs) != 0 {
 		t.Errorf("events after Reset = %+v", evs)
 	}
+}
+
+// useCrashLog installs a default crash logger over a temp dir that redacts
+// with red, restores the package default on cleanup and returns a reader of
+// the log.
+func useCrashLog(t *testing.T, red func(string) string) func() string {
+	t.Helper()
+	dir := t.TempDir()
+	crashlog.SetDefault(crashlog.New(crashlog.Options{
+		Version: "v-test",
+		Redact:  red,
+		Resolve: func(rel string) (string, error) { return filepath.Join(dir, rel), nil },
+	}))
+	t.Cleanup(func() { crashlog.SetDefault(nil) })
+	return func() string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, ".yipyip", "crash.log"))
+		if err != nil {
+			t.Fatalf("read crash.log: %v", err)
+		}
+		return string(b)
+	}
+}
+
+// checkRecovered asserts that log holds exactly one recovered record at where,
+// whose stack names fn, and never the test secret.
+func checkRecovered(t *testing.T, log, where, fn string) {
+	t.Helper()
+	if n := strings.Count(log, " recovered ===\n"); n != 1 {
+		t.Errorf("recovered records = %d, want 1:\n%s", n, log)
+	}
+	if !strings.Contains(log, "where: "+where+"\n") {
+		t.Errorf("crash.log lacks where: %s:\n%s", where, log)
+	}
+	if !strings.Contains(log, fn) {
+		t.Errorf("crash.log stack does not name %s:\n%s", fn, log)
+	}
+	if strings.Contains(log, "SECRET123") {
+		t.Errorf("crash.log contains the secret:\n%s", log)
+	}
+}
+
+// crashTurnHook panics with a value that holds the test secret.
+func crashTurnHook() { panic("turn exploded SECRET123") }
+
+func TestTurnPanicRecoveredLogged(t *testing.T) {
+	s, _ := newTestSession(t, "")
+	readLog := useCrashLog(t, s.Redact)
+	turnHook = crashTurnHook
+	t.Cleanup(func() { turnHook = nil })
+
+	evs := submitAndWait(t, s, "hello")
+	var errText string
+	for _, ev := range evs {
+		if ev.Kind == EvError && ev.AgentID == MainAgentID {
+			errText = ev.Text
+		}
+	}
+	if errText != "internal error: turn exploded [redacted]" {
+		t.Errorf("error event = %q", errText)
+	}
+	checkRecovered(t, readLog(), "turn", "agent.crashTurnHook")
 }

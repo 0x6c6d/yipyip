@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+
+	"yipyip/internal/crashlog"
 )
 
 // SubStatus is the lifecycle state of a subagent.
@@ -159,6 +161,7 @@ func (m *Manager) execute(ctx context.Context, e *subEntry, a *Subagent, task, m
 func (m *Manager) safeRun(ctx context.Context, a *Subagent, task, model string) (final string, panicked bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			crashlog.Recovered("subagent", r)
 			final, panicked, err = "", true, fmt.Errorf("subagent panic: %v", r)
 		}
 	}()

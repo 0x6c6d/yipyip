@@ -314,3 +314,28 @@ func TestSubagentFailed(t *testing.T) {
 		t.Fatalf("panic info = %+v running=%d", info, m.Running())
 	}
 }
+
+// crashSubRun panics with a value that holds the test secret.
+func crashSubRun(context.Context, *Subagent, string, string) (string, error) {
+	panic("subagent exploded SECRET123")
+}
+
+func TestSubagentPanicRecoveredLogged(t *testing.T) {
+	s, _ := newTestSession(t, "")
+	readLog := useCrashLog(t, s.Redact)
+	m := NewManager(0, crashSubRun, nil)
+	id, err := m.Spawn(context.Background(), "t", "fake/m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := m.Wait(ctx, id); err == nil {
+		t.Error("Wait: no error")
+	}
+	info, _ := m.Get(id)
+	if info.Status != SubFailed || !strings.Contains(info.Err, "subagent panic: subagent exploded") {
+		t.Errorf("info = %+v", info)
+	}
+	checkRecovered(t, readLog(), "subagent", "agent.crashSubRun")
+}

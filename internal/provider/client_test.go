@@ -2,10 +2,14 @@ package provider_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 	"yipyip/internal/provider"
 	"yipyip/internal/provider/providertest"
 )
@@ -243,5 +247,44 @@ func TestUsageParsing(t *testing.T) {
 	evs = collect(t, newTestClient(t, srv2, "").Stream(context.Background(), userReq()))
 	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err.Error() != "HTTP 400: boom" {
 		t.Errorf("error events = %+v", evs)
+	}
+}
+
+// crashOnEvent panics with a value that holds the test secret.
+func crashOnEvent(string) { panic("stream exploded SECRET123") }
+
+func TestStreamPanicRecoveredEvent(t *testing.T) {
+	dir := t.TempDir()
+	crashlog.SetDefault(crashlog.New(crashlog.Options{
+		Version: "v-test",
+		Redact:  config.NewRedactor("SECRET123").Redact,
+		Resolve: func(rel string) (string, error) { return filepath.Join(dir, rel), nil },
+	}))
+	t.Cleanup(func() { crashlog.SetDefault(nil) })
+	restore := provider.SetSSEEventHook(crashOnEvent)
+	defer restore()
+
+	srv := providertest.New(providertest.Response{Text: "hello"})
+	defer srv.Close()
+	evs := collect(t, newTestClient(t, srv, "SECRET123").Stream(context.Background(), userReq()))
+	if len(evs) != 1 || evs[0].Kind != provider.EventError || evs[0].Err == nil {
+		t.Fatalf("events = %+v", evs)
+	}
+	if got := evs[0].Err.Error(); got != "internal error: stream exploded [redacted]" {
+		t.Errorf("error = %q", got)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".yipyip", "crash.log"))
+	if err != nil {
+		t.Fatalf("read crash.log: %v", err)
+	}
+	log := string(b)
+	if n := strings.Count(log, " recovered ===\n"); n != 1 {
+		t.Errorf("recovered records = %d, want 1:\n%s", n, log)
+	}
+	if !strings.Contains(log, "where: stream\n") || !strings.Contains(log, "provider_test.crashOnEvent") {
+		t.Errorf("crash.log record:\n%s", log)
+	}
+	if strings.Contains(log, "SECRET123") {
+		t.Errorf("crash.log contains the secret:\n%s", log)
 	}
 }

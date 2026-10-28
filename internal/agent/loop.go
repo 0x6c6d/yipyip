@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"yipyip/internal/crashlog"
 	"yipyip/internal/provider"
 	"yipyip/internal/tools"
 )
@@ -135,6 +136,10 @@ func (s *Session) Busy() bool {
 	return s.busy
 }
 
+// turnHook, when set (tests only), runs at the start of every main turn,
+// inside the turn's panic guard.
+var turnHook func()
+
 // runTurn runs one main-agent turn and always ends with EvTurnDone. The
 // subagents spawned in the turn run under its context: when the turn ends
 // (normally or cancelled) they are cancelled and waited for. All events of the
@@ -161,10 +166,14 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 	func() {
 		defer func() {
 			if p := recover(); p != nil {
+				crashlog.Recovered("turn", p)
 				newHist = nil
 				err = fmt.Errorf("internal error: %v", p)
 			}
 		}()
+		if turnHook != nil {
+			turnHook()
+		}
 		hist = s.autoCompact(ctx, gen, hist)
 		ts := s.turnTools(mgr, spawned)
 		newHist, _, err = s.runLoop(ctx, gen, MainAgentID, hist, ts)

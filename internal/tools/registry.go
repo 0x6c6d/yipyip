@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yipyip/internal/config"
+	"yipyip/internal/crashlog"
 	"yipyip/internal/provider"
 )
 
@@ -137,6 +138,7 @@ func (r *Registry) Guard() *PathGuard { return r.guard }
 func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) (res Result) {
 	defer func() {
 		if p := recover(); p != nil {
+			crashlog.Recovered("tool "+name, p)
 			res = Result{Output: fmt.Sprintf("tool %s failed: panic: %v", name, p), IsError: true}
 		}
 		res.Output = r.opts.Redactor.Redact(res.Output)
