@@ -644,3 +644,43 @@ func TestTurnPanicRecoveredLogged(t *testing.T) {
 	}
 	checkRecovered(t, readLog(), "turn", "agent.crashTurnHook")
 }
+
+func TestTurnNotInterruptedWhenFinished(t *testing.T) {
+	srv := providertest.New(fakeResp{Text: "hi"})
+	defer srv.Close()
+	s, _ := newLoopSession(t, srv)
+	submitAndWait(t, s, "hello")
+	s.Wait()
+	if active, _, interrupted := s.TurnState(); active || interrupted {
+		t.Fatalf("active=%v interrupted=%v, want false/false", active, interrupted)
+	}
+}
+
+func TestTurnInterruptedWhenCancelled(t *testing.T) {
+	srv := providertest.New(fakeResp{ToolCalls: []fakeCall{
+		{ID: "c1", Name: "bash", Arguments: `{"command":"sleep 30"}`},
+	}})
+	defer srv.Close()
+	s, _ := newLoopSession(t, srv)
+	s.SetMode(ModeAuto)
+	if err := s.Submit("sleep"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for {
+		ev, err := s.NextEvent(ctx)
+		if err != nil {
+			t.Fatalf("no tool call event: %v", err)
+		}
+		if ev.Kind == EvToolCall {
+			break
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	s.Cancel()
+	waitTurn(t, s, 2*time.Second)
+	if active, _, interrupted := s.TurnState(); active || !interrupted {
+		t.Fatalf("active=%v interrupted=%v, want false/true", active, interrupted)
+	}
+}

@@ -145,8 +145,14 @@ var turnHook func()
 // (normally or cancelled) they are cancelled and waited for. All events of the
 // turn and its subagents are queued before the turn is marked as finished.
 func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen uint64, mgr *Manager, hist []provider.Message, done chan struct{}) {
+	var (
+		cut      bool // cancelled by the user, captured before our own cancel
+		captured bool
+	)
 	defer func() {
-		cut := ctx.Err() != nil // cancelled by the user, before our own cancel below
+		if !captured {
+			cut = ctx.Err() != nil
+		}
 		cancel()
 		s.mu.Lock()
 		s.busy = false
@@ -192,6 +198,7 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, gen ui
 	default:
 		s.emit(Event{Kind: EvError, AgentID: MainAgentID, Text: err.Error()})
 	}
+	cut, captured = ctx.Err() != nil, true
 	cancel()
 	spawned.wait(mgr)
 	s.emit(Event{Kind: EvTurnDone, AgentID: MainAgentID})
