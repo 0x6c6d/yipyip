@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"yipyip/internal/agent"
+	"yipyip/internal/crashlog"
 )
 
 const (
@@ -123,10 +124,33 @@ func indentContinuation(s string) string {
 	return strings.ReplaceAll(s, "\n", "\n  ")
 }
 
+// renderBlockHook is a test-only hook called at the start of a block render;
+// nil in production.
+var renderBlockHook func(b *block)
+
+// renderErrorText is what a block shows when its render panicked; it never
+// contains block text.
+const renderErrorText = "[render error]"
+
 // renderBlock renders one conversation block in Claude Code style, without
 // borders. All text passes the redactor before styling. An empty result means
-// the block shows nothing.
-func (m *Model) renderBlock(b block, width int) string {
+// the block shows nothing. A panic in the render is recovered, logged without
+// block text, and replaced by a one-line error.
+func (m *Model) renderBlock(b block, width int) (out string) {
+	defer func() {
+		if v := recover(); v != nil {
+			crashlog.Recovered("render block", v)
+			out = errorStyle.Render(renderErrorText)
+		}
+	}()
+	if renderBlockHook != nil {
+		renderBlockHook(&b)
+	}
+	return m.renderBlockText(b, width)
+}
+
+// renderBlockText does the unguarded render of one block.
+func (m *Model) renderBlockText(b block, width int) string {
 	if b.kind == blockTool {
 		return m.renderTool(b.call, width)
 	}
