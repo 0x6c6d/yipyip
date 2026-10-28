@@ -23,7 +23,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | preflight passed |
-| T101 | 1 | internal/crashlog: records, redaction, cap, perms | T000 | opus | todo | |
+| T101 | 1 | internal/crashlog: records, redaction, cap, perms | T000 | opus | done | internal/crashlog (crashlog.go + test); opus first round |
 | T102 | 1 | Fatal panic path: cmd/yip exit 2, tui panic guard | T101 | opus | todo | |
 | T201 | 2 | Log recovered panics (tool, turn, subagent, stream) | T101 | opus | todo | |
 | T202 | 2 | Main-agent history checkpoints and EvCheckpoint | T000 | opus | todo | |
