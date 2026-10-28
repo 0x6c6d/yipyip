@@ -183,6 +183,74 @@ func (s *Store) Delete(id string) error {
 	return nil
 }
 
+// Prune deletes the oldest session files so that at most keep valid sessions remain,
+// never deleting a session whose file id or data.ID is in protect. Sessions
+// are ordered as List orders them (newest first); the first keep stay,
+// protected ones count toward keep and are never deleted, so more than keep
+// files may remain. Only valid <12 hex>.json session files are ever removed
+// (through Delete); stray, invalid or temp files are neither counted nor
+// touched. keep <= 0 is an error and deletes nothing; a missing sessions
+// directory is not an error; a sessions directory escaping the start
+// directory is refused before anything is deleted. A delete failure does not
+// stop the rest; the first error is returned at the end.
+func (s *Store) Prune(keep int, protect ...string) error {
+	if keep <= 0 {
+		return fmt.Errorf("session store: prune: keep must be positive, got %d", keep)
+	}
+	dir, err := s.resolve("")
+	if err != nil {
+		return err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("session store: read %s: %w", dir, err)
+	}
+	type entry struct {
+		fileID string
+		data   SessionData
+	}
+	// Same selection and order as List, but keeping the file name's id: the
+	// id inside the file may differ from it.
+	var list []entry
+	for _, e := range ents {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), ".json")
+		if !idPattern.MatchString(id) {
+			continue
+		}
+		data, err := s.Load(id)
+		if err != nil {
+			continue // invalid: neither counted nor deleted
+		}
+		list = append(list, entry{fileID: id, data: *data})
+	}
+	sort.SliceStable(list, func(i, j int) bool { return newerFirst(list[i].data, list[j].data) })
+	if len(list) <= keep {
+		return nil
+	}
+	protected := make(map[string]bool, len(protect))
+	for _, p := range protect {
+		if p != "" {
+			protected[p] = true
+		}
+	}
+	var first error
+	for _, e := range list[keep:] {
+		if protected[e.fileID] || protected[e.data.ID] {
+			continue
+		}
+		if err := s.Delete(e.fileID); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
 // writeTemp writes data as indented JSON to a fresh temp file in dir
 // (os.CreateTemp, mode 0600, Sync, Close) and returns the temp file's path
 // and the SHA-256 of its content. The caller owns the temp file.
