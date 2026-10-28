@@ -44,6 +44,17 @@ type Options struct {
 	// double Ctrl+C; nil = the session Store of StartDir. A test seam.
 	SaveOnExit func(*session.SessionData) error
 
+	// Autosave writes the session data of a tab after a main-agent turn
+	// and at checkpoints (at most once a minute); it runs in a command
+	// goroutine, never on the UI goroutine. nil = the session Store of
+	// StartDir. A test seam.
+	Autosave func(*session.SessionData) error
+
+	// PruneSessions applies the retention (keep the newest keep files, never
+	// the protected ids) after every successful autosave and exit save;
+	// nil = the session Store of StartDir. A test seam.
+	PruneSessions func(keep int, protect ...string) error
+
 	// ResumeData is a saved session loaded by `yip --resume <id>`; New
 	// restores it into Session (see Model.restore); nil = a fresh start.
 	ResumeData *session.SessionData
@@ -254,17 +265,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case EventMsg:
+		// The autosave is decided (and its data assembled) before apply, so
+		// a turn started from the queue at the turn end is not part of it.
 		if msg.sess == nil {
+			save := m.autosaveFor(msg.Event)
 			cmd := m.apply(msg.Event)
-			return m, tea.Batch(cmd, m.waitEvent())
+			return m, tea.Batch(cmd, save, m.waitEvent())
 		}
 		i := m.tabOf(msg.sess)
 		if i < 0 {
 			return m, nil // the tab was closed: its pump ends
 		}
-		var cmd tea.Cmd
-		m.inTab(i, func(t *Model) { cmd = t.apply(msg.Event) })
-		return m, tea.Batch(cmd, waitEventOf(m.tabAt(i)))
+		var cmd, save tea.Cmd
+		m.inTab(i, func(t *Model) {
+			save = t.autosaveFor(msg.Event)
+			cmd = t.apply(msg.Event)
+		})
+		return m, tea.Batch(cmd, save, waitEventOf(m.tabAt(i)))
+	case autosaveMsg:
+		m.autosaveDone(msg)
+		return m, nil
 	case tickMsg:
 		if m.anySubRunning() {
 			m.refresh() // elapsed times of running subagent blocks
@@ -471,15 +491,28 @@ func (m Model) sendUser(shown, msg string) (Model, tea.Cmd) {
 
 // Drain applies all queued session events of every tab without blocking,
 // each to the tab of its session. Commands returned by them (the tick of a
-// turn started from the message queue) are dropped.
+// turn started from the message queue) are dropped; the autosaves they
+// trigger are written before Drain returns (in the caller's goroutine) and
+// their failures shown.
 func (m Model) Drain() Model {
+	var saves []tea.Cmd
 	for i := range m.tabs {
 		sess := m.tabAt(i).sess
 		if sess == nil {
 			continue
 		}
 		for _, ev := range sess.PollEvents() {
-			m.inTab(i, func(t *Model) { t.apply(ev) })
+			m.inTab(i, func(t *Model) {
+				if save := t.autosaveFor(ev); save != nil {
+					saves = append(saves, save)
+				}
+				t.apply(ev)
+			})
+		}
+	}
+	for _, save := range saves {
+		if msg, ok := save().(autosaveMsg); ok {
+			m.autosaveDone(msg)
 		}
 	}
 	return m

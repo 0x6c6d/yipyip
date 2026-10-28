@@ -14,7 +14,7 @@ import (
 )
 
 func TestResetTabKeepHistory(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "old answer"))
+	m, sess := newSessionModelOpts(t, answerServer(t, "old answer"), "start", noAutosave)
 	m = tabTurn(t, m, "old question")
 	mustAddTab(t, &m)
 	m.switchTab(0)

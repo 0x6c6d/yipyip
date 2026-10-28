@@ -124,7 +124,7 @@ func TestExitSaveEmptyWritesNothing(t *testing.T) {
 func TestDoubleCtrlCSavesAllTabs(t *testing.T) {
 	srv := toolTurnServer()
 	defer srv.Close()
-	m, sess := newSessionModel(t, srv)
+	m, sess := newSessionModelOpts(t, srv, "start", noAutosave)
 	m = runToolTurn(t, m, sess)
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -158,6 +158,7 @@ func TestSaveFailureShowsLineStillQuits(t *testing.T) {
 	defer srv.Close()
 	calls := 0
 	m, sess := newSessionModelOpts(t, srv, "start", func(o *Options) {
+		noAutosave(o)
 		o.SaveOnExit = func(*session.SessionData) error {
 			calls++
 			return errors.New("disk on fire")

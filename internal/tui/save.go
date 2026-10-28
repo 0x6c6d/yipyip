@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sync"
 	"time"
 
 	"yipyip/internal/session"
@@ -8,10 +9,23 @@ import (
 
 // saveState is the per-conversation save bookkeeping, shared (by pointer) by
 // all copies of a Model: the time of the first assembly and the session id
-// once the Store has derived it, so later saves overwrite the same file.
+// once the Store has derived it, so later saves overwrite the same file, plus
+// the autosave state (see autosave.go). mu guards every field the autosave
+// writer goroutine touches: id and the autosave fields; created is used on
+// the UI goroutine only.
 type saveState struct {
 	created string
-	id      string
+
+	mu           sync.Mutex
+	id           string
+	lastAutosave time.Time            // when the last autosave was requested
+	inFlight     bool                 // an autosave command is issued or running
+	started      bool                 // its writer goroutine has started
+	wantAgain    bool                 // a turn-end autosave waits for the running one
+	next         *session.SessionData // the data of that waiting autosave
+	errShown     bool                 // the current failing streak was reported
+	closed       bool                 // the exit save took over: no more autosaves
+	done         chan struct{}        // closed when the in-flight autosave ends
 }
 
 // assembleSession builds the session data of the current tab from the agent
@@ -44,7 +58,7 @@ func (m Model) assembleSession() (*session.SessionData, bool) {
 	}
 
 	d := session.NewSessionData()
-	d.ID = m.saved.id
+	d.ID = m.saved.sessionID()
 	d.Created = m.saved.created
 	d.StartDir = sess.StartDir()
 	d.Model = sess.ModelName()
@@ -100,7 +114,14 @@ func (m Model) saveTabs() Model {
 
 // saveTab saves the live tab (see inTab) through the Options.SaveOnExit seam or, by default,
 // the session Store of the start directory.
+//
+// An autosave of the tab still in flight is waited for first (bounded), so
+// the exit save overwrites the file it wrote: one file per conversation.
+// After a successful save the retention prune runs (errors ignored).
 func (m *Model) saveTab() {
+	if m.saved != nil {
+		m.saved.settle(exitSaveWait)
+	}
 	data, ok := m.assembleSession()
 	if !ok {
 		return
@@ -119,6 +140,8 @@ func (m *Model) saveTab() {
 		return
 	}
 	if m.saved != nil {
-		m.saved.id = data.ID
+		m.saved.setID(data.ID)
 	}
+	_, prune := m.autosaveFuncs()
+	_ = prune(keepSessions, protectIDs(m.saveStates(), data.ID)...) // a prune error is ignored
 }

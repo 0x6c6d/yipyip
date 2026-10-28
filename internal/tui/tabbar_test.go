@@ -98,7 +98,7 @@ func TestCtrlTOpensEightTabsThenLimit(t *testing.T) {
 }
 
 func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "hello"))
+	m, sess := newSessionModelOpts(t, answerServer(t, "hello"), "start", noAutosave)
 	mustAddTab(t, &m)
 	mustAddTab(t, &m)
 	m = tabTurn(t, m, "closing question")
@@ -133,7 +133,7 @@ func TestCtrlWSavesAndSwitchesLeftNeighbour(t *testing.T) {
 }
 
 func TestCtrlWLastTabLeavesFreshTab(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "hello"))
+	m, sess := newSessionModelOpts(t, answerServer(t, "hello"), "start", noAutosave)
 	m = tabTurn(t, m, "only question")
 
 	m, cmd := sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlW})

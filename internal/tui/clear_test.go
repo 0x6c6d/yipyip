@@ -126,7 +126,7 @@ func TestClearKeepsHistory(t *testing.T) {
 
 func TestClearNoSave(t *testing.T) {
 	t.Run("nothing saved", func(t *testing.T) {
-		m, sess := newSessionModel(t, answerServer(t, "answer"))
+		m, sess := newSessionModelOpts(t, answerServer(t, "answer"), "start", noAutosave)
 		m = tabTurn(t, m, "question")
 		_, _ = clearEnter(t, m)
 		if files := sessionFiles(t, sess.StartDir()); len(files) != 0 {

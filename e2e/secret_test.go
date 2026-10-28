@@ -133,12 +133,21 @@ func TestSecretEndToEnd(t *testing.T) {
 		mustNotContain(t, strings.Join(lines, "\n"), secret)
 	}
 
-	// yipyip wrote no logs, history or session files; no file holds the key.
+	// yipyip wrote no logs or history; the only session files are the
+	// autosaves of the conversation, and no file holds the key.
 	if got := filesUnder(t, e.Home); len(got) != 1 || got[0] != filepath.Join(".config", "yipyip", "config.json") {
 		t.Errorf("files in HOME = %q", got)
 	}
-	if got := filesUnder(t, e.Dir); len(got) != 1 || got[0] != "env.txt" {
-		t.Errorf("files in the start directory = %q", got)
+	var other []string
+	for _, f := range filesUnder(t, e.Dir) {
+		if filepath.Dir(f) == filepath.Join(".yipyip", "sessions") && strings.HasSuffix(f, ".json") {
+			mustNotContain(t, e.read(f), secret)
+			continue
+		}
+		other = append(other, f)
+	}
+	if len(other) != 1 || other[0] != "env.txt" {
+		t.Errorf("files in the start directory = %q", other)
 	}
 	if got := strings.TrimSpace(e.read("env.txt")); got != "" {
 		t.Errorf("bash saw the key variable: env.txt = %q", got)

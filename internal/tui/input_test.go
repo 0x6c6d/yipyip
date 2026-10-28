@@ -349,7 +349,7 @@ func listFiles(t *testing.T, root string) []string {
 
 func TestHistoryNoFiles(t *testing.T) {
 	srv := suggestServer(t)
-	m, sess := newSessionModel(t, srv)
+	m, sess := newSessionModelOpts(t, srv, "start", noAutosave)
 	root := filepath.Dir(sess.StartDir()) // holds the temp HOME and the start dir
 	before := listFiles(t, root)
 	for _, s := range []string{"one", "/mode auto", "/effort high", "three", "/new", "four"} {

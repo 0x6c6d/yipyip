@@ -60,14 +60,14 @@ func checkFreshLastTab(t *testing.T, m Model, cmd tea.Cmd, old *agent.Session) {
 }
 
 func TestCloseLastTabCtrlW(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "old answer"))
+	m, sess := newSessionModelOpts(t, answerServer(t, "old answer"), "start", noAutosave)
 	m = tabTurn(t, m, "only question")
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
 	checkFreshLastTab(t, next.(Model), cmd, sess)
 }
 
 func TestCloseLastTabClick(t *testing.T) {
-	m, sess := newSessionModel(t, answerServer(t, "old answer"))
+	m, sess := newSessionModelOpts(t, answerServer(t, "old answer"), "start", noAutosave)
 	m = tabTurn(t, m, "only question")
 	m, cmd := clickBar(m, zoneCol(t, m, tabZoneClose, 0))
 	checkFreshLastTab(t, m, cmd, sess)
@@ -113,6 +113,7 @@ func TestCloseLastTabTwoTabs(t *testing.T) {
 
 func TestCloseLastTabNewSessionError(t *testing.T) {
 	m, sess := newSessionModelOpts(t, answerServer(t, "a"), "start", func(o *Options) {
+		noAutosave(o)
 		o.NewSession = func() (*agent.Session, error) { return nil, errors.New("boom") }
 	})
 	m = tabTurn(t, m, "keep")
