@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T303 | 3 | Startup prune protecting the resumed id | T301 | opus | done | pruneSessions in cmd/yip/main.go + prune_test.go; opus first round |
 | T401 | 4 | Subagent panic leaves the parent turn alive | T201 | sonnet | done | subHook seam in agenttools.go + 3 tests; sonnet first round |
 | T402 | 4 | Per-block render guard | T201 | sonnet | done | renderBlock recover guard in blocks.go + renderguard_test.go; sonnet first round |
-| T501 | 5 | e2e: Crash, Autosave, Retention | T102 T201 T202 T302 T303 | sonnet | todo | |
+| T501 | 5 | e2e: Crash, Autosave, Retention | T102 T201 T202 T302 T303 | sonnet | done | e2e crash/autosave/retention tests, helpers additive (tuiOpts); sonnet first round |
 | T502 | 5 | docs/usage.md and README Usage line | T402 T501 | haiku | todo | |
 | T503 | 5 | CLAUDE.md notes | T402 T501 | haiku | todo | |
 | T599 | 5 | Global Definition of Done | T401 T402 T501 T502 T503 | supervisor | todo | |

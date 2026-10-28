@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"yipyip/internal/agent"
 	"yipyip/internal/config"
 	"yipyip/internal/provider/providertest"
+	"yipyip/internal/session"
 	"yipyip/internal/tui"
 )
 
@@ -39,6 +43,7 @@ type envOpts struct {
 	noModel      bool               // global config without providers: no model is configured
 	fetchClient  *http.Client       // web_fetch client seam (agent.Options.FetchClient), nil = default
 	clipboard    func(string) error // clipboard writer (tui.Options.Clipboard), nil = default
+	tuiOpts      func(*tui.Options) // edits the TUI options before the model is built, nil = none
 }
 
 // newEnvServer builds the environment around an already started fake srv
@@ -90,7 +95,11 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 		sess.Cancel()
 		waitSession(t, sess)
 	})
-	next, _ := tui.New(tui.Options{StartDir: dir, Home: home, Session: sess, Clipboard: o.clipboard}).Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	topts := tui.Options{StartDir: dir, Home: home, Session: sess, Clipboard: o.clipboard}
+	if o.tuiOpts != nil {
+		o.tuiOpts(&topts)
+	}
+	next, _ := tui.New(topts).Update(tea.WindowSizeMsg{Width: 160, Height: 50})
 	return &env{Model: next.(tui.Model), Session: sess, Server: srv, Dir: dir, Home: home}
 }
 
@@ -131,4 +140,72 @@ func (e *env) read(rel string) string {
 		return "<missing>"
 	}
 	return string(b)
+}
+
+// sessionIDs returns the ids (file names without .json) of the session files
+// in <dir>/.yipyip/sessions, sorted; a missing directory gives none.
+func sessionIDs(t *testing.T, dir string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(filepath.Join(dir, ".yipyip", "sessions"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, e := range ents {
+		if name, ok := strings.CutSuffix(e.Name(), ".json"); ok {
+			ids = append(ids, name)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// fakeClock is a settable clock for tui.Options.Now.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+// Now returns the clock's time.
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+// Set moves the clock to t.
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	c.t = t
+	c.mu.Unlock()
+}
+
+// saveCounter wraps the default Store save of start and counts the calls.
+type saveCounter struct {
+	mu sync.Mutex
+	n  int
+}
+
+// save is a tui.Options.Autosave that stores data in the Store of start.
+func (c *saveCounter) save(start string) func(*session.SessionData) error {
+	return func(d *session.SessionData) error {
+		c.mu.Lock()
+		c.n++
+		c.mu.Unlock()
+		st, err := session.NewStore(start)
+		if err != nil {
+			return err
+		}
+		return st.Save(d)
+	}
+}
+
+// count returns how many saves ran.
+func (c *saveCounter) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
 }
