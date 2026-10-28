@@ -450,6 +450,54 @@ is always available; no config block is needed.
   in a config file is accepted but not recommended). They are never shown in
   the UI or in errors, and never written to a file. Skill text is
   redacted like all other text shown in the UI or sent to a model.
-- yip writes no logs. Its only files are the saved sessions in
-  `<startdir>/.yipyip/` (see [Sessions](#sessions)) and the model, effort and
-  mode settings in your user config (see [Settings defaults](#settings-defaults)).
+- yip writes no logs except `<startdir>/.yipyip/crash.log` (see
+  [Crashes, autosave and session retention](#crashes-autosave-and-session-retention)).
+  Its other files are the saved sessions in `<startdir>/.yipyip/` (see
+  [Sessions](#sessions)) and the model, effort and mode settings in your user
+  config (see [Settings defaults](#settings-defaults)).
+
+## Crashes, autosave and session retention
+
+### Crash log
+
+A panic that yip cannot continue from is written to
+`<startdir>/.yipyip/crash.log`, one record after another. Each record holds
+the time, the yip version, where the panic was caught (for example `turn`, or
+`tool <name>`), the session id, and the panic value and stack trace. Both are
+redacted like the screen text. A record never holds prompts, conversation
+history, file contents or API keys.
+
+- `recovered`: a panic inside a turn or a tool was caught, the turn was ended
+  with an error, and yip kept running.
+- `fatal`: the panic stopped yip. The record is written, yip exits with
+  **exit code 2**, and it prints one line to stderr:
+  `yip: crashed, details in <path>`. If the record cannot be written, the line
+  is `yip: crashed (could not write the crash log)`.
+
+The log is capped at 1 MiB. When it grows past that, the oldest records are
+cut so that at most 512 KiB remain. `.yipyip/` is in `.gitignore`.
+
+### Autosave
+
+Sessions are also saved while yip runs, not only on exit:
+
+- when a turn ends, the tab's session is saved;
+- during a running turn, the session is saved at most once a minute.
+
+A crashed or killed run therefore keeps the conversation up to the last save.
+Reopen it with `yip --resume` (or `yip --resume <id>`). An interrupted turn is
+not continued: the conversation is restored up to the last message saved, and
+you send the request again.
+
+### Retention
+
+Only the newest 25 sessions are kept in `<startdir>/.yipyip/sessions/`. Older
+ones are deleted at startup. Sessions open in a tab are never pruned, and the
+session reopened with `--resume <id>` is protected as well. To keep an older
+session, open it with `/sessions <id>` or resume it before the next start; to
+delete older ones yourself, remove them with `/sessions rm <id>` before they
+are pruned.
+
+This supersedes the statement in the requirements (README section 5) that no
+logs are written to disk: `crash.log` is now written, with the redaction and
+limits above.

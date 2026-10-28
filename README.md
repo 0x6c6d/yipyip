@@ -139,4 +139,4 @@ Install with `make install`; the binary `yip` goes to `$(go env GOBIN)` or `$(go
 - Commands: `/model`, `/effort`, `/mode`, `/agents`, `/init`, `/compact`, `/undo`, `/new`, `/clear`, `/exit` (`/quit`), `/help`.
 - Keys: Enter sends, Alt+Enter newline, Esc cancels, Ctrl+C twice quits, Tab completes, Ctrl+O expands tool results, PgUp/PgDn scroll.
 
-Full reference, including configuration fields, subagents, undo, compaction and security notes: [docs/usage.md](docs/usage.md).
+Full reference, including configuration fields, subagents, undo, compaction, security notes, and [crashes, autosave and session retention](docs/usage.md#crashes-autosave-and-session-retention): [docs/usage.md](docs/usage.md).
