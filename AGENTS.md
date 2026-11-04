@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-yipyip is a terminal UI coding assistant written in Go (Bubble Tea), in the style of Claude Code and opencode. It talks to OpenAI-compatible chat APIs, edits files and runs shell commands in its start directory, can spawn subagents, and runs in a manual (approval) or auto mode. Its network traffic is restricted to the configured provider hosts. The spec is `README.md`.
+yipyip is a terminal UI coding assistant written in Go (Bubble Tea), in the style of Claude Code and opencode. It talks to OpenAI-compatible chat APIs, edits files and runs shell commands in its start directory, can spawn subagents, and runs in a manual (approval) or auto mode. Its network traffic is restricted to the configured provider hosts. The spec is `.harness/harness.md`.
 
 ## Commands
 
@@ -33,7 +33,7 @@ Security-critical logic lives only in `internal/provider/transport.go`, `interna
 
 For non-trivial implementation work, use the supervisor/worker loop (`/loop-coding`, full procedure in `.claude/skills/loop-coding/SKILL.md`) instead of implementing directly:
 
-- Project flow, per version `vN`: spec (`README.md` for v1, `versions/vN/spec.md` for later versions, written with `prompts/new-version.md`) → `prompts/generate-plan.md` → `versions/vN/plan.md` (+ the core `Plan.md`) → `prompts/generate-tasks.md` → `versions/vN/Tasks.md` (small index) + `versions/vN/tasks/<ID>.md` (brief) + `scripts/verify/vN/<ID>.sh` (verification) → loop runs the index row by row and reads a task file only when it dispatches that task; it never reads the folders of other versions.
-- Done = a verification script that exits 0, never "looks right"; workers never touch the spec, prompts, skill or this section (the supervisor checks the diff); keep the loop alive with `/goal`.
+- Project flow, per version `vN`: spec (`.harness/harness.md` for v1, `.harness/versions/vN/spec.md` for later versions, written with `.harness/prompts/new-version.md`) → `.harness/prompts/generate-plan.md` → `.harness/versions/vN/plan.md` (+ the core `.harness/Plan.md`) → `.harness/prompts/generate-tasks.md` → `.harness/versions/vN/Tasks.md` (small index) + `.harness/versions/vN/tasks/<ID>.md` (brief) + `.harness/verify/vN/<ID>.sh` (verification) → loop runs the index row by row and reads a task file only when it dispatches that task; it never reads the folders of other versions.
+- Done = a verification script that exits 0, never "looks right"; workers never touch the spec, prompts, skill or this section (the supervisor checks the diff).
 - One fresh worker per task, `model` per task (haiku / sonnet / opus); the supervisor verifies and commits itself and never trusts the worker's report.
 - Fail → concrete feedback to the same worker; still failing after 3 rounds → `blocked` and ask the user.
