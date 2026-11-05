@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"yipyip/internal/agent"
@@ -27,13 +30,18 @@ const maxHeadlessStdin = 10 << 20
 // the --json trace.
 const headlessTruncate = 2000
 
+// headlessGrace bounds the wait for a cancelled turn (timeout, signal) to end.
+const headlessGrace = 10 * time.Second
+
 // runHeadless runs one turn without a UI: it reads the prompt (from stdin
 // for -p -), loads the configuration of the start directory, submits the
 // prompt in auto mode and prints the main agent's final text on stdout.
 // Progress goes to stderr, one redacted line per event. With --json, stdout
 // gets one JSON record per line instead (the last one a result record) and
 // stderr stays empty except for fatal errors. It returns 0, 1 when the turn
-// reported an error or the setup failed, 2 on a usage error.
+// reported an error, the setup failed or a signal interrupted it, 2 on a
+// usage error, 3 on an unanswered question, 4 when --timeout expired and 5
+// when --max-model-calls was used up (see exitFor).
 func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs *crashState) int {
 	r := &runner{
 		json:    f.h.json,
@@ -74,6 +82,11 @@ type runner struct {
 	final    strings.Builder // main-agent text of the last assistant message
 	textSeen bool            // main-agent text since the last main-agent tool call
 	hadErr   bool
+	reason   string // result reason decided by run ("" = derive from the code)
+
+	timedOut    atomic.Bool // --timeout expired and cancelled the turn
+	interrupted atomic.Bool // SIGINT/SIGTERM cancelled the turn
+	limitHit    bool        // the main agent's turn ended on the model call limit
 
 	approve    []string // --approve tool names ("all" approves every gated call)
 	answers    []string // --answer values, in order
@@ -162,14 +175,14 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		defer stop()
 		go cs.logger.Watch(ctx, crashlog.WatchInterval)
 	}
-	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
+	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir, MaxModelCalls: f.h.maxCalls})
 	if err != nil {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
 	defer func() {
 		sess.Cancel()
-		sess.Wait()
+		waitBounded(sess, headlessGrace)
 	}()
 	r.sess = sess
 	r.redact = sess.Redact
@@ -219,25 +232,119 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		}
 		prompt = sess.Redact(msg)
 	}
+	sigCtx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSig()
+	// evCtx bounds the event loop: it ends headlessGrace after a timeout or a
+	// signal cancelled the turn, so a stuck turn never blocks the run.
+	evCtx, stopEv := context.WithCancel(context.Background())
+	defer stopEv()
+	cancelled := make(chan struct{}, 1)
+	trigger := func(flag *atomic.Bool) {
+		if flag.CompareAndSwap(false, true) {
+			sess.Cancel()
+			select {
+			case cancelled <- struct{}{}:
+			default:
+			}
+		}
+	}
+	var timeoutC <-chan time.Time
+	if f.h.timeout > 0 {
+		timer := time.NewTimer(f.h.timeout)
+		defer timer.Stop()
+		timeoutC = timer.C
+	}
+	finished := make(chan struct{})
+	defer close(finished)
 	if err := sess.Submit(prompt); err != nil {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
-	r.consumeTurn()
-	if r.unanswered {
-		r.sess.Wait()
+	go func() {
+		select {
+		case <-timeoutC:
+			trigger(&r.timedOut)
+		case <-sigCtx.Done():
+			trigger(&r.interrupted)
+		case <-finished:
+			return
+		}
+		select {
+		case <-time.After(headlessGrace):
+			stopEv()
+		case <-finished:
+		}
+	}()
+	r.consumeTurn(evCtx)
+	if r.unanswered || r.timedOut.Load() || r.interrupted.Load() {
+		waitBounded(sess, headlessGrace)
+	}
+	maxCalls := r.limitHit && f.h.maxCalls > 0 && sess.ModelCalls() >= f.h.maxCalls
+	if maxCalls {
+		sess.Cancel()
 	}
 	if !r.json {
 		fmt.Fprint(r.stdout, r.redact(r.final.String())+"\n")
 	}
-	if r.unanswered {
+	code, reason := exitFor(exitState{
+		timeout:  r.timedOut.Load(),
+		question: r.unanswered,
+		maxCalls: maxCalls,
+		err:      r.hadErr || r.interrupted.Load(),
+	})
+	r.reason = reason
+	switch reason {
+	case "timeout":
+		fmt.Fprintln(r.stderr, "yip: timeout")
+	case "question":
 		fmt.Fprintln(r.stderr, "yip: unanswered question")
-		return 3
+	case "max_calls":
+		fmt.Fprintln(r.stderr, "yip: model call limit reached")
+	default:
+		if r.interrupted.Load() {
+			fmt.Fprintln(r.stderr, "yip: interrupted")
+		}
 	}
-	if r.hadErr {
-		return 1
+	return code
+}
+
+// exitState is what decides the exit code of a finished headless turn.
+type exitState struct {
+	timeout  bool // --timeout expired
+	question bool // a question beyond the --answer values
+	maxCalls bool // --max-model-calls used up
+	err      bool // an error or a signal
+}
+
+// exitFor returns the exit code and result reason of s. Precedence: timeout
+// (4) > question (3) > max_calls (5) > error (1) > done (0).
+func exitFor(s exitState) (code int, reason string) {
+	switch {
+	case s.timeout:
+		return 4, "timeout"
+	case s.question:
+		return 3, "question"
+	case s.maxCalls:
+		return 5, "max_calls"
+	case s.err:
+		return 1, "error"
 	}
-	return 0
+	return 0, "done"
+}
+
+// waitBounded waits for the running turn of sess to end, at most d.
+func waitBounded(sess *agent.Session, d time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		sess.Wait()
+		close(done)
+	}()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+	}
 }
 
 // applyStoredModelEffort applies the model and effort stored in the
@@ -307,9 +414,9 @@ func (r *runner) flushText() {
 }
 
 // consumeTurn reads the session's events until the main agent's
-// EvTurnDone, collecting the final text, counts and changed files.
-func (r *runner) consumeTurn() {
-	ctx := context.Background()
+// EvTurnDone (or until ctx is done), collecting the final text, counts and
+// changed files.
+func (r *runner) consumeTurn(ctx context.Context) {
 	for {
 		ev, err := r.sess.NextEvent(ctx)
 		if err != nil {
@@ -377,6 +484,9 @@ func (r *runner) handle(ev agent.Event) bool {
 		r.emitEvent(ev)
 	case agent.EvError:
 		r.hadErr = true
+		if main && strings.Contains(ev.Text, agent.ErrModelCallLimit.Error()) {
+			r.limitHit = true
+		}
 		r.progress("error: " + ev.Text)
 		r.emitEvent(ev)
 	case agent.EvApproval:
@@ -509,13 +619,17 @@ func (r *runner) writeResult(code int) {
 	if !r.json && r.tfile == nil {
 		return
 	}
-	reason := "done"
-	if code == 3 && r.unanswered {
+	reason := r.reason
+	switch {
+	case reason != "":
+	case code == 3 && r.unanswered:
 		reason = "question"
-	} else if code == 2 {
+	case code == 2:
 		reason = "usage"
-	} else if code != 0 {
+	case code != 0:
 		reason = "error"
+	default:
+		reason = "done"
 	}
 	rec := resultRecord{
 		Type:         "result",
