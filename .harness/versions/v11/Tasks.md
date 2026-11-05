@@ -24,7 +24,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T000 | 0 | Preflight | — | supervisor | done | preflight passed |
 | T101 | 1 | Headless flag parsing | T000 | sonnet | done | cmd/yip headless flag parsing, stub runHeadless |
 | T102 | 1 | Headless runner skeleton and e2e harness | T101 | opus | done | headless.go runner, e2e/headless_test.go |
-| T201 | 2 | Agent SystemAppend option | T000 | sonnet | todo | |
+| T201 | 2 | Agent SystemAppend option | T000 | sonnet | done | Options.SystemAppend in session.go + test |
 | T202 | 2 | Shared MaxModelCalls counter | T000 | opus | todo | |
 | T203 | 2 | Session FromAgent and ApplyTo helpers | T000 | opus | todo | |
 | T301 | 3 | JSONL record mapping | T101 | sonnet | todo | |

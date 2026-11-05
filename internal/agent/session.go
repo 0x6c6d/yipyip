@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,9 @@ type Options struct {
 	StartDir    string
 	HTTPClient  *http.Client // nil -> provider.NewHTTPClient(Config.BaseURLs())
 	FetchClient *http.Client // test seam for web_fetch; nil = the tools default fetch client
+	// SystemAppend, when non-empty, is appended to the session system prompt
+	// after a blank line. Subagents keep their own prompt.
+	SystemAppend string
 }
 
 // Tokens are the accumulated token counts of a session.
@@ -44,12 +48,13 @@ type Tokens struct{ In, Out, Total int }
 // Session is one conversation of the main agent with its tools, approval gate
 // and event queue. All methods are safe for concurrent use.
 type Session struct {
-	cfg      *config.Config
-	startDir string // absolute, symlink-resolved
-	hc       *http.Client
-	registry *tools.Registry
-	gate     *Gate
-	events   *eventQueue
+	cfg       *config.Config
+	sysAppend string
+	startDir  string // absolute, symlink-resolved
+	hc        *http.Client
+	registry  *tools.Registry
+	gate      *Gate
+	events    *eventQueue
 
 	mu               sync.Mutex
 	modelID          string
@@ -96,13 +101,14 @@ func NewSession(opts Options) (*Session, error) {
 		}
 	}
 	s := &Session{
-		cfg:     cfg,
-		hc:      hc,
-		events:  newEventQueue(),
-		modelID: cfg.DefaultModelID(),
-		effort:  EffortMedium,
-		mode:    ModeManual,
-		sessID:  newSessionID(),
+		cfg:       cfg,
+		sysAppend: opts.SystemAppend,
+		hc:        hc,
+		events:    newEventQueue(),
+		modelID:   cfg.DefaultModelID(),
+		effort:    EffortMedium,
+		mode:      ModeManual,
+		sessID:    newSessionID(),
 	}
 	// The web search client gets its own search-only HTTP client: never
 	// opts.HTTPClient or the provider client, which never learn the
@@ -131,7 +137,7 @@ func NewSession(opts Options) (*Session, error) {
 	s.gate = NewGate(func(r *ApprovalRequest) {
 		s.emit(Event{Kind: EvApproval, AgentID: r.AgentID, Tool: r.Tool, Args: r.Args, Approval: r})
 	})
-	s.systemPrompt = buildSystemPrompt(s.startDir, reg.Guard(), cfg.Redactor, reg.Has("web_search"))
+	s.systemPrompt = s.withAppend(buildSystemPrompt(s.startDir, reg.Guard(), cfg.Redactor, reg.Has("web_search")))
 	s.history = []provider.Message{{Role: "system", Content: s.systemPrompt}}
 	s.subs = s.newManager(0)
 	return s, nil
@@ -360,6 +366,10 @@ func (s *Session) RestoreHistory(hist []HistoryEntry) {
 			}
 		}
 	}
+	// A restored system prompt gets the append (once) when one is set.
+	if s.sysAppend != "" && s.history[0].Role == "system" && !strings.HasSuffix(s.history[0].Content, "\n\n"+s.sysAppend) {
+		s.history[0].Content = s.withAppend(s.history[0].Content)
+	}
 }
 
 // TokenCounts returns the accumulated token counters as (in, out, total).
@@ -410,6 +420,14 @@ func copyHistory(h []provider.Message) []provider.Message {
 	return out
 }
 
+// withAppend adds the SystemAppend text to a system prompt.
+func (s *Session) withAppend(prompt string) string {
+	if s.sysAppend == "" {
+		return prompt
+	}
+	return prompt + "\n\n" + s.sysAppend
+}
+
 // SystemPrompt returns the current system prompt.
 func (s *Session) SystemPrompt() string {
 	s.mu.Lock()
@@ -431,7 +449,7 @@ func (s *Session) Redact(text string) string {
 // approvals, clears the undo journal and drops queued events. Model, effort
 // and mode are kept, and a fresh session id is generated.
 func (s *Session) Reset() {
-	prompt := buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor, s.registry.Has("web_search"))
+	prompt := s.withAppend(buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor, s.registry.Has("web_search")))
 	s.mu.Lock()
 	cancel := s.cancelTurn
 	done := s.turnDone
