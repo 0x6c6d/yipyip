@@ -40,7 +40,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T501 | 5 | Paste text shown expanded | T000 | haiku | done | paste shown expanded; one assertion in TestPasteExpandedOnSend updated because R99 reverses it |
 | T601 | 6 | Help text for headless mode | T101 | haiku | done | usage/helpUsage and HelpText |
 | T602 | 6 | README headless section | T303, T401, T402, T403, T404, T405, T406, T407, T501, T601 | sonnet | done | README headless section |
-| T603 | 6 | CLAUDE.md architecture notes | T303, T401, T402, T403, T404, T405, T406, T407, T501, T601 | haiku | todo | |
+| T603 | 6 | CLAUDE.md architecture notes | T303, T401, T402, T403, T404, T405, T406, T407, T501, T601 | haiku | done | CLAUDE.md architecture notes |
 | T999 | 6 | Definition of Done | T101, T102, T201, T202, T203, T301, T302, T303, T401, T402, T403, T404, T405, T406, T407, T501, T601, T602, T603 | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
