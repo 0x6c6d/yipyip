@@ -34,7 +34,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T402 | 4 | Answer flag and question exit | T302 | opus | done | runner.question, exit 3 |
 | T403 | 4 | Approve flag and manual mode | T302 | opus | done | --mode, --approve, Session.ToolNames |
 | T404 | 4 | Timeout and max-model-calls exits | T302 | opus | done | exitFor, timeout, max_calls, signals |
-| T405 | 4 | Session save, resume and no-save | T203, T302 | opus | todo | |
+| T405 | 4 | Session save, resume and no-save | T203, T302 | opus | done | runner.resume/saveSession, prune 25; model/effort flags left to T406 |
 | T406 | 4 | Dir, overrides and system-append | T201, T302 | opus | todo | |
 | T407 | 4 | Exit code tests 0, 1, 2 | T302 | sonnet | todo | |
 | T501 | 5 | Paste text shown expanded | T000 | haiku | todo | |

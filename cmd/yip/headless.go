@@ -18,6 +18,7 @@ import (
 	"yipyip/internal/agent"
 	"yipyip/internal/config"
 	"yipyip/internal/crashlog"
+	"yipyip/internal/session"
 	"yipyip/internal/skills"
 	"yipyip/internal/tools"
 	"yipyip/internal/tui"
@@ -57,6 +58,7 @@ func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs 
 		calls:   map[string]string{},
 	}
 	code := r.run(f, stdin, cs)
+	r.saveSession(f, code)
 	r.writeResult(code)
 	if r.tfile != nil {
 		if err := r.tfile.Close(); err != nil && code == 0 {
@@ -100,6 +102,9 @@ type runner struct {
 
 	pendAgent string          // agent of the buffered text deltas
 	pendText  strings.Builder // buffered text deltas (--json)
+
+	resumed   *session.SessionData // the session loaded by --resume, nil without it
+	sessionID string               // id of the saved session ("" = not saved)
 }
 
 // run performs the setup and the turn and returns the exit code.
@@ -189,6 +194,11 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	r.m = mapper{redact: sess.Redact, truncate: headlessTruncate, sub: r.subLookup}
 	r.tm = mapper{redact: sess.Redact, truncate: 0, sub: r.subLookup}
 	applyStoredModelEffort(cfg, sess)
+	if f.resume {
+		if code := r.resume(f, sess); code != 0 {
+			return code
+		}
+	}
 	if f.h.mode == "manual" {
 		sess.SetMode(agent.ModeManual)
 	} else {
@@ -306,6 +316,67 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		}
 	}
 	return code
+}
+
+// resume loads the session of --resume <id> before any model call and
+// applies its conversation, tokens and (unless --model/--effort are given)
+// its model and effort to sess. A load error prints only the id (the error
+// names a path) and returns 1.
+func (r *runner) resume(f flags, sess *agent.Session) int {
+	var data *session.SessionData
+	store, err := session.NewStore(r.startDir)
+	if err == nil {
+		data, err = store.Load(f.resumeID)
+	}
+	if err != nil {
+		fmt.Fprintf(r.stderr, "unknown session %s\n", r.redact(f.resumeID))
+		return 1
+	}
+	session.ApplyTo(data, sess)
+	if f.h.model == "" && data.Model != "" && data.Model != sess.ModelID() {
+		_ = sess.SetModel(data.Model)
+	}
+	if f.h.effort == "" && data.Effort != "" {
+		_ = sess.SetEffort(data.Effort)
+	}
+	r.resumed = data
+	return 0
+}
+
+// saveSession saves the conversation once at the end of the run (exit codes
+// 0, 1, 3, 4 and 5; never 2, never with --no-save), after the turn ended,
+// then prunes the sessions directory to the newest keepSessions, protecting
+// the saved one. A resumed run keeps the loaded id and created time; a new
+// run lets the store derive the id. A save error is reported on stderr and
+// leaves the exit code unchanged.
+func (r *runner) saveSession(f flags, code int) {
+	if f.h.noSave || r.sess == nil {
+		return
+	}
+	switch code {
+	case 0, 1, 3, 4, 5:
+	default:
+		return
+	}
+	waitBounded(r.sess, headlessGrace)
+	id, created := "", r.start.UTC().Format(time.RFC3339)
+	if r.resumed != nil {
+		id, created = f.resumeID, r.resumed.Created
+	}
+	data, ok := session.FromAgent(r.sess, id, created)
+	if !ok {
+		return
+	}
+	store, err := session.NewStore(r.startDir)
+	if err == nil {
+		err = store.Save(data)
+	}
+	if err != nil {
+		fmt.Fprintf(r.stderr, "yip: could not save session: %s\n", r.redact(err.Error()))
+		return
+	}
+	r.sessionID = data.ID
+	_ = store.Prune(keepSessions, data.ID)
 }
 
 // exitState is what decides the exit code of a finished headless turn.
@@ -641,7 +712,7 @@ func (r *runner) writeResult(code int) {
 		Tools:        map[string]int{},
 		FilesChanged: []string{},
 	}
-	rec.SessionID = r.redact(rec.SessionID)
+	rec.SessionID = r.redact(r.sessionID)
 	if r.sess != nil {
 		rec.ModelCalls = r.sess.ModelCalls()
 		in, out, _ := r.sess.TokenCounts()
