@@ -34,12 +34,16 @@ const helpUsage = "Usage: yip [--version] [--help] [--resume [id]]\n\n" +
 type flags struct {
 	resume   bool   // --resume / -c given
 	resumeID string // its id; "" = none (picker or fresh start)
+
+	headless bool          // -p/--prompt given
+	h        headlessFlags // the headless options
 }
 
 // deps is what an interactive start needs from the outside world: whether
 // stdin is a terminal and how the UI is run. Tests replace launch.
 type deps struct {
 	stdinTTY bool
+	stdin    io.Reader
 	launch   func(opts tui.Options, stderr io.Writer) int
 }
 
@@ -48,7 +52,7 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWith(args, stdout, stderr, deps{stdinTTY: stdinIsTTY(), launch: launchUI})
+	return runWith(args, stdout, stderr, deps{stdinTTY: stdinIsTTY(), stdin: os.Stdin, launch: launchUI})
 }
 
 // runWith parses args and, unless a flag finished the run (--version,
@@ -63,15 +67,47 @@ func runWith(args []string, stdout, stderr io.Writer, d deps) (code int) {
 	if done {
 		return code
 	}
+	if f.headless {
+		return runHeadless(f, d, d.stdin, stdout, stderr, cs)
+	}
 	return runUI(f, d, stderr, cs)
 }
 
 // parseArgs parses the command line. done reports that the run is over with
 // exit code code (--version, --help, unknown argument).
 func parseArgs(args []string, stdout, stderr io.Writer) (f flags, code int, done bool) {
+	usageErr := func(reason string) (flags, int, bool) {
+		fmt.Fprintf(stderr, "yip: %s\n%s\n", reason, usage)
+		return f, 2, true
+	}
+	firstHeadless := "" // first headless flag seen, for the "requires -p" error
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		name, val, hasVal := strings.Cut(arg, "=")
 		switch {
+		case headlessValueFlags[name]:
+			if firstHeadless == "" && name != "-p" && name != "--prompt" {
+				firstHeadless = name
+			}
+			if !hasVal {
+				if i+1 >= len(args) {
+					return usageErr(name + " needs a value")
+				}
+				i++
+				val = args[i]
+			}
+			if err := f.setHeadlessValue(name, val); err != nil {
+				return usageErr(err.Error())
+			}
+		case headlessBoolFlags[arg]:
+			if firstHeadless == "" {
+				firstHeadless = arg
+			}
+			if arg == "--json" {
+				f.h.json = true
+			} else {
+				f.h.noSave = true
+			}
 		case arg == "--version" || arg == "-version":
 			fmt.Fprintf(stdout, "yip %s\n", version)
 			return f, 0, true
@@ -92,6 +128,12 @@ func parseArgs(args []string, stdout, stderr io.Writer) (f flags, code int, done
 			fmt.Fprintf(stderr, "yip: unknown argument %q\n%s\n", arg, usage)
 			return f, 2, true
 		}
+	}
+	if firstHeadless != "" && !f.headless {
+		return usageErr(firstHeadless + " requires -p")
+	}
+	if f.headless && f.resume && f.resumeID == "" {
+		return usageErr("--resume requires a session id with -p")
 	}
 	return f, 0, false
 }

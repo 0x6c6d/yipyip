@@ -22,7 +22,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | preflight passed |
-| T101 | 1 | Headless flag parsing | T000 | sonnet | todo | |
+| T101 | 1 | Headless flag parsing | T000 | sonnet | done | cmd/yip headless flag parsing, stub runHeadless |
 | T102 | 1 | Headless runner skeleton and e2e harness | T101 | opus | todo | |
 | T201 | 2 | Agent SystemAppend option | T000 | sonnet | todo | |
 | T202 | 2 | Shared MaxModelCalls counter | T000 | opus | todo | |
