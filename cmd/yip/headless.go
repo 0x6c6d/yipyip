@@ -127,15 +127,9 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		return 2
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(r.stderr, "yip: %v\n", err)
-		return 1
-	}
-	startDir, err := filepath.EvalSymlinks(wd)
-	if err != nil {
-		fmt.Fprintf(r.stderr, "yip: %v\n", err)
-		return 1
+	startDir, code := r.resolveStartDir(f.h.dir)
+	if code != 0 {
+		return code
 	}
 	r.startDir = startDir
 	guard, gerr := tools.NewPathGuard(startDir)
@@ -180,7 +174,7 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		defer stop()
 		go cs.logger.Watch(ctx, crashlog.WatchInterval)
 	}
-	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir, MaxModelCalls: f.h.maxCalls})
+	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir, MaxModelCalls: f.h.maxCalls, SystemAppend: f.h.systemAppend})
 	if err != nil {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
@@ -197,6 +191,19 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	if f.resume {
 		if code := r.resume(f, sess); code != 0 {
 			return code
+		}
+	}
+	// --model/--effort apply to this run only: never written to any config.
+	if f.h.model != "" {
+		if err := sess.SetModel(f.h.model); err != nil {
+			fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
+			return 2
+		}
+	}
+	if f.h.effort != "" {
+		if err := sess.SetEffort(f.h.effort); err != nil {
+			fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
+			return 2
 		}
 	}
 	if f.h.mode == "manual" {
@@ -316,6 +323,43 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		}
 	}
 	return code
+}
+
+// resolveStartDir returns the symlink-resolved start directory: --dir when
+// given (made absolute; a missing path or a non-directory gives exit code 1),
+// else the working directory. It never changes the process working directory.
+func (r *runner) resolveStartDir(dir string) (string, int) {
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(r.stderr, "yip: %v\n", err)
+			return "", 1
+		}
+		startDir, err := filepath.EvalSymlinks(wd)
+		if err != nil {
+			fmt.Fprintf(r.stderr, "yip: %v\n", err)
+			return "", 1
+		}
+		return startDir, 0
+	}
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err == nil {
+		var fi os.FileInfo
+		if fi, err = os.Stat(abs); err == nil && !fi.IsDir() {
+			err = errors.New("not a directory")
+		}
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = errors.New("not a directory")
+		}
+		fmt.Fprintf(r.stderr, "yip: %s: %s\n", r.redact(dir), r.redact(err.Error()))
+		return "", 1
+	}
+	return abs, 0
 }
 
 // resume loads the session of --resume <id> before any model call and
