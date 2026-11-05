@@ -46,6 +46,12 @@ func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs 
 	}
 	code := r.run(f, stdin, cs)
 	r.writeResult(code)
+	if r.tfile != nil {
+		if err := r.tfile.Close(); err != nil && code == 0 {
+			fmt.Fprintf(stderr, "yip: closing transcript: %s\n", r.redact(err.Error()))
+			code = 1
+		}
+	}
 	return code
 }
 
@@ -58,6 +64,8 @@ type runner struct {
 	sess           *agent.Session
 	startDir       string
 	m              mapper
+	tm             mapper   // transcript mapper (tool output untruncated)
+	tfile          *os.File // --transcript file, nil without it
 
 	final    strings.Builder // main-agent text of the last assistant message
 	textSeen bool            // main-agent text since the last main-agent tool call
@@ -103,6 +111,23 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		return 1
 	}
 	r.startDir = startDir
+	guard, gerr := tools.NewPathGuard(startDir)
+	if f.h.transcript != "" {
+		var tpath string
+		if gerr == nil {
+			tpath, gerr = guard.Resolve(f.h.transcript)
+		}
+		if gerr != nil {
+			fmt.Fprintln(r.stderr, "yip: transcript path outside the start directory")
+			return 2
+		}
+		tf, err := os.OpenFile(tpath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			fmt.Fprintln(r.stderr, "yip: cannot create the transcript file")
+			return 1
+		}
+		r.tfile = tf
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(r.stderr, "yip: %v\n", err)
@@ -116,7 +141,7 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
-	if guard, gerr := tools.NewPathGuard(startDir); gerr == nil {
+	if gerr == nil {
 		cs.logger = crashlog.New(crashlog.Options{
 			Version:   version,
 			Redact:    cfg.Redactor.Redact,
@@ -140,6 +165,7 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	r.sess = sess
 	r.redact = sess.Redact
 	r.m = mapper{redact: sess.Redact, truncate: headlessTruncate, sub: r.subLookup}
+	r.tm = mapper{redact: sess.Redact, truncate: 0, sub: r.subLookup}
 	applyStoredModelEffort(cfg, sess)
 	sess.SetMode(agent.ModeAuto)
 
@@ -190,14 +216,31 @@ func (r *runner) progress(line string) {
 	}
 }
 
-// emit writes records to stdout with --json. Records built by the mapper are
-// redacted already; approval and result records are redacted by the caller.
+// emit writes records to stdout with --json and to the transcript file with
+// --transcript. Approval and result records are redacted by the caller.
 func (r *runner) emit(recs ...any) {
-	if !r.json {
-		return
-	}
 	for _, rec := range recs {
-		_ = encodeLine(r.stdout, rec)
+		if r.json {
+			_ = encodeLine(r.stdout, rec)
+		}
+		if r.tfile != nil {
+			_ = encodeLine(r.tfile, rec)
+		}
+	}
+}
+
+// emitEvent maps ev and writes its records: the truncating mapper for the
+// --json stdout, the untruncating one for the transcript. Both redact.
+func (r *runner) emitEvent(ev agent.Event) {
+	if r.json {
+		for _, rec := range r.m.records(ev) {
+			_ = encodeLine(r.stdout, rec)
+		}
+	}
+	if r.tfile != nil {
+		for _, rec := range r.tm.records(ev) {
+			_ = encodeLine(r.tfile, rec)
+		}
 	}
 }
 
@@ -208,7 +251,7 @@ func (r *runner) flushText() {
 	}
 	ev := agent.Event{Kind: agent.EvText, AgentID: r.pendAgent, Text: r.pendText.String()}
 	r.pendText.Reset()
-	r.emit(r.m.records(ev)...)
+	r.emitEvent(ev)
 }
 
 // consumeTurn reads the session's events until the main agent's
@@ -222,7 +265,7 @@ func (r *runner) consumeTurn() {
 			r.hadErr = true
 			if !errors.Is(err, context.Canceled) {
 				r.progress("error: " + err.Error())
-				r.emit(r.m.records(agent.Event{Kind: agent.EvError, AgentID: agent.MainAgentID, Text: err.Error()})...)
+				r.emitEvent(agent.Event{Kind: agent.EvError, AgentID: agent.MainAgentID, Text: err.Error()})
 			}
 			return
 		}
@@ -262,7 +305,7 @@ func (r *runner) handle(ev agent.Event) bool {
 			delete(r.calls, ev.AgentID)
 		}
 		r.progress("tool " + ev.Tool)
-		r.emit(r.m.records(ev)...)
+		r.emitEvent(ev)
 	case agent.EvToolResult:
 		if args, ok := r.calls[ev.AgentID]; ok {
 			delete(r.calls, ev.AgentID)
@@ -270,20 +313,20 @@ func (r *runner) handle(ev agent.Event) bool {
 				r.addFile(args)
 			}
 		}
-		r.emit(r.m.records(ev)...)
+		r.emitEvent(ev)
 	case agent.EvSubagent:
 		if !main {
 			r.subs[ev.AgentID] = true
 			r.progress("subagent " + ev.Text)
-			r.emit(r.m.records(ev)...)
+			r.emitEvent(ev)
 		}
 	case agent.EvRetry:
 		r.progress("retry " + ev.Text)
-		r.emit(r.m.records(ev)...)
+		r.emitEvent(ev)
 	case agent.EvError:
 		r.hadErr = true
 		r.progress("error: " + ev.Text)
-		r.emit(r.m.records(ev)...)
+		r.emitEvent(ev)
 	case agent.EvApproval:
 		if ev.Approval != nil {
 			ev.Approval.Respond(agent.Deny)
@@ -295,7 +338,7 @@ func (r *runner) handle(ev agent.Event) bool {
 			r.emit(approvalRecord(r.redact(agentID), r.redact(a.Tool), r.redact(a.Args), false))
 		}
 	case agent.EvQuestion:
-		r.emit(r.m.records(ev)...)
+		r.emitEvent(ev)
 		if ev.Question != nil {
 			ev.Question.Cancel()
 		}
@@ -327,10 +370,10 @@ func (r *runner) addFile(args string) {
 	r.files[filepath.ToSlash(p)] = true
 }
 
-// writeResult writes the result record with --json; every string passes the
-// redactor.
+// writeResult writes the result record with --json and to the transcript;
+// every string passes the redactor.
 func (r *runner) writeResult(code int) {
-	if !r.json {
+	if !r.json && r.tfile == nil {
 		return
 	}
 	reason := "done"
@@ -365,5 +408,5 @@ func (r *runner) writeResult(code int) {
 		}
 	}
 	sort.Strings(rec.FilesChanged)
-	_ = encodeLine(r.stdout, rec)
+	r.emit(rec)
 }
