@@ -33,60 +33,32 @@ type saveState struct {
 // false when there is nothing to save: no agent session or an empty
 // conversation.
 func (m Model) assembleSession() (*session.SessionData, bool) {
-	sess := m.sess
-	if sess == nil {
+	if m.sess == nil {
 		return nil, false
 	}
-	hist := sess.History()
-	// The history starts with the system prompt: a conversation is empty
-	// until the first user message.
-	title, hasUser := "", false
-	for _, h := range hist {
-		if h.Role == "user" {
-			title, hasUser = session.Title(h.Content), true
-			break
-		}
+	// The creation time is stamped once, on the first assembly that has
+	// something to save.
+	id, created := "", ""
+	if m.saved != nil {
+		id, created = m.saved.sessionID(), m.saved.created
 	}
-	if !hasUser {
+	if created == "" {
+		created = m.now().UTC().Format(time.RFC3339)
+	}
+	// A turn still running at exit is cut by the exit: FromAgent stores it
+	// as finished and interrupted, never resumable (A5).
+	d, ok := session.FromAgent(m.sess, id, created)
+	if !ok {
 		return nil, false
 	}
 	if m.saved == nil {
 		m.saved = &saveState{}
 	}
-	if m.saved.created == "" {
-		m.saved.created = m.now().UTC().Format(time.RFC3339)
-	}
-
-	d := session.NewSessionData()
-	d.ID = m.saved.sessionID()
-	d.Created = m.saved.created
-	d.StartDir = sess.StartDir()
-	d.Model = sess.ModelName()
-	d.Effort = sess.Effort()
-	d.Mode = string(sess.Mode())
-	d.InTokens, d.OutTokens, d.TotalTokens = sess.TokenCounts()
-	d.LastContext = sess.LastContextTokens()
-
-	d.Conversation = make([]session.Conversation, len(hist))
-	for i, h := range hist {
-		c := session.Conversation{Role: h.Role, Content: h.Content, ToolCallID: h.ToolCallID}
-		for _, tc := range h.ToolCalls {
-			c.ToolCalls = append(c.ToolCalls, session.ToolCall{
-				ID:       tc.ID,
-				Type:     "function",
-				Function: session.Func{Name: tc.Name, Arguments: tc.Arguments},
-			})
-		}
-		d.Conversation[i] = c
-	}
-	d.Title = title
+	m.saved.created = created
 
 	if m.hist != nil {
 		d.History = append([]string{}, m.hist.entries...)
-	} else {
-		d.History = []string{}
 	}
-	d.Pastes = session.Pastes{Entries: map[string]string{}}
 	if m.pastes != nil {
 		d.Pastes.N = m.pastes.n
 		for ph, text := range m.pastes.texts {
@@ -94,11 +66,6 @@ func (m Model) assembleSession() (*session.SessionData, bool) {
 		}
 	}
 	d.Queue = append([]string{}, m.queue...)
-
-	// A turn still running at exit is cut by the exit: stored as finished
-	// and interrupted, never resumable (A5).
-	active, started, interrupted := sess.TurnState()
-	d.Turn = session.Turn{Started: started, Interrupted: interrupted || active}
 	return d, true
 }
 

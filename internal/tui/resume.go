@@ -264,16 +264,7 @@ func (m *Model) restoreInto(sess *agent.Session, data *session.SessionData) {
 	if sess == nil {
 		return
 	}
-	hist := make([]agent.HistoryEntry, len(data.Conversation))
-	for i, c := range data.Conversation {
-		h := agent.HistoryEntry{Role: c.Role, Content: c.Content, ToolCallID: c.ToolCallID}
-		for _, tc := range c.ToolCalls {
-			h.ToolCalls = append(h.ToolCalls, agent.ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
-		}
-		hist[i] = h
-	}
-	sess.RestoreHistory(hist)
-	sess.RestoreTokens(data.InTokens, data.OutTokens, data.TotalTokens, data.LastContext)
+	session.ApplyTo(data, sess)
 
 	mode := agent.Mode(data.Mode)
 	if mode != agent.ModeAuto {
