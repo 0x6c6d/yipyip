@@ -169,3 +169,31 @@ func encodeLine(w io.Writer, rec any) error {
 	_, err := w.Write(buf.Bytes())
 	return err
 }
+
+// usageWantsResult reports whether args hold both -p/--prompt and --json, so
+// a usage error should also leave a result record on stdout.
+func usageWantsResult(args []string) bool {
+	prompt, json := false, false
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		switch name {
+		case "-p", "--prompt":
+			prompt = true
+		case "--json":
+			json = true
+		}
+	}
+	return prompt && json
+}
+
+// usageResult writes the single result record of a run that ended with a
+// usage error (exit code 2).
+func usageResult(stdout io.Writer) {
+	_ = encodeLine(stdout, resultRecord{
+		Type:         "result",
+		ExitCode:     2,
+		Reason:       "usage",
+		Tools:        map[string]int{},
+		FilesChanged: []string{},
+	})
+}

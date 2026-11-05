@@ -65,6 +65,9 @@ func runWith(args []string, stdout, stderr io.Writer, d deps) (code int) {
 	defer crashExit(cs, stderr, &code)
 	f, code, done := parseArgs(args, stdout, stderr)
 	if done {
+		if code == 2 && usageWantsResult(args) {
+			usageResult(stdout)
+		}
 		return code
 	}
 	if f.headless {
