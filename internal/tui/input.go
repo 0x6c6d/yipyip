@@ -343,7 +343,7 @@ func (m *Model) sendQueue() tea.Cmd {
 	}
 	start := len(m.blocks)
 	for _, q := range m.queue {
-		m.add(blockPlain, "> "+q)
+		m.add(blockPlain, "> "+m.pastes.expand(q))
 	}
 	m.queue = nil
 	m.pushTurnStart(start)

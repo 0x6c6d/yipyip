@@ -461,7 +461,8 @@ func (m Model) Command(line string) (Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		return m.runSlash(text)
 	}
-	return m.sendUser(text, m.pastes.expand(text))
+	shown := m.pastes.expand(text)
+	return m.sendUser(shown, shown)
 }
 
 // sendUser shows shown as the typed line and sends msg to the session as a

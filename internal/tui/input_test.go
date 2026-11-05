@@ -440,7 +440,7 @@ func TestPasteExpandedOnSend(t *testing.T) {
 		t.Fatalf("request content = %q", content)
 	}
 	v := belowTabBar(ansi.Strip(m.View()))
-	if !strings.Contains(v, "> see [Pasted text #1 +3 lines]") || strings.Contains(v, "gamma") {
+	if !strings.Contains(v, "> see alpha") || !strings.Contains(v, "gamma") || strings.Contains(v, "[Pasted text") {
 		t.Fatalf("view:\n%s", v)
 	}
 	m, got := histKey(m, tea.KeyUp)

@@ -41,7 +41,7 @@ func (m Model) runSkill(text, name, args string) (Model, tea.Cmd, bool) {
 		if args != "" {
 			msg += "\n\n" + args
 		}
-		m, cmd := m.sendUser(m.redact(text), m.redact(msg))
+		m, cmd := m.sendUser(m.redact(m.pastes.expand(text)), m.redact(msg))
 		return m, cmd, true
 	}
 	return m, nil, false
