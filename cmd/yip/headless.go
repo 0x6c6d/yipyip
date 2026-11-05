@@ -36,15 +36,16 @@ const headlessTruncate = 2000
 // reported an error or the setup failed, 2 on a usage error.
 func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs *crashState) int {
 	r := &runner{
-		json:   f.h.json,
-		stdout: stdout,
-		stderr: stderr,
-		start:  time.Now(),
-		redact: func(s string) string { return s },
-		tools:  map[string]int{},
-		files:  map[string]bool{},
-		subs:   map[string]bool{},
-		calls:  map[string]string{},
+		json:    f.h.json,
+		answers: f.h.answers,
+		stdout:  stdout,
+		stderr:  stderr,
+		start:   time.Now(),
+		redact:  func(s string) string { return s },
+		tools:   map[string]int{},
+		files:   map[string]bool{},
+		subs:    map[string]bool{},
+		calls:   map[string]string{},
 	}
 	code := r.run(f, stdin, cs)
 	r.writeResult(code)
@@ -72,6 +73,10 @@ type runner struct {
 	final    strings.Builder // main-agent text of the last assistant message
 	textSeen bool            // main-agent text since the last main-agent tool call
 	hadErr   bool
+
+	answers    []string // --answer values, in order
+	asked      int      // questions seen in this run (main agent and subagents)
+	unanswered bool     // a question beyond the answers cancelled the turn
 
 	tools map[string]int    // tool_call count per tool name
 	files map[string]bool   // start-dir-relative paths changed by write_file/edit_file
@@ -203,8 +208,15 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		return 1
 	}
 	r.consumeTurn()
+	if r.unanswered {
+		r.sess.Wait()
+	}
 	if !r.json {
 		fmt.Fprint(r.stdout, r.redact(r.final.String())+"\n")
+	}
+	if r.unanswered {
+		fmt.Fprintln(r.stderr, "yip: unanswered question")
+		return 3
 	}
 	if r.hadErr {
 		return 1
@@ -362,16 +374,41 @@ func (r *runner) handle(ev agent.Event) bool {
 			r.emit(approvalRecord(r.redact(agentID), r.redact(a.Tool), r.redact(a.Args), false))
 		}
 	case agent.EvQuestion:
-		r.emitEvent(ev)
-		if ev.Question != nil {
-			ev.Question.Cancel()
-		}
+		r.question(ev)
 	case agent.EvTurnDone:
 		if main {
 			return true
 		}
 	}
 	return false
+}
+
+// question emits a question record (or a stderr line) and answers the n-th
+// question of the run with the n-th --answer. A question beyond the answers,
+// or one arriving after that, cancels the turn (and its subagents) and is
+// itself cancelled; the run then ends with exit code 3.
+func (r *runner) question(ev agent.Event) {
+	r.emitEvent(ev)
+	text := ev.Text
+	if ev.Question != nil {
+		text = ev.Question.Question
+	}
+	r.progress("question: " + text)
+	if ev.Question == nil {
+		return
+	}
+	r.asked++
+	if !r.unanswered && r.asked <= len(r.answers) {
+		ev.Question.Respond(r.answers[r.asked-1])
+		return
+	}
+	if !r.unanswered {
+		r.unanswered = true
+		// Cancel the turn first so that the cancelled answer never leads to
+		// another model request.
+		r.sess.Cancel()
+	}
+	ev.Question.Cancel()
 }
 
 // addFile records the path argument of a successful write_file/edit_file
@@ -401,7 +438,9 @@ func (r *runner) writeResult(code int) {
 		return
 	}
 	reason := "done"
-	if code == 2 {
+	if code == 3 && r.unanswered {
+		reason = "question"
+	} else if code == 2 {
 		reason = "usage"
 	} else if code != 0 {
 		reason = "error"
