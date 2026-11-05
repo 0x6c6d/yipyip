@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -293,6 +294,18 @@ func (s *Session) SetMode(m Mode) {
 	s.mu.Lock()
 	s.mode = m
 	s.mu.Unlock()
+}
+
+// ToolNames returns the sorted names of every tool the main agent offers:
+// the registry tools plus spawn_agent, wait_agent, cancel_agent and question.
+func (s *Session) ToolNames() []string {
+	var out []string
+	for _, t := range s.registry.Tools() {
+		out = append(out, t.Name)
+	}
+	out = append(out, toolSpawnAgent, toolWaitAgent, toolCancelAgent, toolQuestion)
+	sort.Strings(out)
+	return out
 }
 
 // ToggleMode switches between manual and auto mode and returns the new mode.

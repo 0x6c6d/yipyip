@@ -38,6 +38,7 @@ func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs 
 	r := &runner{
 		json:    f.h.json,
 		answers: f.h.answers,
+		approve: f.h.approve,
 		stdout:  stdout,
 		stderr:  stderr,
 		start:   time.Now(),
@@ -74,6 +75,7 @@ type runner struct {
 	textSeen bool            // main-agent text since the last main-agent tool call
 	hadErr   bool
 
+	approve    []string // --approve tool names ("all" approves every gated call)
 	answers    []string // --answer values, in order
 	asked      int      // questions seen in this run (main agent and subagents)
 	unanswered bool     // a question beyond the answers cancelled the turn
@@ -174,7 +176,21 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	r.m = mapper{redact: sess.Redact, truncate: headlessTruncate, sub: r.subLookup}
 	r.tm = mapper{redact: sess.Redact, truncate: 0, sub: r.subLookup}
 	applyStoredModelEffort(cfg, sess)
-	sess.SetMode(agent.ModeAuto)
+	if f.h.mode == "manual" {
+		sess.SetMode(agent.ModeManual)
+	} else {
+		sess.SetMode(agent.ModeAuto)
+	}
+	known := map[string]bool{"all": true}
+	for _, n := range sess.ToolNames() {
+		known[n] = true
+	}
+	for _, n := range r.approve {
+		if !known[n] {
+			fmt.Fprintf(r.stderr, "yip: unknown tool %s in --approve\n", r.redact(n))
+			return 2
+		}
+	}
 
 	if strings.HasPrefix(prompt, "/") {
 		fields := strings.Fields(prompt)
@@ -365,13 +381,7 @@ func (r *runner) handle(ev agent.Event) bool {
 		r.emitEvent(ev)
 	case agent.EvApproval:
 		if ev.Approval != nil {
-			ev.Approval.Respond(agent.Deny)
-			a := ev.Approval
-			agentID := a.AgentID
-			if agentID == "" {
-				agentID = ev.AgentID
-			}
-			r.emit(approvalRecord(r.redact(agentID), r.redact(a.Tool), r.redact(a.Args), false))
+			r.approval(ev)
 		}
 	case agent.EvQuestion:
 		r.question(ev)
@@ -381,6 +391,68 @@ func (r *runner) handle(ev agent.Event) bool {
 		}
 	}
 	return false
+}
+
+// approval answers a gated tool call: Allow when --approve names the tool or
+// "all", Deny otherwise (never the session-wide grant). It writes one approval record,
+// or a stderr line without --json.
+func (r *runner) approval(ev agent.Event) {
+	a := ev.Approval
+	ok := false
+	for _, n := range r.approve {
+		if n == "all" || n == a.Tool {
+			ok = true
+			break
+		}
+	}
+	if ok {
+		a.Respond(agent.Allow)
+	} else {
+		a.Respond(agent.Deny)
+	}
+	agentID := a.AgentID
+	if agentID == "" {
+		agentID = ev.AgentID
+	}
+	decision := "denied"
+	if ok {
+		decision = "approved"
+	}
+	r.progress("approval " + a.Tool + " " + decision)
+	r.emit(approvalRecord(r.redact(agentID), r.redact(a.Tool), approvalSummary(r.redact, a.Tool, a.Args), ok))
+}
+
+// approvalSummary returns the redacted, single-line summary (at most 200
+// runes) of a gated call: the command of bash, the url of web_fetch, the
+// query of web_search, the path of file tools, else the raw arguments.
+func approvalSummary(redact func(string) string, tool, args string) string {
+	key := ""
+	switch tool {
+	case "bash":
+		key = "command"
+	case "web_fetch":
+		key = "url"
+	case "web_search":
+		key = "query"
+	case "write_file", "edit_file", "read_file":
+		key = "path"
+	}
+	s := args
+	if key != "" {
+		var m map[string]any
+		if json.Unmarshal([]byte(args), &m) == nil {
+			if v, ok := m[key].(string); ok {
+				s = v
+			}
+		}
+	}
+	s = redact(s)
+	s = strings.Join(strings.Fields(s), " ")
+	s = redact(s)
+	if rs := []rune(s); len(rs) > 200 {
+		s = string(rs[:200])
+	}
+	return s
 }
 
 // question emits a question record (or a stderr line) and answers the n-th

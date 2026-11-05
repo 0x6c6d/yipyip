@@ -32,7 +32,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T303 | 3 | Transcript file and secret redaction | T302 | opus | done | --transcript via PathGuard.Resolve, 0600, redacted |
 | T401 | 4 | Slash prompts and skills | T102 | sonnet | done | skills in headless.go, tui.IsBuiltinCommand |
 | T402 | 4 | Answer flag and question exit | T302 | opus | done | runner.question, exit 3 |
-| T403 | 4 | Approve flag and manual mode | T302 | opus | todo | |
+| T403 | 4 | Approve flag and manual mode | T302 | opus | done | --mode, --approve, Session.ToolNames |
 | T404 | 4 | Timeout and max-model-calls exits | T302 | opus | todo | |
 | T405 | 4 | Session save, resume and no-save | T203, T302 | opus | todo | |
 | T406 | 4 | Dir, overrides and system-append | T201, T302 | opus | todo | |
