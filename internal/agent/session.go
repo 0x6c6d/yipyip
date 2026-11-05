@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"yipyip/internal/config"
@@ -22,6 +23,9 @@ var (
 	ErrBusy          = errors.New("a turn is already running")
 	ErrUnknownModel  = errors.New("unknown model")
 	ErrInvalidEffort = errors.New("invalid effort")
+	// ErrModelCallLimit is wrapped by the error of a run whose next provider
+	// request would exceed Options.MaxModelCalls.
+	ErrModelCallLimit = errors.New("model call limit reached")
 )
 
 // Effort levels.
@@ -40,6 +44,9 @@ type Options struct {
 	// SystemAppend, when non-empty, is appended to the session system prompt
 	// after a blank line. Subagents keep their own prompt.
 	SystemAppend string
+	// MaxModelCalls bounds the total number of provider requests of the
+	// session (main agent and all subagents together); 0 = unlimited.
+	MaxModelCalls int
 }
 
 // Tokens are the accumulated token counts of a session.
@@ -55,6 +62,9 @@ type Session struct {
 	registry  *tools.Registry
 	gate      *Gate
 	events    *eventQueue
+
+	maxCalls   int64        // Options.MaxModelCalls; 0 = unlimited
+	modelCalls atomic.Int64 // provider requests made so far (all agents); never reset
 
 	mu               sync.Mutex
 	modelID          string
@@ -109,6 +119,7 @@ func NewSession(opts Options) (*Session, error) {
 		effort:    EffortMedium,
 		mode:      ModeManual,
 		sessID:    newSessionID(),
+		maxCalls:  int64(max(opts.MaxModelCalls, 0)),
 	}
 	// The web search client gets its own search-only HTTP client: never
 	// opts.HTTPClient or the provider client, which never learn the
@@ -141,6 +152,31 @@ func NewSession(opts Options) (*Session, error) {
 	s.history = []provider.Message{{Role: "system", Content: s.systemPrompt}}
 	s.subs = s.newManager(0)
 	return s, nil
+}
+
+// ModelCalls returns the number of provider requests made so far in this
+// session by the main agent and all subagents. Reset does not clear it.
+func (s *Session) ModelCalls() int {
+	return int(s.modelCalls.Load())
+}
+
+// reserveModelCall counts one provider request before it is made. With a
+// MaxModelCalls limit that is already used up it counts nothing and returns
+// an error wrapping ErrModelCallLimit.
+func (s *Session) reserveModelCall() error {
+	if s.maxCalls <= 0 {
+		s.modelCalls.Add(1)
+		return nil
+	}
+	for {
+		n := s.modelCalls.Load()
+		if n >= s.maxCalls {
+			return fmt.Errorf("%w (%d)", ErrModelCallLimit, s.maxCalls)
+		}
+		if s.modelCalls.CompareAndSwap(n, n+1) {
+			return nil
+		}
+	}
 }
 
 // ModelID returns the current model id ("" when none is configured).

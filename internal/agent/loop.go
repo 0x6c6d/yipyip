@@ -236,6 +236,9 @@ func (s *Session) runLoop(ctx context.Context, gen uint64, agentID string, hist 
 			Effort:     s.Effort(),
 			SendEffort: m.Reasoning,
 		}
+		if err := s.reserveModelCall(); err != nil {
+			return out, "", err
+		}
 		text, calls, usage, err := s.streamReply(ctx, client, req, agentID)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
