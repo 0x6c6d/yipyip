@@ -91,6 +91,12 @@ func TestHelpMouseAndTabs(t *testing.T) {
 	}
 }
 
+func TestHelpTextHeadless(t *testing.T) {
+	if !strings.Contains(HelpText(), "yip -p") {
+		t.Error("HelpText() does not point to headless mode (yip -p)")
+	}
+}
+
 func TestHelpWebSearch(t *testing.T) {
 	h := HelpText()
 	for _, w := range []string{"web_search", `"search"`, "BRAVE_API_KEY"} {

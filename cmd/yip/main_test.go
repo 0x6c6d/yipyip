@@ -45,6 +45,20 @@ func TestHelpFlag(t *testing.T) {
 	}
 }
 
+func TestHelpFlagHeadless(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run(--help) = %d, want 0 (stderr: %q)", code, stderr.String())
+	}
+	for _, want := range []string{"-p", "--json", "--answer", "--approve", "--dir", "--timeout",
+		"--max-model-calls", "--system-append", "--no-save", "--transcript",
+		"0 done", "3 unanswered question", "5 model-call limit"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("help output does not contain %q", want)
+		}
+	}
+}
+
 func TestHelpFlagNewKeys(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)

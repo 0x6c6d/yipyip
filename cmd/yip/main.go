@@ -22,12 +22,29 @@ import (
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = "usage: yip [--version] [--help] [--resume [id]]"
+const usage = "usage: yip [--version] [--help] [--resume [id]] [-p prompt [flags]]"
 
-const helpUsage = "Usage: yip [--version] [--help] [--resume [id]]\n\n" +
+const helpUsage = "Usage: yip [--version] [--help] [--resume [id]] [-p prompt [flags]]\n\n" +
 	"yip is a terminal coding assistant that works in the current directory.\n\n" +
 	"Options:\n" +
 	"  --resume [id], -c [id]  resume a saved session of this directory (without id: pick one)\n\n" +
+	"Headless mode (-p runs one turn without the UI; flags apply only with -p):\n" +
+	"  -p, --prompt <text>          run one turn with this prompt (- reads stdin)\n" +
+	"  --json                       print the run as JSON Lines\n" +
+	"  --answer <text>              answer a question the agent asks (repeatable)\n" +
+	"  --approve <tool,...|all>     approve these tools in manual mode\n" +
+	"  --dir <path>                 start directory (default: the current one)\n" +
+	"  --model <id>                 model to use\n" +
+	"  --effort <low|medium|high>   reasoning effort\n" +
+	"  --mode <auto|manual>         approval mode (default auto with -p)\n" +
+	"  --timeout <duration>         stop the run after this long\n" +
+	"  --max-model-calls <n>        stop the run after n model calls\n" +
+	"  --system-append <text>       add text to the system prompt\n" +
+	"  --no-save                    do not save the session\n" +
+	"  --transcript <file>          write the transcript to a file\n" +
+	"  --resume <id>                resume a saved session of this directory\n\n" +
+	"Headless exit codes: 0 done, 1 run error, 2 usage error or crash, 3 unanswered question,\n" +
+	"  4 timeout, 5 model-call limit\n\n" +
 	"Commands:\n"
 
 // flags is the parsed command line of an interactive start.

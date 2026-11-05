@@ -38,7 +38,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T406 | 4 | Dir, overrides and system-append | T201, T302 | opus | done | --dir, --model, --effort, --system-append |
 | T407 | 4 | Exit code tests 0, 1, 2 | T302 | sonnet | done | usageResult, exit 0/1/2 e2e |
 | T501 | 5 | Paste text shown expanded | T000 | haiku | done | paste shown expanded; one assertion in TestPasteExpandedOnSend updated because R99 reverses it |
-| T601 | 6 | Help text for headless mode | T101 | haiku | todo | |
+| T601 | 6 | Help text for headless mode | T101 | haiku | done | usage/helpUsage and HelpText |
 | T602 | 6 | README headless section | T303, T401, T402, T403, T404, T405, T406, T407, T501, T601 | sonnet | todo | |
 | T603 | 6 | CLAUDE.md architecture notes | T303, T401, T402, T403, T404, T405, T406, T407, T501, T601 | haiku | todo | |
 | T999 | 6 | Definition of Done | T101, T102, T201, T202, T203, T301, T302, T303, T401, T402, T403, T404, T405, T406, T407, T501, T601, T602, T603 | supervisor | todo | |
