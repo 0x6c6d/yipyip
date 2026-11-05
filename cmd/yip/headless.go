@@ -15,7 +15,9 @@ import (
 	"yipyip/internal/agent"
 	"yipyip/internal/config"
 	"yipyip/internal/crashlog"
+	"yipyip/internal/skills"
 	"yipyip/internal/tools"
+	"yipyip/internal/tui"
 )
 
 // maxHeadlessStdin caps the prompt read from stdin with -p -.
@@ -170,9 +172,31 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	sess.SetMode(agent.ModeAuto)
 
 	if strings.HasPrefix(prompt, "/") {
-		word := strings.Fields(prompt)[0]
-		fmt.Fprintf(r.stderr, "yip: %s is not available with -p\n", r.redact(word))
-		return 2
+		fields := strings.Fields(prompt)
+		word := fields[0]
+		name := strings.TrimPrefix(word, "/")
+		var found *skills.Skill
+		sks, warns := skills.Load(home, startDir)
+		for _, w := range warns {
+			fmt.Fprintf(r.stderr, "warning: %s\n", r.redact(w))
+		}
+		if !tui.IsBuiltinCommand(name) {
+			for i := range sks {
+				if sks[i].Name == name {
+					found = &sks[i]
+					break
+				}
+			}
+		}
+		if found == nil {
+			fmt.Fprintf(r.stderr, "yip: %s is not available with -p\n", r.redact(word))
+			return 2
+		}
+		msg := found.Body
+		if args := strings.TrimSpace(strings.TrimPrefix(prompt, word)); args != "" {
+			msg += "\n\n" + args
+		}
+		prompt = sess.Redact(msg)
 	}
 	if err := sess.Submit(prompt); err != nil {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
@@ -377,7 +401,9 @@ func (r *runner) writeResult(code int) {
 		return
 	}
 	reason := "done"
-	if code != 0 {
+	if code == 2 {
+		reason = "usage"
+	} else if code != 0 {
 		reason = "error"
 	}
 	rec := resultRecord{

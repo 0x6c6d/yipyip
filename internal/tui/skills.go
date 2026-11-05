@@ -20,6 +20,10 @@ func shadowed(name string) bool {
 	return ok
 }
 
+// IsBuiltinCommand reports whether name (without the slash) is a built-in
+// slash command.
+func IsBuiltinCommand(name string) bool { return shadowed(name) }
+
 // runSkill runs the loaded, not shadowed skill /name with args; ok is false
 // when there is no such skill. The message (body, plus a blank line and the
 // args when given) and the typed line pass the session's redactor before they
