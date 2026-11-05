@@ -27,7 +27,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | Agent SystemAppend option | T000 | sonnet | done | Options.SystemAppend in session.go + test |
 | T202 | 2 | Shared MaxModelCalls counter | T000 | opus | done | atomic shared counter in session.go+loop.go; a counted request cut off by cancel still uses its slot (never exceeds n) |
 | T203 | 2 | Session FromAgent and ApplyTo helpers | T000 | opus | done | session/agent.go FromAgent/ApplyTo, tui uses them |
-| T301 | 3 | JSONL record mapping | T101 | sonnet | todo | |
+| T301 | 3 | JSONL record mapping | T101 | sonnet | done | headless_events.go; approvalRecord and resultRecord fields NOT redacted by mapper: T302/T303 must redact them |
 | T302 | 3 | JSON output and stderr progress wiring | T102, T202, T301 | opus | todo | |
 | T303 | 3 | Transcript file and secret redaction | T302 | opus | todo | |
 | T401 | 4 | Slash prompts and skills | T102 | sonnet | todo | |
