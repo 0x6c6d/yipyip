@@ -12,6 +12,7 @@ yipyip (binary: `yip`) runs in your project directory. It reads and searches you
 - **Subagents**: the model can spawn parallel workers with their own context. Live blocks and a panel show their progress.
 - **Web access**: `web_fetch` reads one page as text. `web_search` uses the Brave Search API when you configure it.
 - **Sessions and tabs**: up to 8 conversations side by side, autosaved, resumable with `yip --resume`.
+- **Headless mode**: `yip -p "..."` runs one turn without the UI and prints the result, optionally as a JSON Lines trace, with exit codes for done, error, unanswered question, timeout and model-call limit.
 - **Undo and compaction**: `/undo` reverts the file changes of the last turn, `/compact` summarizes the conversation (also automatic at 80% of the context window).
 - **Skills**: put a `SKILL.md` in a folder and run it as `/<name>`.
 - **Good terminal UI**: streaming output, markdown rendering with tables, syntax highlighting, mouse scrolling, copy on select, input history and a message queue.
@@ -78,9 +79,10 @@ To build only, without installing: `make build` writes `bin/yip`.
 Run `yip --help` for the command line, `/help` inside the app for all commands and keys.
 
 ```text
-yip [--version] [--help] [--resume [id]]
+yip [--version] [--help] [--resume [id]] [-p prompt [flags]]
 
   --resume [id], -c [id]   resume a saved session of this directory (without id: pick one)
+  -p, --prompt <text>      run one turn without the UI (see Headless mode)
 ```
 
 ### Slash commands
@@ -111,6 +113,73 @@ yip [--version] [--help] [--resume [id]]
 | `Ctrl+O` | expand or collapse tool results |
 | `Ctrl+C` | press twice to quit |
 | `PgUp` / `PgDn`, mouse wheel | scroll |
+
+## Headless mode
+
+`yip -p` runs one turn without the UI, in auto mode, and exits. Flags other than `--version`, `--help` and `--resume` apply only with `-p`.
+
+```sh
+yip -p "explain main.go"
+echo "list the exported functions" | yip -p -
+yip -p "fix the failing test" --json --timeout 10m > run.jsonl
+```
+
+Without `--json`, stdout gets the final text of the main agent. Progress lines (tool calls, approvals, retries) go to stderr. With `--json`, stdout gets one JSON record per line and the last line is a `result` record.
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `-p`, `--prompt <text>` | | run one turn with this prompt; `-` reads it from stdin; a skill such as `/review` works |
+| `--json` | off | print the run as JSON Lines |
+| `--answer <text>` | | answer a question the agent asks, in order; repeatable |
+| `--approve <tool,...\|all>` | none | approve these tools in manual mode |
+| `--dir <path>` | current directory | start directory |
+| `--model <id>` | configured model | model for this run only |
+| `--effort <low\|medium\|high>` | configured effort | reasoning effort for this run only |
+| `--mode <auto\|manual>` | `auto` | approval mode; in manual mode, calls not covered by `--approve` are denied |
+| `--timeout <duration>` | none | stop the run after this long, for example `30m` |
+| `--max-model-calls <n>` | no limit | stop the run after n model calls |
+| `--system-append <text>` | | add text to the system prompt |
+| `--no-save` | off | do not save the session |
+| `--transcript <file>` | | write the full transcript to a file inside the start directory |
+| `--resume <id>` | | resume a saved session of this directory |
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | done |
+| 1 | run error (setup failed, the turn reported an error, or a signal interrupted it) |
+| 2 | usage error or crash |
+| 3 | unanswered question (more questions than `--answer` values) |
+| 4 | timeout |
+| 5 | model-call limit reached |
+
+### JSON Lines records
+
+Every record has a `type`:
+
+| Type | Content |
+| --- | --- |
+| `text` | text of an agent (`agent`, `text`) |
+| `tool_call` | a tool call (`agent`, `name`, `args`) |
+| `tool_result` | its result (`agent`, `name`, `ok`, `output`, truncated to 2000 characters) |
+| `subagent` | subagent state (`id`, `state`, `task`, `model`) |
+| `question` | a question from the agent (`agent`, `question`, `options`, `multiple`) |
+| `approval` | an approval decision (`agent`, `tool`, `summary`, `decision`) |
+| `retry` | a provider retry (`text`) |
+| `error` | an error (`agent`, `text`) |
+| `result` | the last record, see below |
+
+The `result` record has these fields: `session_id` (empty when not saved), `exit_code`, `reason` (`done`, `error`, `question`, `timeout` or `max_calls`), `final_text`, `model_calls`, `subagents`, `tokens` (`in`, `out`), `duration_ms`, `tools` (calls per tool name) and `files_changed` (paths relative to the start directory).
+
+Example: run a skill with limits and check how it ended.
+
+```sh
+yip -p "/loop-coding v2" --json --timeout 30m --max-model-calls 200 --no-save > run.jsonl; echo $?
+tail -n 1 run.jsonl
+```
+
+Headless runs keep every security rule: network traffic only to the configured hosts, writes only inside the start directory (or `--dir`), secrets redacted in all output.
 
 ## Configuration
 
@@ -175,6 +244,9 @@ Skills load from `~/.config/yipyip/skills/` and `<startdir>/.yipyip/skills/` (th
 | `<startdir>/.yipyip/sessions/` | saved sessions (redacted), the newest 25 are kept |
 | `<startdir>/.yipyip/crash.log` | crash records, no prompts or keys |
 | `~/.config/yipyip/config.json` | model, effort and mode when you change them |
+| the `--transcript` file | transcript of a headless run, inside the start directory |
+
+A headless run saves its session like the UI does, unless you pass `--no-save`. It never writes `config.json`.
 
 Add `.yipyip/` to your `.gitignore`.
 
