@@ -7,87 +7,83 @@ history). Phases, Definition of Done and requirement coverage live in `.harness/
 **Product scope so far:** v1 (README R1–R18): Go/Bubble Tea coding assistant `yip` for
 OpenAI-compatible streaming APIs; `{env:NAME}` config, host-restricted HTTP, start-dir-confined
 file tools, unrestricted `bash`, agent loop, manual/auto modes, subagents, slash commands,
-token-only status line (never cost), `make install` as `yip`.
-**Explicitly deferred (product level):** native Anthropic / OpenAI-Responses protocols, session
-persistence, MCP, plugins, image input, web tools, telemetry, auto-update, Windows/macOS, custom
-slash commands, per-subagent model/effort UI, bash sandboxing, completion/man page, config writes.
+token-only status line (never cost), `make install` as `yip`. Later: session persistence + config
+writes (v3), skills (v4), web tools (v6, v8), markdown (v9), crash log/autosave (v10), v11 headless
+one-turn mode `yip -p` (JSONL trace, exit codes, limits) and paste display fix.
+**Explicitly deferred (product level):** native Anthropic / OpenAI-Responses protocols, MCP, plugins,
+image input, telemetry, auto-update, Windows/macOS, per-subagent model/effort UI, bash sandboxing,
+completion/man page, price config, headless stdio protocol / server mode.
 **Where the code lives / protected paths (no worker may touch):** code in the repo root
 `/home/sa/workspace/code/yipyip` (module `yipyip`): `cmd/yip/`, `internal/{config,provider,agent,
-tools,tui,crashlog}/`, `internal/provider/providertest/` (shared fake provider), `e2e/`, `Makefile`,
-`go.mod`, `go.sum`, `config.example.json`, `.gitignore`. Protected: `.harness/prompts/`, `.claude/`,
-`.harness/Plan.md`, `.harness/versions/`, `.harness/verify/`; `README.md` sections 1–9 (the only allowed change is
-appending a `## Usage` section at the end of the file); the "Delegation workflow" section of
-`CLAUDE.md` (the rest of `CLAUDE.md` may be updated to match the code). No worker commits, runs
-`git init`, or contacts any host except `proxy.golang.org` (via `go mod download`/`go get`).
+session,skills,tools,tui,crashlog}/`, `internal/provider/providertest/` (shared fake provider), `e2e/`,
+`Makefile`, `go.mod`, `go.sum`, `config.example.json`, `.gitignore`. Protected: the whole `.harness/`
+folder, `.claude/`, the "Delegation workflow" section of `CLAUDE.md` (the rest may be updated to match the
+code). `README.md` is written only by a version's README task (v11: README rewritten, old "sections 1–9
+frozen" rule dropped). No worker commits, runs `git init`, or contacts any host except
+`proxy.golang.org` (via `go mod download`/`go get`).
 
 ## Architecture
-Flow: `cmd/yip` → `config.Load` → `tui.New(session)` → `agent.Session.Submit` → `provider` SSE
-events → approval gate → `tools.Registry.Run` → results into history → repeat; `tui` renders events.
-- **cmd/yip**: `--version` (`yip <version>`, default `dev`), `--help` (usage, slash commands, keys)
-  before config load; start dir = symlink-resolved `os.Getwd()`; startup errors → stderr + exit 1;
-  v3 `--resume [id]`/`-c`: id reopens, no id + TTY → picker, non-TTY/empty → fresh, unknown id →
-  `unknown session <id>` + exit 1; v4: no modifyOtherKeys request; talks to: config, agent,
-  session, tui; v10: a fatal panic (UI, command, main) → `crashlog.Fatal`, stderr
-  `yip: crashed, details in <path>`, exit 2; startup `Store.Prune(25, resumed id)`. (v1; v2; v3; v4; v10)
+Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) → `agent.Session.Submit` →
+`provider` SSE events → approval gate → `tools.Registry.Run` → results into history → repeat; the UI
+(TUI or headless runner) consumes `NextEvent`/`PollEvents`.
+- **cmd/yip**: `--version` (`yip <version>`, default `dev`), `--help` before config load; start dir =
+  symlink-resolved `os.Getwd()`; startup errors → stderr + exit 1; v3 `--resume [id]`/`-c` (id reopens, no
+  id + TTY → picker, else fresh, unknown → `unknown session <id>` + exit 1); v10 fatal panic →
+  `crashlog.Fatal`, `yip: crashed, details in <path>`, exit 2; startup `Store.Prune(25, resumed id)`;
+  memory watchdog `crashlog.Watch`. v11 `headless.go`: `-p/--prompt` (`-` = stdin) + `--json`, `--answer`,
+  `--approve`, `--dir`, `--model/--effort/--mode`, `--timeout`, `--max-model-calls`, `--system-append`,
+  `--no-save`, `--transcript`, `--resume <id>`; no Bubble Tea program; default mode `auto`; never writes
+  `config.json`; exit 0 done/1 error/2 usage+crash/3 question/4 timeout/5 max calls; headless flags without
+  `-p` → exit 2; talks to: config, agent, session, skills, tools (PathGuard), tui (help text), crashlog.
 - **internal/config**: `~/.config/yipyip/config.json` (missing = empty) + `<startdir>/yipyip.json`
   deep-merged key by key, `{env:NAME}` (unset/empty → error naming `NAME`, exit 1), provider/model
   parsing, `max_subagents` (4), `auto_compact` (true), ignores `cost`/`npm`; **Redactor** (resolved
-  secrets → `[redacted]`); v3 settings write (only `model`/`effort`/`mode`, atomic, `{env:}` kept
-  literal, never a secret); v6 `search` (`baseURL` `https://api.search.brave.com`, `apiKey` required,
-  https unless loopback, errors name the key); v8: `jev` block removed, a leftover key is an
-  ignored unknown key; talks to: nothing. (v1; v3; v6; v8)
-- **internal/provider**: `Client.Stream(ctx, req) <-chan Event` → `POST <baseURL>/chat/completions`
-  (Bearer if set, `stream:true`, `include_usage:true`, `tools`, `reasoning_effort` unless
-  `reasoning:false`); own SSE parser; 4xx/5xx/dropped streams → redacted `ErrorEvent`s; v3 retry:
-  pre-first-byte failures (dial/TLS/write timeout, reset, 429, 5xx) → ≤10 attempts, waits
-  1,2,4,8,16,32,60,60,60 s, `retrying (n/10) in <wait>` event; **Transport**: the single
-  `http.RoundTripper` type, per-client `host:port` allowlist (providers only, v8: jev host gone;
-  v6 `NewSearchHTTPClient`: only the search host, 20 s), `Proxy: nil`, other hosts + redirects
-  rejected; v6 `search.go` Brave client `GET /res/v1/web/search`; `providertest`: scripted SSE fake
-  (v3 failures; v6 Brave); v8 `NewFetchHTTPClient` (`web_fetch` only): any host, dial-time
-  IP check (no loopback/private/link-local/unspecified/multicast), ≤5 re-checked redirects, 20 s, no
-  jar/auth, `User-Agent: yipyip`; talks to: config. (v1; v3: retry; v6: search; v8: fetch, no jev)
-- **internal/skills** (v4): `Load` from `~/.config/yipyip/skills/` + `<startdir>/.yipyip/skills/`
-  (project wins, project paths via PathGuard), `<name>/SKILL.md`, hand-parsed `key: value`
-  frontmatter, name `^[a-z0-9-]+$`, bad entries skipped with one warning; read-only; talks to: tools.
-- **internal/session** (v3): `Store` at `<startdir>/.yipyip/sessions`, `SessionData` (R29 fields),
-  `Save`/`Load`/`List` (newest first)/`Delete`; atomic temp+`os.Rename`; every path via PathGuard;
-  `version`≠1 or invalid JSON → error naming the file; unknown fields ignored; imports agent only; v10 `Prune(keep, protect...)` (newest `keep` by `List` order, protected ids and
-  non-`<12 hex>.json` files never deleted).
-- **internal/tools**: `Registry` (`read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`;
-  v6 `web_search` only with `search`; v8 `web_fetch` always, gated, stdlib HTML→text, 1 MiB read,
-  20,000 chars, untrusted marker; no other web-like name), **PathGuard** (`EvalSymlinks` of the
-  deepest existing ancestor; `Resolve` = write mode, rejects outside; v6 `ResolveRead` for
-  `read_file`/`glob`/`grep`, anywhere), **Bash runner** (only `os/exec` site, env without `{env:}`
-  vars), undo pre-write hook; talks to: config (redactor), provider (search, v8 fetch). (v1; v6; v8)
-- **internal/agent**: `Session` (history, model/effort/mode, counters, turns, v3 export/restore);
-  loop (v7: main turn unlimited, `MaxIterations` 0; v5 ≤500 per subagent run, per-turn ctx, Esc cancels);
-  **Approval gate** (`y/n/a`, "always" per tool per session; v6 + `web_search`; v8 + `web_fetch`);
-  v3 **Question gate**: `question` (never gated, always to the user) blocks on a TUI reply
-  channel → labels joined `, ` / free text / `cancelled`; **Subagent manager**, **Undo journal**,
-  compaction, `/init`, system prompt (+`AGENTS.md`); v8: jev routing removed, every main turn runs
-  on the session model; talks to: provider, tools; v10: main-agent history checkpoint after every complete model round +
-  `EvCheckpoint`, recovered panics (turn, subagent, stream) logged via `crashlog.Recovered`.
-  (v1; v3: question, restore; v7; v8; v10)
-- **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 **tabs** (≤8, per-tab conversation/
-  counters/history/pastes/queue/turn, global model/effort/mode); v4 bar exactly 1 row (`…`,
-  current tab always visible), clickable `×`/`+`, tab keys only `Ctrl+T`/`Ctrl+W`; viewport
-  (chroma, subagent blocks), textarea (suggest, history, pastes, queue; v4 click-to-cursor, v5
-  fixed: geometry from the rendered layout, textarea's own cursor; select-to-copy), status rows
-  (session model; v8: no `jev`/route field), scroll, copy-on-select; slash commands + v3
-  `/sessions` + v4 `/skills`, `/<skill>` (built-ins win; v8: `/jev` removed); save of every tab
-  on exit; overlays: model picker, approval prompt (v6 `web_search`: the query; v8 `web_fetch`:
-  the URL), resume picker; v4 question block inline in the transcript; settings persist on
-  change; only alt+enter newline (v4); text passes the redactor; v9 `markdown.go`: own stdlib
-  renderer of assistant blocks (after redaction, before wrap; fences via chroma); v9 `resetTab`:
-  `/clear` in place, last-tab close → fresh tab; v10 autosave (turn end + `EvCheckpoint`, ≥1 min apart, off the UI
-  goroutine, then `Prune`), panic guard for Update/View/Cmds, per-block `[render error]`; talks to: agent, session,
-  config, skills, crashlog. (v1; reworked v2; extended v3, v4; v8; v9; v10)
-- **internal/crashlog** (v10): stdlib only; `<startdir>/.yipyip/crash.log` (dir 0700 if created, file 0600) via an
-  injected PathGuard `Resolve`; records (time, version, panic, stack, session id), redacted by an injected func,
-  1 MiB cap → 512 KiB; `Fatal`, `Recovered`, package default; talks to: nothing. (v10)
-- **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`,
-  v3 `Session`, `Question`, `Retry`, v4 `Skills`, v8 `WebFetch`, v10 `Crash`, `Autosave`, `Retention`; talks to: agent, tui.
+  secrets → `[redacted]`); v3 settings write (only `model`/`effort`/`mode`, atomic, `{env:}` literal);
+  v6 `search` (`baseURL` default `https://api.search.brave.com`, `apiKey` required, https unless loopback);
+  v8 `jev` key ignored; talks to: nothing.
+- **internal/provider**: `Client.Stream(ctx, req)` → `POST <baseURL>/chat/completions` (Bearer if set,
+  `stream`, `include_usage`, `tools`, `reasoning_effort` unless `reasoning:false`); own SSE parser;
+  errors → redacted `ErrorEvent`s; v3 retry of pre-first-byte failures (dial/TLS/timeout, reset, 429, 5xx):
+  ≤10 attempts, waits 1,2,4,…,60 s, `retrying (n/10) in <wait>`; **Transport**: the single RoundTripper,
+  per-client `host:port` allowlist, `Proxy: nil`, foreign hosts/redirects rejected; v6
+  `NewSearchHTTPClient` (search host only, 20 s) + Brave client; v8 `NewFetchHTTPClient` (`web_fetch`
+  only): any host, dial-time IP check (no loopback/private/link-local/unspecified/multicast), ≤5
+  re-checked redirects, 20 s, no jar/auth, `User-Agent: yipyip`; `providertest` scripted SSE fake (failures,
+  `Delay`, `NewFunc`, Brave); talks to: config.
+- **internal/skills** (v4): `Load` from `~/.config/yipyip/skills/` + `<startdir>/.yipyip/skills/` (project
+  wins, PathGuard), `<name>/SKILL.md`, `key: value` frontmatter, name `^[a-z0-9-]+$`, bad entries skipped with
+  a warning; read-only; talks to: tools.
+- **internal/session** (v3): `Store` at `<startdir>/.yipyip/sessions`, `SessionData`, `Save`/`Load`/`List`
+  (newest first)/`Delete`, atomic temp+rename, PathGuard paths, `version`≠1/invalid JSON → error naming the
+  file; v10 `Prune(keep, protect...)` (protected ids and non-`<12 hex>.json` never deleted); v11
+  `FromAgent`/`ApplyTo` helpers shared by TUI and headless; imports agent only.
+- **internal/tools**: `Registry` (`read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`; v6
+  `web_search` only with `search`; v8 `web_fetch` always, gated, stdlib HTML→text, 1 MiB, 20,000 chars,
+  untrusted marker; no other web-like name), **PathGuard** (`EvalSymlinks` of the deepest existing ancestor;
+  `Resolve` write mode confined; v6 `ResolveRead` anywhere for `read_file`/`glob`/`grep`), **Bash runner**
+  (only `os/exec` site, env without `{env:}` vars), undo pre-write hook; talks to: config, provider.
+- **internal/agent**: `Session` (history, model/effort/mode, counters, turns, export/restore); loop (v7 main
+  turn unlimited; v5 ≤500 per subagent run; per-turn ctx, cancel); **Approval gate** (`y/n/a`, "always" per
+  tool per session; gated incl. `web_search`, `web_fetch`); v3 **Question gate** (`question` never gated,
+  blocks on a reply channel); **Subagent manager**, **Undo journal**, compaction, `/init`, system prompt
+  (+`AGENTS.md`); v10 checkpoint after each complete main round + `EvCheckpoint`, recovered panics →
+  `crashlog.Recovered`; v11 `Options.SystemAppend`, `Options.MaxModelCalls` (one counter for main +
+  subagents, `ErrModelCallLimit`), `ModelCalls()`; talks to: provider, tools.
+- **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 tabs (≤8, per-tab conversation/counters/
+  history/pastes/queue/turn; global model/effort/mode); v4 one-row tab bar, `×`/`+`, only `Ctrl+T`/`Ctrl+W`;
+  viewport (chroma, subagent blocks), textarea (suggest, history, pastes, queue, click-to-cursor, select-to-
+  copy), status rows, slash commands (+`/sessions`, `/skills`, `/<skill>`, built-ins win); save of every
+  tab on exit; overlays (model picker, approval prompt with query/URL, resume picker); inline question
+  block; settings persist on change; alt+enter newline; text passes the redactor; v9 `markdown.go`, `resetTab`;
+  v10 autosave (turn end + `EvCheckpoint`, ≥1 min apart, then `Prune`), panic guard, per-block `[render
+  error]`; v11 submitted/queued lines show pastes expanded, `/help` documents headless; talks to: agent,
+  session, config, skills, crashlog.
+- **internal/crashlog** (v10): stdlib only; `<startdir>/.yipyip/crash.log` (dir 0700, file 0600) via injected
+  `Resolve`; records (time, version, panic, stack, session id) redacted by an injected func; 1 MiB → 512 KiB;
+  `Fatal`, `Recovered`, `Watch` (memory records, `.yipyip/heap.pprof`), package default; talks to: nothing.
+- **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`, `CLI`,
+  `Session`, `Question`, `Retry`, `Skills`, `WebFetch`, `Markdown`, `Crash`, `Autosave`, `Retention`, v11
+  `Headless` (built binary via `cliBinary`); talks to: agent, tui, cmd/yip binary.
 
 ## Commands
 - install: `go mod download`
@@ -100,65 +96,55 @@ events → approval gate → `tools.Registry.Run` → results into history → r
 
 ## Model-Routing Policy
 Tier per task via the `Agent` tool's `model`. Quality first, then cost: never pick a lower tier
-if a wrong result costs more to redo. Precedence: a security or Consequential rule beats a cost
-example.
-- **haiku**: clear boundary, small diff, mechanically verifiable. Examples: `config.example.json`
-  and `.gitignore`; Makefile targets `build/check/install`; `--version` flag; `/help` text and
-  the README `## Usage` section.
-- **sonnet** (default): multi-file features, moderate design judgment, new patterns. Examples:
-  SSE parser + streaming client (using the opus transport), `glob`/`grep`/`read_file`, TUI views
-  (status line, tool blocks, picker, panel, highlighting), slash command dispatch, `/compact`,
-  `/init`, e2e tests.
-- **opus**: architecture, security-sensitive code (auth, secrets, crypto, parsing untrusted
-  input, shell/SQL/command construction), concurrency, cross-cutting refactors, anything touching
-  a Consequential assumption. Examples: host-allowlist Transport; PathGuard; Bash runner;
-  approval gate; Redactor/`{env:}` errors; subagent manager, turn cancellation; undo journal;
-  v8 fetch client and `web_fetch`; v9 `markdown.go` (untrusted model text, secret guard), `resetTab`;
-  v10 `crashlog`, `Store.Prune` (deletes files), autosave concurrency, history checkpoints.
+if a wrong result costs more to redo. Precedence: a security or Consequential rule beats a cost example.
+- **haiku**: clear boundary, small diff, mechanically verifiable. Examples: `config.example.json`,
+  `.gitignore`, Makefile targets, `--version`, `/help` text and README sections, v11 R99 `shown` fix.
+- **sonnet** (default): multi-file features, moderate design judgment, new patterns. Examples: SSE client
+  (on the opus transport), `glob`/`grep`/`read_file`, TUI views, slash dispatch, `/compact`, `/init`, e2e
+  tests, v11 flag parsing and JSONL event mapping.
+- **opus**: architecture, security-sensitive code (auth, secrets, crypto, parsing untrusted input,
+  shell/SQL/command construction), concurrency, cross-cutting refactors, anything touching a Consequential
+  assumption. Examples: Transport; PathGuard; Bash runner; approval gate; Redactor; subagent manager, turn
+  cancellation; undo journal; v8 fetch client; v9 `markdown.go`, `resetTab`; v10 `crashlog`, `Prune`,
+  autosave, checkpoints; v11 headless runner (approval/question replies, timeout/cancel, transcript path,
+  redaction) and the shared model-call counter.
 - **Shared-code rule:** security-critical logic lives only in shared, opus-built code:
-  `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go` (sole
-  `os/exec` site), `internal/agent/approval.go`, `internal/config/redact.go`, v10 `internal/crashlog/`. Modules that only
-  call them and parse output (file tools, client, TUI) may be sonnet; the supervisor then runs
-  the negative checks itself (`..`/symlink escape, foreign host, unprompted bash, `SECRET123`).
+  `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go` (sole `os/exec`
+  site), `internal/agent/approval.go`, `internal/config/redact.go`, `internal/crashlog/`. Callers (file tools,
+  client, TUI, headless output) may be sonnet; the supervisor runs the negative checks itself
+  (`..`/symlink escape, foreign host, unprompted bash, `SECRET123`).
 
 ## Risks & Open Questions
-Non-blocking; tasks touching an item get opus and negative-case verification. (v3 supersedes the
-deferrals "session persistence"/"config writes"; v4 skills "custom slash commands"; v6 "web tools".)
-- C: Transport allowlist = exact `host:port` per client: providers (v4-v7 jev host removed in v8),
-  v6 search client only `search.baseURL` (project `yipyip.json` may set it, like providers);
-  `Proxy: nil`, no foreign redirects, no other clients. PathGuard `Resolve` (writes, undo, Store,
-  skills) confined; v6 `ResolveRead` reads anywhere, ungated, redacted (`~/.ssh` readable).
-- C: Secrets (every `{env:}` value, v6 `BRAVE_API_KEY`/literal `search.apiKey`) → `[redacted]` in
-  UI/errors/tool results/HTTP bodies (skill text, v6 `web_search` query + results, v8 fetch URL),
-  stripped from `bash` env, in no written file (`SECRET123`). No logs; writes: tools, `.yipyip/`, settings.
-- C: Approvals: "always" per tool per session, reset by `/new`; the gate is the only path to
-  `Registry.Run` for gated tools (v6 + `web_search`, v8 + `web_fetch`); `question` never gated,
-  always the user; skills grant nothing. Undo in memory; `bash` unsandboxed, process group killed
-  on timeout/Esc. Public interface: config schema (v6 `search`, v8 drops `jev`),
-  tool names/args (v6 `web_search`, v8 `web_fetch`), slash commands (v8 drops `/jev`),
-  `<name>/SKILL.md`, session `version` 1, `<id>`.
-- C (v3): session files keep tool results un-redacted; interrupted turns stored as finished; queue
-  → draft on resume. Retries: 10 attempts, 1→60 s, pre-first-byte only. Settings write atomic.
-- C (v3/v4): tabs: one global model/effort/mode; `Ctrl+W`/`×` save then move left (else right);
-  last-tab close = `/exit` (v9: fresh empty tab, no save, no quit); 8-tab limit; v4 drops
-  `Ctrl+Tab`/`Alt+N`/Shift+Enter (breaking).
-- C (v9): a render that un-splits a secret (stripped output redacts differently) falls back to the
-  redacted source; `/clear` (resets approvals like `/new`) and last-tab close write no session file.
-- C (v5): subagent runs up to 500 model calls (× `max_subagents`). C (v2): start mode `auto`; `atotto/clipboard` (clipboard.go) is the sole exec besides `bash.go`;
-  history/pastes/queue memory-only except the v3 session file.
-- C (v7, money): main agent has no per-turn model-call limit (cost guard removed); `Esc` is the only
-  brake (no budget, no loop guard). Supervisor-owned `.harness/verify/v5/T401.sh`/`T799.sh` rewritten
-  for it; T799 drift checks rebased to `4f99ac0` (approval.go guard kept).
-- C (v8): `web_fetch` = the only client to arbitrary hosts (SSRF): IP checked at dial after `Unmap`
-  (rebinding, redirects), test-only `AllowAddr`, URL redacted before send/show, gated, content marked
-  untrusted. README R3/§5 "no web fetch tool" is stale (README 1-9 frozen), docs win. Diff guards
-  use v8 start `a99a82f`; v4-v7 verify scripts (incl. v5 `T799.sh`) pin jev and are not rerun;
-  the v8 DoD carries the approval.go guard.
-- C (v10): `crash.log` is a new file with panic values and stacks only (redacted, never history, prompts,
-  tool args/output); README §5 "no logs ... written to disk" is stale (README 1-9 frozen), docs win.
-  Checkpoints replace `s.history` mid-turn (main agent only, complete rounds only). Autosave rewrites a
-  session file while running (same id; the exit save must never create a second file); `Prune` deletes
-  session files (newest 25 kept, open tabs protected, stray names untouched). v10 guards use start `1ccbbc7`.
-- Live systems: only `proxy.golang.org` during the build; OpenRouter/Brave/`web_fetch` URLs only when
-  the user runs `yip` by hand; a real host in tests or Makefile fails R18. No new modules; missing
-  usage → chars/4 estimate. Testability: no teatest; TUI tests drive `Model.Update` + `View()`.
+Non-blocking; tasks touching an item get opus and negative-case verification.
+- C: Transport allowlist = exact `host:port` per client (providers; v6 search host, settable by project
+  `yipyip.json`); `Proxy: nil`, no foreign redirects. PathGuard `Resolve` (writes, undo, Store, skills,
+  crash log, v11 `--transcript`) confined; `ResolveRead` reads anywhere, ungated, redacted (`~/.ssh` readable).
+- C: Secrets (every `{env:}` value, `BRAVE_API_KEY`/`search.apiKey`) → `[redacted]` in UI/errors/tool results/
+  HTTP bodies (skill text, search query/results, fetch URL), v11 headless stdout/stderr/transcript; stripped
+  from `bash` env; in no written file except un-redacted tool results in session files (v3).
+- C: Approvals: "always" per tool per session, reset by `/new`/`/clear`; the gate is the only path to
+  `Registry.Run` for gated tools; `question` never gated; skills grant nothing; v11 headless answers the gate
+  from `--approve` only (unknown name → exit 2), everything else denied. `bash` unsandboxed, process group
+  killed on timeout/Esc. Public interface: config schema, tool names/args, slash commands, `<name>/SKILL.md`,
+  session `version` 1, `<id>`, v11 CLI flags, JSONL record shapes and exit codes 0–5.
+- C (v3/v4/v9): interrupted turns stored as finished; queue → draft on resume; retries 10× pre-first-byte;
+  settings write atomic; one global model/effort/mode; tab close saves then moves left; last-tab close →
+  fresh empty tab, no save, no quit; 8 tabs; v4 drops `Ctrl+Tab`/`Alt+N`/Shift+Enter; a markdown render that
+  un-splits a secret falls back to the redacted source.
+- C (money): v5 subagent ≤500 model calls (× `max_subagents`); v7 main agent unlimited, `Esc` the only TUI
+  brake; v11 headless `--timeout`/`--max-model-calls` (counts main + subagents, (n+1)-th request refused)
+  are the only automated brakes. v2: start mode `auto`; `atotto/clipboard` the sole exec besides `bash.go`.
+- C (v8): `web_fetch` = the only client to arbitrary hosts (SSRF): IP checked at dial after `Unmap`, test-only
+  `AllowAddr`, URL redacted, gated, content marked untrusted.
+- C (v10): `crash.log` holds redacted panic values/stacks and memory records only; checkpoints replace history
+  mid-turn (main agent, complete rounds); autosave rewrites one id while running; `Prune` deletes session
+  files (newest 25 kept, open tabs / resumed id protected, stray names untouched).
+- C (v11): headless `--dir` is the write area (no chdir); saves once at run end (not on crash), keeps a
+  resumed id, then `Prune(25, id)`; `--no-save` writes nothing under `.yipyip/sessions`; overrides never
+  touch `config.json`; saved mode ignored with `-p`.
+- Historical verify notes: v5 `T401.sh`/`T799.sh` rewritten for v7; v4–v7 scripts pin jev and are not rerun;
+  diff guards use v8 start `a99a82f`, v10 start `1ccbbc7`.
+- Live systems: only `proxy.golang.org` during the build; OpenRouter/Brave/`web_fetch` URLs only when the
+  user runs `yip` by hand; a real host in tests or Makefile fails R18. No new modules; missing usage →
+  chars/4 estimate. Testability: no teatest; TUI tests drive `Model.Update` + `View()`; headless e2e runs
+  the built binary against `providertest`.
