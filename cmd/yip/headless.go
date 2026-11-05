@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"yipyip/internal/agent"
 	"yipyip/internal/config"
@@ -18,12 +21,59 @@ import (
 // maxHeadlessStdin caps the prompt read from stdin with -p -.
 const maxHeadlessStdin = 10 << 20
 
+// headlessTruncate is the maximum number of runes of a tool_result output in
+// the --json trace.
+const headlessTruncate = 2000
+
 // runHeadless runs one turn without a UI: it reads the prompt (from stdin
 // for -p -), loads the configuration of the start directory, submits the
 // prompt in auto mode and prints the main agent's final text on stdout.
-// Progress goes to stderr, one redacted line per event. It returns 0, 1
-// when the turn reported an error or the setup failed, 2 on a usage error.
+// Progress goes to stderr, one redacted line per event. With --json, stdout
+// gets one JSON record per line instead (the last one a result record) and
+// stderr stays empty except for fatal errors. It returns 0, 1 when the turn
+// reported an error or the setup failed, 2 on a usage error.
 func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs *crashState) int {
+	r := &runner{
+		json:   f.h.json,
+		stdout: stdout,
+		stderr: stderr,
+		start:  time.Now(),
+		redact: func(s string) string { return s },
+		tools:  map[string]int{},
+		files:  map[string]bool{},
+		subs:   map[string]bool{},
+		calls:  map[string]string{},
+	}
+	code := r.run(f, stdin, cs)
+	r.writeResult(code)
+	return code
+}
+
+// runner holds the state of one headless run.
+type runner struct {
+	json           bool
+	stdout, stderr io.Writer
+	start          time.Time
+	redact         func(string) string // session redactor once known
+	sess           *agent.Session
+	startDir       string
+	m              mapper
+
+	final    strings.Builder // main-agent text of the last assistant message
+	textSeen bool            // main-agent text since the last main-agent tool call
+	hadErr   bool
+
+	tools map[string]int    // tool_call count per tool name
+	files map[string]bool   // start-dir-relative paths changed by write_file/edit_file
+	subs  map[string]bool   // distinct subagent ids
+	calls map[string]string // agent id -> JSON args of its pending write_file/edit_file call
+
+	pendAgent string          // agent of the buffered text deltas
+	pendText  strings.Builder // buffered text deltas (--json)
+}
+
+// run performs the setup and the turn and returns the exit code.
+func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 	prompt := f.h.prompt
 	if prompt == "-" {
 		if stdin == nil {
@@ -31,39 +81,39 @@ func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs 
 		}
 		data, err := io.ReadAll(io.LimitReader(stdin, maxHeadlessStdin))
 		if err != nil {
-			fmt.Fprintf(stderr, "yip: reading stdin: %v\n", err)
+			fmt.Fprintf(r.stderr, "yip: reading stdin: %v\n", err)
 			return 1
 		}
 		prompt = string(data)
 	}
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		fmt.Fprintln(stderr, "yip: empty prompt")
+		fmt.Fprintln(r.stderr, "yip: empty prompt")
 		return 2
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(stderr, "yip: %v\n", err)
+		fmt.Fprintf(r.stderr, "yip: %v\n", err)
 		return 1
 	}
 	startDir, err := filepath.EvalSymlinks(wd)
 	if err != nil {
-		fmt.Fprintf(stderr, "yip: %v\n", err)
+		fmt.Fprintf(r.stderr, "yip: %v\n", err)
 		return 1
 	}
+	r.startDir = startDir
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "yip: %v\n", err)
+		fmt.Fprintf(r.stderr, "yip: %v\n", err)
 		return 1
 	}
 	cfg, err := config.Load(home, startDir, os.Getenv)
+	if cfg != nil && cfg.Redactor != nil {
+		r.redact = cfg.Redactor.Redact
+	}
 	if err != nil {
-		msg := err.Error()
-		if cfg != nil && cfg.Redactor != nil {
-			msg = cfg.Redactor.Redact(msg)
-		}
-		fmt.Fprintf(stderr, "yip: %s\n", msg)
+		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
 	if guard, gerr := tools.NewPathGuard(startDir); gerr == nil {
@@ -80,28 +130,33 @@ func runHeadless(f flags, d deps, stdin io.Reader, stdout, stderr io.Writer, cs 
 	}
 	sess, err := agent.NewSession(agent.Options{Config: cfg, StartDir: startDir})
 	if err != nil {
-		fmt.Fprintf(stderr, "yip: %s\n", cfg.Redactor.Redact(err.Error()))
+		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
 	defer func() {
 		sess.Cancel()
 		sess.Wait()
 	}()
+	r.sess = sess
+	r.redact = sess.Redact
+	r.m = mapper{redact: sess.Redact, truncate: headlessTruncate, sub: r.subLookup}
 	applyStoredModelEffort(cfg, sess)
 	sess.SetMode(agent.ModeAuto)
 
 	if strings.HasPrefix(prompt, "/") {
 		word := strings.Fields(prompt)[0]
-		fmt.Fprintf(stderr, "yip: %s is not available with -p\n", sess.Redact(word))
+		fmt.Fprintf(r.stderr, "yip: %s is not available with -p\n", r.redact(word))
 		return 2
 	}
 	if err := sess.Submit(prompt); err != nil {
-		fmt.Fprintf(stderr, "yip: %s\n", sess.Redact(err.Error()))
+		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
-	final, hadErr := consumeTurn(sess, stderr)
-	fmt.Fprint(stdout, sess.Redact(final)+"\n")
-	if hadErr {
+	r.consumeTurn()
+	if !r.json {
+		fmt.Fprint(r.stdout, r.redact(r.final.String())+"\n")
+	}
+	if r.hadErr {
 		return 1
 	}
 	return 0
@@ -118,59 +173,197 @@ func applyStoredModelEffort(cfg *config.Config, sess *agent.Session) {
 	}
 }
 
-// consumeTurn reads the session's events until EvTurnDone. It returns the
-// main agent's text of the last assistant message and whether an EvError
-// occurred. Progress lines go to stderr, redacted.
-func consumeTurn(sess *agent.Session, stderr io.Writer) (final string, hadErr bool) {
-	var buf strings.Builder
-	textSeen := false // main-agent text since the last main-agent tool call
-	progress := func(line string) {
-		fmt.Fprintln(stderr, sess.Redact(line))
+// subLookup returns the task and model of subagent id.
+func (r *runner) subLookup(id string) (task, model string) {
+	for _, s := range r.sess.Subagents() {
+		if s.ID == id {
+			return s.Task, s.Model
+		}
 	}
+	return "", ""
+}
+
+// progress writes one redacted progress line to stderr (not with --json).
+func (r *runner) progress(line string) {
+	if !r.json {
+		fmt.Fprintln(r.stderr, r.redact(line))
+	}
+}
+
+// emit writes records to stdout with --json. Records built by the mapper are
+// redacted already; approval and result records are redacted by the caller.
+func (r *runner) emit(recs ...any) {
+	if !r.json {
+		return
+	}
+	for _, rec := range recs {
+		_ = encodeLine(r.stdout, rec)
+	}
+}
+
+// flushText writes the buffered text deltas as one text record.
+func (r *runner) flushText() {
+	if r.pendText.Len() == 0 {
+		return
+	}
+	ev := agent.Event{Kind: agent.EvText, AgentID: r.pendAgent, Text: r.pendText.String()}
+	r.pendText.Reset()
+	r.emit(r.m.records(ev)...)
+}
+
+// consumeTurn reads the session's events until the main agent's
+// EvTurnDone, collecting the final text, counts and changed files.
+func (r *runner) consumeTurn() {
 	ctx := context.Background()
 	for {
-		ev, err := sess.NextEvent(ctx)
+		ev, err := r.sess.NextEvent(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				return buf.String(), true
+			r.flushText()
+			r.hadErr = true
+			if !errors.Is(err, context.Canceled) {
+				r.progress("error: " + err.Error())
+				r.emit(r.m.records(agent.Event{Kind: agent.EvError, AgentID: agent.MainAgentID, Text: err.Error()})...)
 			}
-			progress("error: " + err.Error())
-			return buf.String(), true
+			return
 		}
-		main := ev.AgentID == agent.MainAgentID || ev.AgentID == ""
-		switch ev.Kind {
-		case agent.EvText:
-			if main {
-				buf.WriteString(ev.Text)
-				textSeen = true
+		if ev.Kind == agent.EvText {
+			if ev.AgentID != r.pendAgent {
+				r.flushText()
 			}
-		case agent.EvToolCall:
-			if main && textSeen {
-				buf.Reset()
-				textSeen = false
-			}
-			progress("tool " + ev.Tool)
-		case agent.EvSubagent:
-			if !main {
-				progress("subagent " + ev.Text)
-			}
-		case agent.EvRetry:
-			progress("retry " + ev.Text)
-		case agent.EvError:
-			hadErr = true
-			progress("error: " + ev.Text)
-		case agent.EvApproval:
-			if ev.Approval != nil {
-				ev.Approval.Respond(agent.Deny)
-			}
-		case agent.EvQuestion:
-			if ev.Question != nil {
-				ev.Question.Cancel()
-			}
-		case agent.EvTurnDone:
-			if main {
-				return buf.String(), hadErr
-			}
+			r.pendAgent = ev.AgentID
+			r.pendText.WriteString(ev.Text)
+		} else {
+			r.flushText()
+		}
+		if r.handle(ev) {
+			return
 		}
 	}
+}
+
+// handle processes one event and reports whether the turn is done.
+func (r *runner) handle(ev agent.Event) bool {
+	main := ev.AgentID == agent.MainAgentID || ev.AgentID == ""
+	switch ev.Kind {
+	case agent.EvText:
+		if main {
+			r.final.WriteString(ev.Text)
+			r.textSeen = true
+		}
+	case agent.EvToolCall:
+		if main && r.textSeen {
+			r.final.Reset()
+			r.textSeen = false
+		}
+		r.tools[ev.Tool]++
+		if ev.Tool == "write_file" || ev.Tool == "edit_file" {
+			r.calls[ev.AgentID] = ev.Args
+		} else {
+			delete(r.calls, ev.AgentID)
+		}
+		r.progress("tool " + ev.Tool)
+		r.emit(r.m.records(ev)...)
+	case agent.EvToolResult:
+		if args, ok := r.calls[ev.AgentID]; ok {
+			delete(r.calls, ev.AgentID)
+			if !ev.IsError && (ev.Tool == "write_file" || ev.Tool == "edit_file") {
+				r.addFile(args)
+			}
+		}
+		r.emit(r.m.records(ev)...)
+	case agent.EvSubagent:
+		if !main {
+			r.subs[ev.AgentID] = true
+			r.progress("subagent " + ev.Text)
+			r.emit(r.m.records(ev)...)
+		}
+	case agent.EvRetry:
+		r.progress("retry " + ev.Text)
+		r.emit(r.m.records(ev)...)
+	case agent.EvError:
+		r.hadErr = true
+		r.progress("error: " + ev.Text)
+		r.emit(r.m.records(ev)...)
+	case agent.EvApproval:
+		if ev.Approval != nil {
+			ev.Approval.Respond(agent.Deny)
+			a := ev.Approval
+			agentID := a.AgentID
+			if agentID == "" {
+				agentID = ev.AgentID
+			}
+			r.emit(approvalRecord(r.redact(agentID), r.redact(a.Tool), r.redact(a.Args), false))
+		}
+	case agent.EvQuestion:
+		r.emit(r.m.records(ev)...)
+		if ev.Question != nil {
+			ev.Question.Cancel()
+		}
+	case agent.EvTurnDone:
+		if main {
+			return true
+		}
+	}
+	return false
+}
+
+// addFile records the path argument of a successful write_file/edit_file
+// call, relative to the start directory.
+func (r *runner) addFile(args string) {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(args), &a); err != nil || a.Path == "" {
+		return
+	}
+	p := filepath.Clean(a.Path)
+	if filepath.IsAbs(p) {
+		rel, err := filepath.Rel(r.startDir, p)
+		if err != nil {
+			return
+		}
+		p = rel
+	}
+	r.files[filepath.ToSlash(p)] = true
+}
+
+// writeResult writes the result record with --json; every string passes the
+// redactor.
+func (r *runner) writeResult(code int) {
+	if !r.json {
+		return
+	}
+	reason := "done"
+	if code != 0 {
+		reason = "error"
+	}
+	rec := resultRecord{
+		Type:         "result",
+		ExitCode:     code,
+		Reason:       reason,
+		FinalText:    r.redact(r.final.String()),
+		Subagents:    len(r.subs),
+		DurationMS:   time.Since(r.start).Milliseconds(),
+		Tools:        map[string]int{},
+		FilesChanged: []string{},
+	}
+	rec.SessionID = r.redact(rec.SessionID)
+	if r.sess != nil {
+		rec.ModelCalls = r.sess.ModelCalls()
+		in, out, _ := r.sess.TokenCounts()
+		rec.Tokens = tokensRecord{In: int(in), Out: int(out)}
+	}
+	for name, n := range r.tools {
+		rec.Tools[r.redact(name)] += n
+	}
+	seen := map[string]bool{}
+	for p := range r.files {
+		rp := r.redact(p)
+		if !seen[rp] {
+			seen[rp] = true
+			rec.FilesChanged = append(rec.FilesChanged, rp)
+		}
+	}
+	sort.Strings(rec.FilesChanged)
+	_ = encodeLine(r.stdout, rec)
 }
