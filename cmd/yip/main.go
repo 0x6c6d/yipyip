@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -280,11 +282,39 @@ func applyResume(opts *tui.Options, f flags) error {
 	return nil
 }
 
-// launchUI runs the Bubble Tea program for opts.
+// signalKillAfter is how long a SIGTERM/SIGHUP quit may take before the
+// program is killed.
+const signalKillAfter = 3 * time.Second
+
+// launchUI runs the Bubble Tea program for opts. Bubble Tea's own signal
+// handler is off: SIGTERM and SIGHUP send tui.SignalQuitMsg (save the tabs,
+// shut the sessions down, quit), with p.Kill as a fallback after
+// signalKillAfter. Ctrl+C stays a key (raw mode). The processes yip started
+// are reaped by exitCleanup in run after this returns.
 func launchUI(opts tui.Options, stderr io.Writer) int {
 	return launchWith(opts, stderr, func(m tea.Model) error {
-		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithoutSignalHandler())
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGTERM, syscall.SIGHUP)
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ch:
+			case <-done:
+				return
+			}
+			p.Send(tui.SignalQuitMsg{})
+			t := time.NewTimer(signalKillAfter)
+			defer t.Stop()
+			select {
+			case <-t.C:
+				p.Kill()
+			case <-done:
+			}
+		}()
 		_, err := p.Run()
+		signal.Stop(ch)
+		close(done)
 		return err
 	})
 }

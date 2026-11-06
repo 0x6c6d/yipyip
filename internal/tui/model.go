@@ -252,15 +252,29 @@ func waitEventOf(t tab) tea.Cmd {
 	}
 }
 
-// quit cancels the model's context and returns the quit command.
+// quit shuts down the agent session of every open tab (its running turn and
+// subagents are cancelled, without waiting), cancels the model's context and
+// returns the quit command.
 func (m Model) quit() tea.Cmd {
+	for i := range m.tabs {
+		if sess := m.tabAt(i).sess; sess != nil {
+			sess.Shutdown()
+		}
+	}
 	m.cancel()
 	return tea.Quit
 }
 
+// SignalQuitMsg asks the UI to quit as /quit does (save every tab, shut the
+// sessions down, quit). cmd/yip sends it on SIGTERM and SIGHUP.
+type SignalQuitMsg struct{}
+
 // Update implements tea.Model. It always returns a tui.Model value.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case SignalQuitMsg:
+		m = m.saveTabs()
+		return m, m.quit()
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, nil

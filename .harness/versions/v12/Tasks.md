@@ -25,7 +25,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | Subreaper, descendant walk, zombie reaping | T101 | opus | done | reaper*.go, reaper_test.go: subreaper, descendant walk, zombie reap |
 | T301 | 3 | agent Session.Shutdown | T101 | opus | done | loop.go Session.Shutdown, shutdown_test.go |
 | T302 | 3 | cmd/yip exit cleanup, headless and crash paths | T201, T301 | opus | done | main.go exitCleanup+InitSubreaper, headless.go SIGHUP+Shutdown, e2e/cleanup_test.go |
-| T303 | 3 | TUI quit shutdown and SIGTERM/SIGHUP handling | T301, T302 | opus | todo | |
+| T303 | 3 | TUI quit shutdown and SIGTERM/SIGHUP handling | T301, T302 | opus | done | tui quit+SignalQuitMsg, launchUI signals, e2e pty tests; row fixed: pty via /dev/ptmx |
 | T401 | 4 | System prompt exit sentence | T000 | haiku | todo | |
 | T402 | 4 | /help cleanup line | T000 | haiku | todo | |
 | T403 | 4 | README cleanup section | T302, T303, T401, T402 | sonnet | todo | |
