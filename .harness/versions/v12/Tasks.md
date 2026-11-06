@@ -20,7 +20,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify passed |
 | T101 | 1 | Process tracker and KillAll for tracked groups | T000 | opus | todo | |
 | T201 | 2 | Subreaper, descendant walk, zombie reaping | T101 | opus | todo | |
 | T301 | 3 | agent Session.Shutdown | T101 | opus | todo | |
