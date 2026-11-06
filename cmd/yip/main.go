@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -68,7 +69,16 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// exitCleanup reaps every process yip started (and their escaped
+// descendants) on the way out of run; a package var so tests can swap it.
+var exitCleanup = func() { tools.KillAll(2 * time.Second) }
+
+// run is the process entry: it makes yip the subreaper of its descendants
+// and reaps them after runWith returned (after the session save and any
+// crash record), on every return path.
 func run(args []string, stdout, stderr io.Writer) int {
+	tools.InitSubreaper()
+	defer exitCleanup()
 	return runWith(args, stdout, stderr, deps{stdinTTY: stdinIsTTY(), stdin: os.Stdin, launch: launchUI})
 }
 

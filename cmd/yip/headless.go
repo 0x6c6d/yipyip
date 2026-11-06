@@ -249,7 +249,7 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		}
 		prompt = sess.Redact(msg)
 	}
-	sigCtx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	sigCtx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSig()
 	// evCtx bounds the event loop: it ends headlessGrace after a timeout or a
 	// signal cancelled the turn, so a stuck turn never blocks the run.
@@ -277,6 +277,9 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		fmt.Fprintf(r.stderr, "yip: %s\n", r.redact(err.Error()))
 		return 1
 	}
+	// Every return from here on cancels the turn and all subagents, so they
+	// stop before exitCleanup reaps their processes.
+	defer sess.Shutdown()
 	go func() {
 		select {
 		case <-timeoutC:
@@ -293,6 +296,7 @@ func (r *runner) run(f flags, stdin io.Reader, cs *crashState) int {
 		}
 	}()
 	r.consumeTurn(evCtx)
+	forcePanic("headless-end")
 	if r.unanswered || r.timedOut.Load() || r.interrupted.Load() {
 		waitBounded(sess, headlessGrace)
 	}
