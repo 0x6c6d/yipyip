@@ -9,10 +9,12 @@ OpenAI-compatible streaming APIs; `{env:NAME}` config, host-restricted HTTP, sta
 file tools, unrestricted `bash`, agent loop, manual/auto modes, subagents, slash commands,
 token-only status line (never cost), `make install` as `yip`. Later: session persistence + config
 writes (v3), skills (v4), web tools (v6, v8), markdown (v9), crash log/autosave (v10), v11 headless
-one-turn mode `yip -p` (JSONL trace, exit codes, limits) and paste display fix.
+one-turn mode `yip -p` (JSONL trace, exit codes, limits) and paste display fix; v12 no leftover processes after
+exit (tracker + `KillAll` reaper, Linux subreaper).
 **Explicitly deferred (product level):** native Anthropic / OpenAI-Responses protocols, MCP, plugins,
 image input, telemetry, auto-update, Windows/macOS, per-subagent model/effort UI, bash sandboxing,
-completion/man page, price config, headless stdio protocol / server mode.
+completion/man page, price config, headless stdio protocol / server mode, surviving background jobs
+(detach, `/jobs`), non-Linux subreaper.
 **Where the code lives / protected paths (no worker may touch):** code in the repo root
 `/home/sa/workspace/code/yipyip` (module `yipyip`): `cmd/yip/`, `internal/{config,provider,agent,
 session,skills,tools,tui,crashlog}/`, `internal/provider/providertest/` (shared fake provider), `e2e/`,
@@ -30,7 +32,8 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) 
   symlink-resolved `os.Getwd()`; startup errors → stderr + exit 1; v3 `--resume [id]`/`-c` (id reopens, no
   id + TTY → picker, else fresh, unknown → `unknown session <id>` + exit 1); v10 fatal panic →
   `crashlog.Fatal`, `yip: crashed, details in <path>`, exit 2; startup `Store.Prune(25, resumed id)`;
-  memory watchdog `crashlog.Watch`. v11 `headless.go`: `-p/--prompt` (`-` = stdin) + `--json`, `--answer`,
+  memory watchdog `crashlog.Watch`; v12 `run` calls `tools.InitSubreaper()` first and, as its first defer,
+  `tools.KillAll(2s)` (after save and crash record); TUI SIGTERM/SIGHUP → `tui.SignalQuitMsg` (save, quit). v11 `headless.go`: `-p/--prompt` (`-` = stdin) + `--json`, `--answer`,
   `--approve`, `--dir`, `--model/--effort/--mode`, `--timeout`, `--max-model-calls`, `--system-append`,
   `--no-save`, `--transcript`, `--resume <id>`; no Bubble Tea program; default mode `auto`; never writes
   `config.json`; exit 0 done/1 error/2 usage+crash/3 question/4 timeout/5 max calls; headless flags without
@@ -61,14 +64,16 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) 
   `web_search` only with `search`; v8 `web_fetch` always, gated, stdlib HTML→text, 1 MiB, 20,000 chars,
   untrusted marker; no other web-like name), **PathGuard** (`EvalSymlinks` of the deepest existing ancestor;
   `Resolve` write mode confined; v6 `ResolveRead` anywhere for `read_file`/`glob`/`grep`), **Bash runner**
-  (only `os/exec` site, env without `{env:}` vars), undo pre-write hook; talks to: config, provider.
+  (only `os/exec` site, env without `{env:}` vars), undo pre-write hook; v12 **Reaper** (`reaper_linux.go`):
+  process-wide tracker of `BashRunner` pgids, `InitSubreaper`, `KillAll(grace)` (tracked live groups + `/proc`
+  escapees, TERM → poll → KILL, zombie reap by pid); talks to: config, provider.
 - **internal/agent**: `Session` (history, model/effort/mode, counters, turns, export/restore); loop (v7 main
   turn unlimited; v5 ≤500 per subagent run; per-turn ctx, cancel); **Approval gate** (`y/n/a`, "always" per
   tool per session; gated incl. `web_search`, `web_fetch`); v3 **Question gate** (`question` never gated,
   blocks on a reply channel); **Subagent manager**, **Undo journal**, compaction, `/init`, system prompt
   (+`AGENTS.md`); v10 checkpoint after each complete main round + `EvCheckpoint`, recovered panics →
   `crashlog.Recovered`; v11 `Options.SystemAppend`, `Options.MaxModelCalls` (one counter for main +
-  subagents, `ErrModelCallLimit`), `ModelCalls()`; talks to: provider, tools.
+  subagents, `ErrModelCallLimit`), `ModelCalls()`; v12 `Shutdown()` (cancel turn + subagents); talks to: provider, tools.
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 tabs (≤8, per-tab conversation/counters/
   history/pastes/queue/turn; global model/effort/mode); v4 one-row tab bar, `×`/`+`, only `Ctrl+T`/`Ctrl+W`;
   viewport (chroma, subagent blocks), textarea (suggest, history, pastes, queue, click-to-cursor, select-to-
@@ -106,11 +111,11 @@ if a wrong result costs more to redo. Precedence: a security or Consequential ru
   shell/SQL/command construction), concurrency, cross-cutting refactors, anything touching a Consequential
   assumption. Examples: Transport; PathGuard; Bash runner; approval gate; Redactor; subagent manager, turn
   cancellation; undo journal; v8 fetch client; v9 `markdown.go`, `resetTab`; v10 `crashlog`, `Prune`,
-  autosave, checkpoints; v11 headless runner (approval/question replies, timeout/cancel, transcript path,
+  autosave, checkpoints; v12 reaper + exit-path wiring; v11 headless runner (approval/question replies, timeout/cancel, transcript path,
   redaction) and the shared model-call counter.
 - **Shared-code rule:** security-critical logic lives only in shared, opus-built code:
   `internal/provider/transport.go`, `internal/tools/pathguard.go`, `internal/tools/bash.go` (sole `os/exec`
-  site), `internal/agent/approval.go`, `internal/config/redact.go`, `internal/crashlog/`. Callers (file tools,
+  site), v12 `internal/tools/reaper*.go` (sole signal site; others call `tools.KillAll`), `internal/agent/approval.go`, `internal/config/redact.go`, `internal/crashlog/`. Callers (file tools,
   client, TUI, headless output) may be sonnet; the supervisor runs the negative checks itself
   (`..`/symlink escape, foreign host, unprompted bash, `SECRET123`).
 
@@ -142,6 +147,10 @@ Non-blocking; tasks touching an item get opus and negative-case verification.
 - C (v11): headless `--dir` is the write area (no chdir); saves once at run end (not on crash), keeps a
   resumed id, then `Prune(25, id)`; `--no-save` writes nothing under `.yipyip/sessions`; overrides never
   touch `config.json`; saved mode ignored with `-p`.
+- C (v12): exit kills every live member of a tracked `bash` group and every yip descendant in a tracked group,
+  below one, or in another session (setsid escapees, via `PR_SET_CHILD_SUBREAPER`); untracked same-session
+  children (clipboard helpers) survive; signalled only after `kill(-pgid,0)` + non-zombie `/proc` member;
+  zombies reaped by pid only; exit delay ≤2.5 s; background servers never survive yip.
 - Historical verify notes: v5 `T401.sh`/`T799.sh` rewritten for v7; v4–v7 scripts pin jev and are not rerun;
   diff guards use v8 start `a99a82f`, v10 start `1ccbbc7`.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/Brave/`web_fetch` URLs only when the
