@@ -29,7 +29,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T401 | 4 | System prompt exit sentence | T000 | haiku | done | prompt.go sentence, prompt_v12_test.go |
 | T402 | 4 | /help cleanup line | T000 | haiku | done | help.go On exit block, help_v12_test.go |
 | T403 | 4 | README cleanup section | T302, T303, T401, T402 | sonnet | done | README.md Clean exit bullet + Process cleanup section |
-| T404 | 4 | CLAUDE.md architecture notes | T201, T301, T302, T303 | haiku | todo | |
+| T404 | 4 | CLAUDE.md architecture notes | T201, T301, T302, T303 | haiku | done | CLAUDE.md v12 notes |
 | T999 | 4 | Definition of Done | T000, T101, T201, T301, T302, T303, T401, T402, T403, T404 | supervisor | todo | |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
