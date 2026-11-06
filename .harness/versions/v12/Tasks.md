@@ -21,7 +21,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify passed |
-| T101 | 1 | Process tracker and KillAll for tracked groups | T000 | opus | todo | |
+| T101 | 1 | Process tracker and KillAll for tracked groups | T000 | opus | done | reaper.go, reaper_linux.go, reaper_other.go, bash.go, reaper_test.go: tracker + KillAll |
 | T201 | 2 | Subreaper, descendant walk, zombie reaping | T101 | opus | todo | |
 | T301 | 3 | agent Session.Shutdown | T101 | opus | todo | |
 | T302 | 3 | cmd/yip exit cleanup, headless and crash paths | T201, T301 | opus | todo | |

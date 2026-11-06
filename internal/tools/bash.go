@@ -111,7 +111,11 @@ func (b *BashRunner) Run(ctx context.Context, command string, timeout time.Durat
 	if err := cmd.Start(); err != nil {
 		return BashResult{Output: Truncate(err.Error()), ExitCode: -1}
 	}
+	// The command pid is also its pgid (Setpgid); KillAll terminates the
+	// group later, since background members may outlive the command.
+	track(cmd.Process.Pid)
 	waitErr := cmd.Wait()
+	untrackActive(cmd.Process.Pid)
 
 	res := BashResult{Output: out.result()}
 	switch {
