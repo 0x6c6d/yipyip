@@ -1,0 +1,72 @@
+package tools
+
+// Supervisor-owned verification (v12 T201). Copied into internal/tools as
+// zz_v12_t201_test.go by the verify scripts and removed afterwards.
+
+import (
+	"syscall"
+	"testing"
+	"time"
+	"unsafe"
+)
+
+func TestV12VerifySubreaperSet(t *testing.T) {
+	InitSubreaper()
+	var v int32
+	_, _, e := syscall.RawSyscall(syscall.SYS_PRCTL, 37 /* PR_GET_CHILD_SUBREAPER */, uintptr(unsafe.Pointer(&v)), 0)
+	if e != 0 || v != 1 {
+		t.Fatalf("child subreaper = %d (errno %v), want 1", v, e)
+	}
+}
+
+func TestV12VerifySetsidKilled(t *testing.T) {
+	InitSubreaper()
+	v12Cleanup(t, "3196")
+	v12Bash(t, "setsid sleep 3196 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3196")
+	KillAll(2 * time.Second)
+	if !v12WaitGone("3196", 100*time.Millisecond) {
+		t.Fatal("setsid sleep survived KillAll")
+	}
+}
+
+func TestV12VerifyDoubleForkKilled(t *testing.T) {
+	InitSubreaper()
+	v12Cleanup(t, "3197")
+	v12Bash(t, "( setsid sh -c 'sleep 3197 >/dev/null 2>&1 &' & ) >/dev/null 2>&1")
+	v12WaitRunning(t, "3197")
+	KillAll(2 * time.Second)
+	if !v12WaitGone("3197", 100*time.Millisecond) {
+		t.Fatal("double-forked sleep survived KillAll")
+	}
+}
+
+func TestV12VerifyZombieNoStall(t *testing.T) {
+	InitSubreaper()
+	v12Cleanup(t, "3198")
+	v12Bash(t, "setsid sleep 3198 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3198")
+	start := time.Now()
+	KillAll(2 * time.Second)
+	if el := time.Since(start); el >= time.Second {
+		t.Fatalf("KillAll took %v: a re-parented zombie stalled the grace poll", el)
+	}
+	if !v12WaitGone("3198", 100*time.Millisecond) {
+		t.Fatal("sleep survived KillAll")
+	}
+}
+
+func TestV12VerifySameSessionBystander(t *testing.T) {
+	InitSubreaper()
+	v12Cleanup(t, "3199")
+	own := v12Bystander(t, "3189", true)
+	v12Bash(t, "setsid sleep 3199 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3199")
+	KillAll(2 * time.Second)
+	if !v12WaitGone("3199", 100*time.Millisecond) {
+		t.Fatal("setsid sleep survived KillAll")
+	}
+	if v12Gone(own.Process.Pid) {
+		t.Fatal("untracked same-session child of the test process was killed")
+	}
+}

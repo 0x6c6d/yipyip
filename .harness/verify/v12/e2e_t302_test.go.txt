@@ -1,0 +1,137 @@
+package e2e
+
+// Supervisor-owned verification (v12 T302). Copied into e2e as
+// zz_v12_t302_test.go by the verify scripts and removed afterwards.
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"yipyip/internal/provider/providertest"
+)
+
+func v12eGone(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return true
+	}
+	s := string(b)
+	i := strings.LastIndexByte(s, ')')
+	if i < 0 || i+2 >= len(s) {
+		return true
+	}
+	return s[i+2] == 'Z'
+}
+
+func v12eSleeps(arg string) []int {
+	ents, _ := os.ReadDir("/proc")
+	var out []int
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
+		if err != nil {
+			continue
+		}
+		if string(b) == "sleep\x00"+arg+"\x00" && !v12eGone(pid) {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+func v12eCleanup(t *testing.T, arg string) {
+	t.Cleanup(func() {
+		for _, p := range v12eSleeps(arg) {
+			_ = syscall.Kill(p, syscall.SIGKILL)
+		}
+	})
+}
+
+func v12eWaitGone(arg string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if len(v12eSleeps(arg)) == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func v12eBashTurn(arg string) *providertest.Server {
+	return providertest.New(
+		providertest.Response{ToolCalls: []providertest.ToolCall{{ID: "c1", Name: "bash",
+			Arguments: `{"command":"setsid sleep ` + arg + ` >/dev/null 2>&1 & sleep ` + arg + ` >/dev/null 2>&1 & echo started > started.txt"}`}}},
+		providertest.Response{Text: "done"},
+	)
+}
+
+func TestV12VerifyHeadlessReaps(t *testing.T) {
+	v12eCleanup(t, "3291")
+	srv := v12eBashTurn("3291")
+	defer srv.Close()
+	home, dir := headlessDirs(t, srv)
+	res := runYip(t, home, dir, "", headlessEnv, "-p", "go")
+	if res.code != 0 {
+		t.Fatalf("code %d stdout %q stderr %q", res.code, res.stdout, res.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "started.txt")); err != nil {
+		t.Fatalf("the bash command never ran: %v", err)
+	}
+	if !v12eWaitGone("3291", 200*time.Millisecond) {
+		t.Fatalf("background sleeps survived yip -p: %v", v12eSleeps("3291"))
+	}
+}
+
+func TestV12VerifyCrashReaps(t *testing.T) {
+	v12eCleanup(t, "3292")
+	bin := crashBinary(t, "headless-end")
+	srv := v12eBashTurn("3292")
+	defer srv.Close()
+	home, dir := headlessDirs(t, srv)
+	res := runBinary(t, bin, home, dir, headlessEnv, "-p", "go")
+	if res.code != 2 {
+		t.Fatalf("code %d, want 2 (stderr %q)", res.code, res.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".yipyip", "crash.log")); err != nil {
+		t.Fatalf("no crash record: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "started.txt")); err != nil {
+		t.Fatalf("the bash command never ran: %v", err)
+	}
+	if !v12eWaitGone("3292", 200*time.Millisecond) {
+		t.Fatalf("background sleeps survived the crash exit: %v", v12eSleeps("3292"))
+	}
+}
+
+func TestV12VerifyOutsiderSurvives(t *testing.T) {
+	out := exec.Command("sleep", "3293")
+	if err := out.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = out.Process.Kill()
+		_ = out.Wait()
+	})
+	srv := providertest.New(providertest.Response{Text: "hi"})
+	defer srv.Close()
+	home, dir := headlessDirs(t, srv)
+	res := runYip(t, home, dir, "", headlessEnv, "-p", "go")
+	if res.code != 0 {
+		t.Fatalf("code %d stderr %q", res.code, res.stderr)
+	}
+	if v12eGone(out.Process.Pid) {
+		t.Fatal("yip killed a process it did not start")
+	}
+}

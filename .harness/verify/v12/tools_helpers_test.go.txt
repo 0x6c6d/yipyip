@@ -1,0 +1,115 @@
+package tools
+
+// Supervisor-owned verification helpers (v12). Copied into internal/tools as
+// zz_v12_helpers_test.go by the verify scripts and removed afterwards.
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// v12Gone reports whether pid has no /proc entry or is a zombie.
+func v12Gone(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return true
+	}
+	s := string(b)
+	i := strings.LastIndexByte(s, ')')
+	if i < 0 || i+2 >= len(s) {
+		return true
+	}
+	return s[i+2] == 'Z'
+}
+
+// v12Sleeps returns the live pids whose command line is exactly "sleep <arg>".
+func v12Sleeps(arg string) []int {
+	ents, _ := os.ReadDir("/proc")
+	var out []int
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
+		if err != nil {
+			continue
+		}
+		if string(b) == "sleep\x00"+arg+"\x00" && !v12Gone(pid) {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+func v12Cleanup(t *testing.T, arg string) {
+	t.Cleanup(func() {
+		for _, p := range v12Sleeps(arg) {
+			_ = syscall.Kill(p, syscall.SIGKILL)
+		}
+	})
+}
+
+// v12Bash runs command through BashRunner; it must exit 0 within 2 s.
+func v12Bash(t *testing.T, command string) {
+	t.Helper()
+	r := &BashRunner{Dir: t.TempDir()}
+	start := time.Now()
+	res := r.Run(context.Background(), command, 10*time.Second)
+	if res.ExitCode != 0 {
+		t.Fatalf("bash %q: exit %d, output %q", command, res.ExitCode, res.Output)
+	}
+	if el := time.Since(start); el > 2*time.Second {
+		t.Fatalf("bash %q took %v", command, el)
+	}
+}
+
+// v12WaitRunning waits up to 2 s until exactly one "sleep arg" is alive.
+func v12WaitRunning(t *testing.T, arg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for len(v12Sleeps(arg)) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("sleep %s is not running (found %v)", arg, v12Sleeps(arg))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// v12WaitGone polls up to d until no "sleep arg" is alive.
+func v12WaitGone(arg string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if len(v12Sleeps(arg)) == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// v12Bystander starts "sleep arg" as a direct child of the test process,
+// not through BashRunner; ownGroup puts it into its own process group.
+func v12Bystander(t *testing.T, arg string, ownGroup bool) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("sleep", arg)
+	if ownGroup {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return cmd
+}

@@ -1,0 +1,64 @@
+package tools
+
+// Supervisor-owned verification (v12 T101). Copied into internal/tools as
+// zz_v12_t101_test.go by the verify scripts and removed afterwards.
+
+import (
+	"testing"
+	"time"
+)
+
+func TestV12VerifyBackgroundKilled(t *testing.T) {
+	v12Cleanup(t, "3191")
+	v12Bash(t, "sleep 3191 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3191")
+	start := time.Now()
+	KillAll(2 * time.Second)
+	if el := time.Since(start); el > 2500*time.Millisecond {
+		t.Errorf("KillAll took %v", el)
+	}
+	if !v12WaitGone("3191", 100*time.Millisecond) {
+		t.Fatal("background sleep survived KillAll")
+	}
+}
+
+func TestV12VerifyTermIgnoredKilled(t *testing.T) {
+	v12Cleanup(t, "3192")
+	v12Bash(t, "trap '' TERM; sleep 3192 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3192")
+	start := time.Now()
+	KillAll(300 * time.Millisecond)
+	if el := time.Since(start); el > 1500*time.Millisecond {
+		t.Errorf("KillAll(300ms) took %v", el)
+	}
+	if !v12WaitGone("3192", 200*time.Millisecond) {
+		t.Fatal("TERM-ignoring sleep survived KillAll (no SIGKILL fallback)")
+	}
+}
+
+func TestV12VerifySecondCallFast(t *testing.T) {
+	KillAll(2 * time.Second)
+	start := time.Now()
+	KillAll(2 * time.Second)
+	if el := time.Since(start); el >= 100*time.Millisecond {
+		t.Fatalf("KillAll with nothing left took %v", el)
+	}
+}
+
+func TestV12VerifyBystanderSurvives(t *testing.T) {
+	v12Cleanup(t, "3195")
+	own := v12Bystander(t, "3193", true)
+	same := v12Bystander(t, "3194", false)
+	v12Bash(t, "sleep 3195 >/dev/null 2>&1 &")
+	v12WaitRunning(t, "3195")
+	KillAll(2 * time.Second)
+	if !v12WaitGone("3195", 100*time.Millisecond) {
+		t.Fatal("tracked sleep survived KillAll")
+	}
+	if v12Gone(own.Process.Pid) {
+		t.Error("bystander in its own group was killed")
+	}
+	if v12Gone(same.Process.Pid) {
+		t.Error("bystander in the test's group was killed")
+	}
+}
