@@ -83,5 +83,7 @@ func HelpText() string {
 	b.WriteString("  web_search  search the web (Brave) when a \"search\" block is configured, key from BRAVE_API_KEY; asks for approval in manual mode\n")
 	b.WriteString("\nHeadless mode:\n")
 	b.WriteString("  yip -p \"<prompt>\" runs one turn without the UI; see yip --help for its flags and exit codes\n")
+	b.WriteString("\nOn exit:\n")
+	b.WriteString("  processes started by commands (also background jobs and servers) are terminated after a 2 s grace\n")
 	return b.String()
 }
