@@ -119,6 +119,23 @@ func (s *Session) Cancel() {
 	}
 }
 
+// Shutdown cancels the running turn and every running subagent of the
+// current subagent manager. It does not wait for them to finish; a running
+// bash command is killed by BashRunner's cancel path. It is idempotent, safe
+// to call concurrently and a no-op when idle.
+func (s *Session) Shutdown() {
+	s.mu.Lock()
+	cancel := s.cancelTurn
+	subs := s.subs
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if subs != nil {
+		subs.CancelAll()
+	}
+}
+
 // Wait blocks until no turn is running.
 func (s *Session) Wait() {
 	s.mu.Lock()
