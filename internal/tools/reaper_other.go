@@ -12,8 +12,11 @@ import (
 // /proc a group counts as live while kill(-pgid, 0) succeeds. Concurrent
 // calls run one after the other.
 func KillAll(grace time.Duration) {
-	killAll(grace, groupsLiveKill)
+	killAll(grace, procOps{groupsLive: groupsLiveKill})
 }
+
+// InitSubreaper is a no-op outside Linux.
+func InitSubreaper() {}
 
 func groupsLiveKill(pgids []int) []bool {
 	out := make([]bool, len(pgids))

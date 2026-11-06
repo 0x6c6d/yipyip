@@ -11,6 +11,10 @@ import (
 // signalled groups to exit.
 const killPollInterval = 25 * time.Millisecond
 
+// killReapWait bounds the wait after SIGKILL for killed processes to turn
+// into zombies that can be reaped.
+const killReapWait = 200 * time.Millisecond
+
 // tracker holds the process groups started by BashRunner.Run. A group stays
 // tracked after its leader exited (inactive) because background members may
 // still live in it; KillAll drops it once the group is no longer live.
@@ -72,13 +76,34 @@ func protectedPGID(pgid int) bool {
 	return pgid <= 1 || pgid == os.Getpid() || pgid == syscall.Getpgrp()
 }
 
-// killSet is the set of groups KillAll signals. It is a struct so a later
-// step (single descendant pids) can be added beside the groups.
-type killSet struct {
-	groups []int
+// isActive reports whether pid is the leader of a command still inside
+// BashRunner.Run (its pid is its tracked pgid).
+func isActive(pid int) bool {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	return tracker.groups[pid]
 }
 
-func (k killSet) empty() bool { return len(k.groups) == 0 }
+// procOps are the OS-specific steps of killAll. descendants and reap may be
+// nil (no /proc): then only tracked groups are handled.
+type procOps struct {
+	// groupsLive reports for each pgid whether the group is live.
+	groupsLive func([]int) []bool
+	// descendants returns the non-zombie single pids of the kill set seen in
+	// one /proc pass, given the tracked groups of this call.
+	descendants func(groups map[int]bool) []int
+	// reap reaps the zombie children of yip that belong to the kill set of
+	// this call, given its tracked groups.
+	reap func(groups map[int]bool)
+}
+
+// killSet is the set of groups and single pids KillAll signals.
+type killSet struct {
+	groups []int
+	pids   []int
+}
+
+func (k killSet) empty() bool { return len(k.groups) == 0 && len(k.pids) == 0 }
 
 // collectKillSet returns the tracked groups that are live according to
 // groupsLive. Groups that are not live are dropped from the tracker (unless
@@ -107,13 +132,13 @@ func collectKillSet(groupsLive func([]int) []bool) killSet {
 	return ks
 }
 
-// liveSubset re-checks ks and returns the groups still live.
+// liveSubset re-checks the groups of ks and returns the ones still live.
 func liveSubset(ks killSet, groupsLive func([]int) []bool) killSet {
-	if ks.empty() {
-		return ks
+	var out killSet
+	if len(ks.groups) == 0 {
+		return out
 	}
 	live := groupsLive(ks.groups)
-	var out killSet
 	for i, pgid := range ks.groups {
 		if live[i] {
 			out.groups = append(out.groups, pgid)
@@ -122,7 +147,7 @@ func liveSubset(ks killSet, groupsLive func([]int) []bool) killSet {
 	return out
 }
 
-// signalSet sends sig to every group of ks.
+// signalSet sends sig to every group and single pid of ks.
 func signalSet(ks killSet, sig syscall.Signal) {
 	for _, pgid := range ks.groups {
 		if protectedPGID(pgid) || !isTracked(pgid) {
@@ -130,22 +155,64 @@ func signalSet(ks killSet, sig syscall.Signal) {
 		}
 		_ = syscall.Kill(-pgid, sig)
 	}
+	self := os.Getpid()
+	for _, pid := range ks.pids {
+		if pid <= 1 || pid == self {
+			continue
+		}
+		_ = syscall.Kill(pid, sig)
+	}
 }
 
-// killAll implements KillAll with an OS-specific liveness check.
-func killAll(grace time.Duration, groupsLive func([]int) []bool) {
+// addDescendants fills ks.pids from a fresh /proc pass (if available).
+func addDescendants(ks *killSet, ops procOps, groups map[int]bool) {
+	ks.pids = nil
+	if ops.descendants != nil {
+		ks.pids = ops.descendants(groups)
+	}
+}
+
+// killAll implements KillAll with OS-specific process steps.
+func killAll(grace time.Duration, ops procOps) {
 	killMu.Lock()
 	defer killMu.Unlock()
 
-	ks := collectKillSet(groupsLive)
+	ks := collectKillSet(ops.groupsLive)
+	// groups: the tracked groups of this call (criterion (a) of the kill set).
+	groups := map[int]bool{}
+	for _, pgid := range ks.groups {
+		groups[pgid] = true
+	}
+	addDescendants(&ks, ops, groups)
+	reap := func() {
+		if ops.reap != nil {
+			ops.reap(groups)
+		}
+	}
 	if ks.empty() {
+		reap()
 		return
 	}
 	signalSet(ks, syscall.SIGTERM)
+	termed := map[int]bool{}
+	for _, pid := range ks.pids {
+		termed[pid] = true
+	}
 
 	deadline := time.Now().Add(grace)
 	for {
-		ks = liveSubset(ks, groupsLive)
+		reap()
+		ks = liveSubset(ks, ops.groupsLive)
+		addDescendants(&ks, ops, groups)
+		// New escapees found during the grace get SIGTERM too.
+		var fresh killSet
+		for _, pid := range ks.pids {
+			if !termed[pid] {
+				termed[pid] = true
+				fresh.pids = append(fresh.pids, pid)
+			}
+		}
+		signalSet(fresh, syscall.SIGTERM)
 		if ks.empty() || !time.Now().Before(deadline) {
 			break
 		}
@@ -153,7 +220,21 @@ func killAll(grace time.Duration, groupsLive func([]int) []bool) {
 	}
 	if !ks.empty() {
 		signalSet(ks, syscall.SIGKILL)
+		// Wait briefly for the killed processes to die so their zombies
+		// can be reaped.
+		end := time.Now().Add(killReapWait)
+		for {
+			reap()
+			ks = liveSubset(ks, ops.groupsLive)
+			addDescendants(&ks, ops, groups)
+			if ks.empty() || !time.Now().Before(end) {
+				break
+			}
+			signalSet(ks, syscall.SIGKILL)
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
+	reap()
 	// Drop the entries whose groups are dead now.
-	_ = collectKillSet(groupsLive)
+	_ = collectKillSet(ops.groupsLive)
 }
