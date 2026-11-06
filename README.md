@@ -16,6 +16,7 @@ yipyip (binary: `yip`) runs in your project directory. It reads and searches you
 - **Undo and compaction**: `/undo` reverts the file changes of the last turn, `/compact` summarizes the conversation (also automatic at 80% of the context window).
 - **Skills**: put a `SKILL.md` in a folder and run it as `/<name>`.
 - **Good terminal UI**: streaming output, markdown rendering with tables, syntax highlighting, mouse scrolling, copy on select, input history and a message queue.
+- **Clean exit**: when yip exits it terminates every process its `bash` commands started, including background jobs, dev servers and watchers (see [Process cleanup](#process-cleanup)).
 - **Safe by design**: host-restricted HTTP transport, secret redaction everywhere, a crash log that never contains prompts or keys.
 
 ## Requirements
@@ -255,8 +256,17 @@ Add `.yipyip/` to your `.gitignore`.
 - Network traffic goes only to your provider hosts, the Brave host (while configured) and the host of an approved `web_fetch` URL. `web_fetch` refuses loopback, private, link-local and multicast addresses.
 - File reads (`read_file`, `glob`, `grep`) work anywhere on the file system and are not approval-gated. Anything your user can read can reach the model's context.
 - File writes are confined to the start directory.
-- `bash` is **not** sandboxed. In auto mode commands run without asking. Use manual mode (`Shift+Tab`) if you want to review each one.
+- `bash` is **not** sandboxed. In auto mode commands run without asking. Use manual mode (`Shift+Tab`) if you want to review each one. Processes it starts are terminated when yip exits (see Process cleanup).
 - Web content is treated as untrusted data, never as instructions.
+
+### Process cleanup
+
+When yip exits, it terminates every process its `bash` commands started, including background jobs (`cmd &`, `nohup`), dev servers and watchers, from the main agent and from subagents. Processes yip did not start are never touched.
+
+- **When**: on every exit path: quitting the UI (`/quit`, `/exit`, Ctrl+C twice, Ctrl+D), closing the terminal or `kill <pid>` (SIGTERM/SIGHUP; the session is saved first), the end of a `yip -p` run (also after `--timeout`, `--max-model-calls`, an unanswered question or a signal), and a crash exit (after the crash record).
+- **How**: running subagents are cancelled first, then the processes get SIGTERM, a 2 s grace, and SIGKILL for what is left. Exit is delayed by at most about 2.5 s, and is immediate when nothing is left.
+- **Linux**: yip registers as a child subreaper, so processes that detach with `setsid` or a double fork are caught as well. On other platforms only the process groups of the commands are terminated.
+- **Not covered**: `kill -9` of yip itself cannot be caught. Long-lived servers started by yip do not survive the session.
 
 ## Project structure
 
