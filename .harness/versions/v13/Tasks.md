@@ -21,7 +21,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 |----|-------|-------|------------|-------|--------|-------|
 | T000 | 0 | Preflight | — | supervisor | done | verify passed |
 | T101 | 1 | Config.GlobalDir set by config.Load | T000 | opus | done | config.go, globaldir_test.go: GlobalDir set by Load |
-| T102 | 1 | Global AGENTS.md reader and system prompt section | T101 | opus | todo | |
+| T102 | 1 | Global AGENTS.md reader and system prompt section | T101 | opus | done | prompt.go, session.go, globalagents_test.go: global section in system prompt |
 | T103 | 1 | Session-level tests: Reset re-read, subagent prompt, /init project-only | T102 | sonnet | todo | |
 | T201 | 2 | e2e: TUI, headless and subagent requests carry the global note | T102 | sonnet | todo | |
 | T202 | 2 | e2e: /new re-read and /init leaves the global file alone | T201 | sonnet | todo | |

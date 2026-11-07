@@ -149,7 +149,7 @@ func NewSession(opts Options) (*Session, error) {
 	s.gate = NewGate(func(r *ApprovalRequest) {
 		s.emit(Event{Kind: EvApproval, AgentID: r.AgentID, Tool: r.Tool, Args: r.Args, Approval: r})
 	})
-	s.systemPrompt = s.withAppend(buildSystemPrompt(s.startDir, reg.Guard(), cfg.Redactor, reg.Has("web_search")))
+	s.systemPrompt = s.withAppend(buildSystemPrompt(s.startDir, cfg.GlobalDir, reg.Guard(), cfg.Redactor, reg.Has("web_search")))
 	s.history = []provider.Message{{Role: "system", Content: s.systemPrompt}}
 	s.subs = s.newManager(0)
 	return s, nil
@@ -498,7 +498,7 @@ func (s *Session) Redact(text string) string {
 // approvals, clears the undo journal and drops queued events. Model, effort
 // and mode are kept, and a fresh session id is generated.
 func (s *Session) Reset() {
-	prompt := s.withAppend(buildSystemPrompt(s.startDir, s.registry.Guard(), s.cfg.Redactor, s.registry.Has("web_search")))
+	prompt := s.withAppend(buildSystemPrompt(s.startDir, s.cfg.GlobalDir, s.registry.Guard(), s.cfg.Redactor, s.registry.Has("web_search")))
 	s.mu.Lock()
 	cancel := s.cancelTurn
 	done := s.turnDone
