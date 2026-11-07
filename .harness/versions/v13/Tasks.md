@@ -19,7 +19,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 
 | ID | Phase | Title | Depends-on | Model | Status | Notes |
 |----|-------|-------|------------|-------|--------|-------|
-| T000 | 0 | Preflight | — | supervisor | todo | |
+| T000 | 0 | Preflight | — | supervisor | done | verify passed |
 | T101 | 1 | Config.GlobalDir set by config.Load | T000 | opus | todo | |
 | T102 | 1 | Global AGENTS.md reader and system prompt section | T101 | opus | todo | |
 | T103 | 1 | Session-level tests: Reset re-read, subagent prompt, /init project-only | T102 | sonnet | todo | |
