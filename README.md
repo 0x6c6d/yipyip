@@ -238,6 +238,12 @@ Review the changes in the working tree and list problems.
 
 Skills load from `~/.config/yipyip/skills/` and `<startdir>/.yipyip/skills/` (the project wins). Run one with `/review`. Built-in commands win over skills of the same name.
 
+### Instructions (AGENTS.md)
+
+yip reads a user-wide instructions file, `~/.config/yipyip/AGENTS.md` (next to `config.json` and `skills/`), and the project `AGENTS.md` in the start directory. Both go into the system prompt of the main agent and of subagents, in the UI and in `yip -p`, with no approval needed. The global file is added under `# Global AGENTS.md` before the project file, so project instructions come later and win on conflict.
+
+Each file is cut to 30,000 characters and configured secret values are redacted. A missing, empty or whitespace-only file, or a path that is not a regular file, adds nothing and is not an error. The global file is read when a session starts and again on `/new` and `/clear`; it is not watched. `/init` never reads or writes the global file; it only writes the project `AGENTS.md`.
+
 ### Files yipyip writes
 
 | Path | Content |

@@ -26,7 +26,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T201 | 2 | e2e: TUI, headless and subagent requests carry the global note | T102 | sonnet | done | e2e/helpers_test.go, globalagents_test.go; approval-prompt check is a weak substring |
 | T202 | 2 | e2e: /new re-read and /init leaves the global file alone | T201 | sonnet | done | e2e/globalagents_test.go: /new, /clear, /init tests |
 | T301 | 3 | /help mentions the global AGENTS.md | T000 | haiku | done | help.go, help_v13_test.go; skill_test.go expectation updated (help scrolls "/sessions" off) |
-| T302 | 3 | README: global AGENTS.md | T102, T301 | sonnet | todo | |
+| T302 | 3 | README: global AGENTS.md | T102, T301 | sonnet | done | README.md: Instructions (AGENTS.md) subsection |
 | T303 | 3 | CLAUDE.md architecture notes | T102, T202 | haiku | todo | |
 | T999 | 3 | Definition of Done | T000, T101, T102, T103, T201, T202, T301, T302, T303 | supervisor | todo | |
 
