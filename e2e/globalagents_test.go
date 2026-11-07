@@ -1,13 +1,18 @@
 package e2e
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yipyip/internal/agent"
+	"yipyip/internal/config"
 	"yipyip/internal/provider/providertest"
+	"yipyip/internal/tui"
 )
 
 // systemOf returns the content of the system message of req (Messages[0]).
@@ -111,5 +116,162 @@ func TestGlobalAgentsAbsentE2E(t *testing.T) {
 	}
 	if sys := systemOf(t, reqs[0]); strings.Contains(sys, "# Global AGENTS.md") {
 		t.Errorf("unexpected global section: %q", sys)
+	}
+}
+
+func globalAgentsPath(e *env) string {
+	return filepath.Join(e.Home, ".config", "yipyip", "AGENTS.md")
+}
+
+// submitActive sends text to the active tab (which may not be e.Session) and
+// waits until marker, the fake's reply to it, shows in the view.
+func (e *env) submitActive(t *testing.T, text, marker string) {
+	t.Helper()
+	m, _ := e.Model.Command(text)
+	e.Model = m
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		e.Model = e.Model.Drain()
+		if strings.Contains(e.Model.View(), marker) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reply %q did not show within 10s:\n%s", marker, e.Model.View())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func globalAgentsReset(t *testing.T, cmd string) {
+	t.Helper()
+	e := newEnvServer(t, providertest.New(resp{Text: "reply-one"}, resp{Text: "reply-two"}, resp{Text: "reply-three"}),
+		envOpts{contextLimit: 8000, globalAgents: "GLOBAL-V1\n", tuiOpts: func(o *tui.Options) {
+			// The tab factory builds a fresh session from HOME, like cmd/yip does.
+			o.NewSession = func() (*agent.Session, error) {
+				cfg, err := config.Load(o.Home, o.StartDir, func(k string) string {
+					if k == "FAKE_KEY" {
+						return "SECRET123"
+					}
+					return ""
+				})
+				if err != nil {
+					return nil, err
+				}
+				s, err := agent.NewSession(agent.Options{Config: cfg, StartDir: o.StartDir})
+				if err != nil {
+					return nil, err
+				}
+				s.SetMode(agent.ModeAuto)
+				t.Cleanup(s.Cancel)
+				return s, nil
+			}
+		}})
+	e.submit(t, "first")
+	reqs := e.Server.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("%d requests, want 1", len(reqs))
+	}
+	if sys := systemOf(t, reqs[0]); !strings.Contains(sys, "GLOBAL-V1") {
+		t.Fatalf("first system message lacks GLOBAL-V1: %q", sys)
+	}
+	if err := os.WriteFile(globalAgentsPath(e), []byte("GLOBAL-V2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.submit(t, "second")
+	reqs = e.Server.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("%d requests, want 2", len(reqs))
+	}
+	if sys := systemOf(t, reqs[1]); !strings.Contains(sys, "GLOBAL-V1") || strings.Contains(sys, "GLOBAL-V2") {
+		t.Fatalf("file must not be watched; system message: %q", sys)
+	}
+	e.submit(t, cmd)
+	e.submitActive(t, "third", "reply-three")
+	reqs = e.Server.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("%d requests, want 3", len(reqs))
+	}
+	if sys := systemOf(t, reqs[2]); !strings.Contains(sys, "GLOBAL-V2") || strings.Contains(sys, "GLOBAL-V1") {
+		t.Fatalf("after %s the system message must carry GLOBAL-V2 only: %q", cmd, sys)
+	}
+}
+
+func TestGlobalAgentsNew(t *testing.T) { globalAgentsReset(t, "/new") }
+
+func TestGlobalAgentsClear(t *testing.T) { globalAgentsReset(t, "/clear") }
+
+type cfgEntry struct {
+	size    int64
+	mode    fs.FileMode
+	mtime   time.Time
+	content []byte
+}
+
+func snapshotDir(t *testing.T, root string) map[string]cfgEntry {
+	t.Helper()
+	out := map[string]cfgEntry{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		var content []byte
+		if info.Mode().IsRegular() {
+			if content, err = os.ReadFile(p); err != nil {
+				return err
+			}
+		}
+		out[rel] = cfgEntry{info.Size(), info.Mode(), info.ModTime(), content}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestGlobalAgentsInit(t *testing.T) {
+	e := newEnvServer(t, providertest.New(
+		resp{ToolCalls: []providertest.ToolCall{
+			call("c1", "write_file", `{"path":"AGENTS.md","content":"# AGENTS\n\nPROJECT-INIT-E2E\n"}`),
+		}},
+		resp{Text: "AGENTS.md written"}),
+		envOpts{contextLimit: 8000, globalAgents: "GLOBAL-INIT-E2E\n", projectAgents: "PROJECT-INIT-E2E\n"})
+	cfgDir := filepath.Join(e.Home, ".config", "yipyip")
+	before := snapshotDir(t, cfgDir)
+	e.submit(t, "/init")
+	reqs := e.Server.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("no request")
+	}
+	if sys := systemOf(t, reqs[0]); !strings.Contains(sys, "GLOBAL-INIT-E2E") {
+		t.Errorf("system message lacks global AGENTS.md: %q", sys)
+	}
+	user := reqs[0].Messages[len(reqs[0].Messages)-1]
+	if user.Role != "user" {
+		t.Fatalf("last message is %q, want user", user.Role)
+	}
+	if !strings.Contains(user.Content, "PROJECT-INIT-E2E") {
+		t.Errorf("init user message lacks the project AGENTS.md: %q", user.Content)
+	}
+	if strings.Contains(user.Content, "GLOBAL-INIT-E2E") {
+		t.Errorf("init user message embeds the global AGENTS.md: %q", user.Content)
+	}
+	after := snapshotDir(t, cfgDir)
+	if len(after) != len(before) {
+		t.Fatalf("config dir entries changed: before %d, after %d", len(before), len(after))
+	}
+	for k, b := range before {
+		a, ok := after[k]
+		if !ok || a.size != b.size || a.mode != b.mode || !a.mtime.Equal(b.mtime) || !bytes.Equal(a.content, b.content) {
+			t.Errorf("config entry %q changed by /init: %+v -> %+v", k, b, a)
+		}
 	}
 }

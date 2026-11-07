@@ -24,7 +24,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T102 | 1 | Global AGENTS.md reader and system prompt section | T101 | opus | done | prompt.go, session.go, globalagents_test.go: global section in system prompt |
 | T103 | 1 | Session-level tests: Reset re-read, subagent prompt, /init project-only | T102 | sonnet | done | globalagents_session_test.go: Reset, subagent, /init tests |
 | T201 | 2 | e2e: TUI, headless and subagent requests carry the global note | T102 | sonnet | done | e2e/helpers_test.go, globalagents_test.go; approval-prompt check is a weak substring |
-| T202 | 2 | e2e: /new re-read and /init leaves the global file alone | T201 | sonnet | todo | |
+| T202 | 2 | e2e: /new re-read and /init leaves the global file alone | T201 | sonnet | done | e2e/globalagents_test.go: /new, /clear, /init tests |
 | T301 | 3 | /help mentions the global AGENTS.md | T000 | haiku | todo | |
 | T302 | 3 | README: global AGENTS.md | T102, T301 | sonnet | todo | |
 | T303 | 3 | CLAUDE.md architecture notes | T102, T202 | haiku | todo | |
