@@ -1,0 +1,95 @@
+package agent
+
+// Supervisor probe for v13 T102 (workers never edit it). The verification script copies it into
+// internal/agent as zz_v13probe_test.go, runs TestV13Probe and removes it. Every case writes the
+// resulting system prompt to $V13_OUT/<case>.txt; the script greps those files.
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func v13ProbeSession(t *testing.T, global func(gdir string), project string) *Session {
+	t.Helper()
+	base, dir := newLoopSession(t, nil)
+	gdir := base.cfg.GlobalDir
+	if gdir == "" {
+		t.Fatal("config.Load left GlobalDir empty")
+	}
+	if global != nil {
+		global(gdir)
+	}
+	if project != "" {
+		if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(project), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base.cfg.Redactor.Add("SEKRET-V13-PROBE")
+	s, err := NewSession(Options{Config: base.cfg, StartDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Cancel(); waitTurn(t, s, 5e9) })
+	return s
+}
+
+func v13Write(t *testing.T, name, content string) {
+	t.Helper()
+	out := os.Getenv("V13_OUT")
+	if out == "" {
+		t.Fatal("V13_OUT not set")
+	}
+	if err := os.WriteFile(filepath.Join(out, name+".txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// v13Norm replaces the per-test start directory so prompts of different cases compare byte for byte.
+func v13Norm(s *Session) string {
+	return strings.ReplaceAll(s.SystemPrompt(), s.StartDir(), "START")
+}
+
+func v13File(content string) func(string) {
+	return func(gdir string) { _ = os.WriteFile(filepath.Join(gdir, "AGENTS.md"), []byte(content), 0o644) }
+}
+
+func TestV13Probe(t *testing.T) {
+	const proj = "PROJECT-PROBE-1\n"
+	cases := []struct {
+		name    string
+		global  func(string)
+		project string
+	}{
+		{"none", nil, proj},
+		{"none-noproject", nil, ""},
+		{"both", v13File("GLOBAL-PROBE-1\n"), proj},
+		{"global-only", v13File("GLOBAL-PROBE-1\n"), ""},
+		{"empty", v13File(""), proj},
+		{"ws", v13File(" \n\t\n  \r\n"), proj},
+		{"dir", func(g string) { _ = os.MkdirAll(filepath.Join(g, "AGENTS.md", "x"), 0o755) }, proj},
+		{"dangling", func(g string) { _ = os.Symlink(filepath.Join(g, "nope"), filepath.Join(g, "AGENTS.md")) }, proj},
+		{"symlink", func(g string) {
+			_ = os.WriteFile(filepath.Join(g, "real.md"), []byte("GLOBAL-LINKED-1\n"), 0o644)
+			_ = os.Symlink(filepath.Join(g, "real.md"), filepath.Join(g, "AGENTS.md"))
+		}, proj},
+		{"secret", v13File("before SEKRET-V13-PROBE after\n"), ""},
+		{"long", v13File(strings.Repeat("x", 40000) + "TAILMARK"), ""},
+	}
+	for _, c := range cases {
+		s := v13ProbeSession(t, c.global, c.project)
+		v13Write(t, c.name, v13Norm(s))
+	}
+
+	// Reset re-reads the file.
+	var gdir string
+	s := v13ProbeSession(t, func(g string) {
+		gdir = g
+		v13File("GLOBAL-OLD-1\n")(g)
+	}, proj)
+	v13Write(t, "reset-before", v13Norm(s))
+	v13File("GLOBAL-NEW-2\n")(gdir)
+	s.Reset()
+	v13Write(t, "reset-after", v13Norm(s))
+}
