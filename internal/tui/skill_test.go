@@ -145,7 +145,7 @@ func TestSkillBuiltinWins(t *testing.T) {
 		t.Fatalf("%d requests sent for /help", n)
 	}
 	v := ansi.Strip(m.View())
-	if strings.Contains(v, "SKILLBODY") || !strings.Contains(v, "/sessions") {
+	if strings.Contains(v, "SKILLBODY") || !strings.Contains(v, "On exit:") {
 		t.Fatalf("help text not shown or skill body shown:\n%s", v)
 	}
 }
