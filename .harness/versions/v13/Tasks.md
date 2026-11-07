@@ -28,7 +28,7 @@ The supervisor prepends these, verbatim, to every worker brief:
 | T301 | 3 | /help mentions the global AGENTS.md | T000 | haiku | done | help.go, help_v13_test.go; skill_test.go expectation updated (help scrolls "/sessions" off) |
 | T302 | 3 | README: global AGENTS.md | T102, T301 | sonnet | done | README.md: Instructions (AGENTS.md) subsection |
 | T303 | 3 | CLAUDE.md architecture notes | T102, T202 | haiku | done | CLAUDE.md notes |
-| T999 | 3 | Definition of Done | T000, T101, T102, T103, T201, T202, T301, T302, T303 | supervisor | todo | |
+| T999 | 3 | Definition of Done | T000, T101, T102, T103, T201, T202, T301, T302, T303 | supervisor | done | DoD passed |
 
 Status values: `todo` · `done` · `blocked` · `superseded`. No pipe characters inside cells.
 
