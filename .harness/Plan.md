@@ -10,11 +10,11 @@ file tools, unrestricted `bash`, agent loop, manual/auto modes, subagents, slash
 token-only status line (never cost), `make install` as `yip`. Later: session persistence + config
 writes (v3), skills (v4), web tools (v6, v8), markdown (v9), crash log/autosave (v10), v11 headless
 one-turn mode `yip -p` (JSONL trace, exit codes, limits) and paste display fix; v12 no leftover processes after
-exit (tracker + `KillAll` reaper, Linux subreaper).
+exit (tracker + `KillAll` reaper, Linux subreaper); v13 global `~/.config/yipyip/AGENTS.md` in the system prompt.
 **Explicitly deferred (product level):** native Anthropic / OpenAI-Responses protocols, MCP, plugins,
 image input, telemetry, auto-update, Windows/macOS, per-subagent model/effort UI, bash sandboxing,
 completion/man page, price config, headless stdio protocol / server mode, surviving background jobs
-(detach, `/jobs`), non-Linux subreaper.
+(detach, `/jobs`), non-Linux subreaper, hierarchical/`@file`/`CLAUDE.md` instruction lookup.
 **Where the code lives / protected paths (no worker may touch):** code in the repo root
 `/home/sa/workspace/code/yipyip` (module `yipyip`): `cmd/yip/`, `internal/{config,provider,agent,
 session,skills,tools,tui,crashlog}/`, `internal/provider/providertest/` (shared fake provider), `e2e/`,
@@ -43,7 +43,7 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) 
   parsing, `max_subagents` (4), `auto_compact` (true), ignores `cost`/`npm`; **Redactor** (resolved
   secrets → `[redacted]`); v3 settings write (only `model`/`effort`/`mode`, atomic, `{env:}` literal);
   v6 `search` (`baseURL` default `https://api.search.brave.com`, `apiKey` required, https unless loopback);
-  v8 `jev` key ignored; talks to: nothing.
+  v8 `jev` key ignored; v13 `Config.GlobalDir` (= dir of `config.json`, set by `Load`); talks to: nothing.
 - **internal/provider**: `Client.Stream(ctx, req)` → `POST <baseURL>/chat/completions` (Bearer if set,
   `stream`, `include_usage`, `tools`, `reasoning_effort` unless `reasoning:false`); own SSE parser;
   errors → redacted `ErrorEvent`s; v3 retry of pre-first-byte failures (dial/TLS/timeout, reset, 429, 5xx):
@@ -71,7 +71,8 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) 
   turn unlimited; v5 ≤500 per subagent run; per-turn ctx, cancel); **Approval gate** (`y/n/a`, "always" per
   tool per session; gated incl. `web_search`, `web_fetch`); v3 **Question gate** (`question` never gated,
   blocks on a reply channel); **Subagent manager**, **Undo journal**, compaction, `/init`, system prompt
-  (+`AGENTS.md`); v10 checkpoint after each complete main round + `EvCheckpoint`, recovered panics →
+  (+`AGENTS.md`; v13 `# Global AGENTS.md` from `Config.GlobalDir` first, same read/cap/redaction, not in `/init`);
+  v10 checkpoint after each complete main round + `EvCheckpoint`, recovered panics →
   `crashlog.Recovered`; v11 `Options.SystemAppend`, `Options.MaxModelCalls` (one counter for main +
   subagents, `ErrModelCallLimit`), `ModelCalls()`; v12 `Shutdown()` (cancel turn + subagents); talks to: provider, tools.
 - **internal/tui**: Bubble Tea `Model` (alt screen, mouse): v3 tabs (≤8, per-tab conversation/counters/
@@ -88,7 +89,7 @@ Flow: `cmd/yip` → `config.Load` → `tui.New(session)` (or v11 `runHeadless`) 
   `Fatal`, `Recovered`, `Watch` (memory records, `.yipyip/heap.pprof`), package default; talks to: nothing.
 - **e2e**: offline tests vs `providertest` in temp dirs/HOME: `Init`, `Compact`, `Undo`, `Secret`, `CLI`,
   `Session`, `Question`, `Retry`, `Skills`, `WebFetch`, `Markdown`, `Crash`, `Autosave`, `Retention`, v11
-  `Headless` (built binary via `cliBinary`); talks to: agent, tui, cmd/yip binary.
+  `Headless` (built binary via `cliBinary`), v12 `Cleanup`, v13 `GlobalAgents`; talks to: agent, tui, cmd/yip binary.
 
 ## Commands
 - install: `go mod download`
@@ -151,6 +152,8 @@ Non-blocking; tasks touching an item get opus and negative-case verification.
   below one, or in another session (setsid escapees, via `PR_SET_CHILD_SUBREAPER`); untracked same-session
   children (clipboard helpers) survive; signalled only after `kill(-pgid,0)` + non-zombie `/proc` member;
   zombies reaped by pid only; exit delay ≤2.5 s; background servers never survive yip.
+- C (v13): `<GlobalDir>/AGENTS.md` (plain `os.Open`, no PathGuard, regular file only) is sent, redacted and cut to
+  30,000 chars, in every main/subagent system prompt; read at session create and `Reset` only; yip never writes it.
 - Historical verify notes: v5 `T401.sh`/`T799.sh` rewritten for v7; v4–v7 scripts pin jev and are not rerun;
   diff guards use v8 start `a99a82f`, v10 start `1ccbbc7`.
 - Live systems: only `proxy.golang.org` during the build; OpenRouter/Brave/`web_fetch` URLs only when the
