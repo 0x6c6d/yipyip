@@ -38,12 +38,14 @@ func newEnv(t *testing.T, resps ...providertest.Response) *env {
 
 // envOpts tunes newEnvServer.
 type envOpts struct {
-	contextLimit int                // context limit of the fake model
-	projectJSON  string             // content of the start directory's yipyip.json, "" = none
-	noModel      bool               // global config without providers: no model is configured
-	fetchClient  *http.Client       // web_fetch client seam (agent.Options.FetchClient), nil = default
-	clipboard    func(string) error // clipboard writer (tui.Options.Clipboard), nil = default
-	tuiOpts      func(*tui.Options) // edits the TUI options before the model is built, nil = none
+	contextLimit  int                // context limit of the fake model
+	projectJSON   string             // content of the start directory's yipyip.json, "" = none
+	noModel       bool               // global config without providers: no model is configured
+	fetchClient   *http.Client       // web_fetch client seam (agent.Options.FetchClient), nil = default
+	clipboard     func(string) error // clipboard writer (tui.Options.Clipboard), nil = default
+	tuiOpts       func(*tui.Options) // edits the TUI options before the model is built, nil = none
+	globalAgents  string             // content of $HOME/.config/yipyip/AGENTS.md, "" = none
+	projectAgents string             // content of the start directory's AGENTS.md, "" = none
 }
 
 // newEnvServer builds the environment around an already started fake srv
@@ -71,6 +73,16 @@ func newEnvServer(t *testing.T, srv *providertest.Server, o envOpts) *env {
 	}
 	if o.projectJSON != "" {
 		if err := os.WriteFile(filepath.Join(dir, config.ProjectFile), []byte(o.projectJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if o.globalAgents != "" {
+		if err := os.WriteFile(filepath.Join(home, ".config", "yipyip", "AGENTS.md"), []byte(o.globalAgents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if o.projectAgents != "" {
+		if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(o.projectAgents), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
