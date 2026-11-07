@@ -27,6 +27,11 @@ func GlobalPath(home string) string {
 	return filepath.Join(home, ".config", "yipyip", "config.json")
 }
 
+// GlobalAgentsPath returns the path of the user-wide AGENTS.md under home.
+func GlobalAgentsPath(home string) string {
+	return filepath.Join(home, ".config", "yipyip", "AGENTS.md")
+}
+
 // Config is the loaded configuration.
 type Config struct {
 	DefaultModel string         // "default_model", "" when absent
@@ -39,6 +44,8 @@ type Config struct {
 	Redactor  *Redactor           // never nil after Load; holds every resolved {env:} value
 
 	Search *Search // "search", nil when absent
+
+	GlobalDir string // directory of the global config.json (<home>/.config/yipyip); "" = no global files
 }
 
 // Provider is one entry of the "provider" object.
@@ -137,6 +144,9 @@ func Load(home, startDir string, getenv func(string) string) (*Config, error) {
 		Providers:    map[string]Provider{},
 		EnvNames:     er.envNames(),
 		Redactor:     redactor,
+	}
+	if home != "" {
+		cfg.GlobalDir = filepath.Dir(GlobalPath(home))
 	}
 	if err := cfg.fill(); err != nil {
 		return nil, err
