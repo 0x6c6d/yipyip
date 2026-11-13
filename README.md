@@ -1,5 +1,7 @@
 # yipyip
 
+> **About this repo:** I built this to learn about AI agent loops, subagents and similar AI flows, not to write the code myself. The whole codebase is AI-written. My part was designing the supervisor/worker loop around it. Treat it as an experiment in agent workflows, not as hand-crafted code.
+
 A terminal coding assistant in Go, in the style of Claude Code and opencode. It works with any OpenAI-compatible chat API.
 
 yipyip (binary: `yip`) runs in your project directory. It reads and searches your code, edits files, runs shell commands and can hand work to subagents. You can approve every action by hand or let it run on its own. Network access is restricted to the hosts you configure, and secrets never reach the screen, the logs or the disk.
